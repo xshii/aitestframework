@@ -1,0 +1,341 @@
+# AI测试框架 - 断言与验证需求
+# 分类: 断言与验证 (Assertion & Validation)
+# 版本: 1.0.0
+# 创建时间: 2026-02-02
+
+module:
+  id: ASSERT
+  name: 断言与验证
+  description: 测试结果的断言、比较和验证机制
+
+requirements:
+
+  # ============================================
+  # 基础断言
+  # ============================================
+  - id: ASSERT-001
+    name: 基础断言方法
+    description: 提供基本的断言功能
+    priority: P0
+    status: pending
+    sub_requirements:
+      - id: ASSERT-001-01
+        name: 相等断言
+        description: assertEqual/assertNotEqual
+        priority: P0
+        status: pending
+      - id: ASSERT-001-02
+        name: 布尔断言
+        description: assertTrue/assertFalse
+        priority: P0
+        status: pending
+      - id: ASSERT-001-03
+        name: 空值断言
+        description: assertNone/assertNotNone
+        priority: P0
+        status: pending
+      - id: ASSERT-001-04
+        name: 包含断言
+        description: assertIn/assertNotIn
+        priority: P0
+        status: pending
+      - id: ASSERT-001-05
+        name: 异常断言
+        description: assertRaises/assertNoException
+        priority: P0
+        status: pending
+      - id: ASSERT-001-06
+        name: 类型断言
+        description: assertIsInstance/assertType
+        priority: P0
+        status: pending
+
+  # ============================================
+  # 数值断言
+  # ============================================
+  - id: ASSERT-002
+    name: 数值比较断言
+    description: 针对数值的精确和近似比较
+    priority: P0
+    status: pending
+    sub_requirements:
+      - id: ASSERT-002-01
+        name: 近似相等断言
+        description: assertAlmostEqual，支持容差设置
+        priority: P0
+        status: pending
+      - id: ASSERT-002-02
+        name: 相对误差断言
+        description: 基于相对误差的比较
+        priority: P0
+        status: pending
+      - id: ASSERT-002-03
+        name: 范围断言
+        description: assertInRange，验证值在指定范围内
+        priority: P0
+        status: pending
+      - id: ASSERT-002-04
+        name: 大小比较断言
+        description: assertGreater/assertLess等
+        priority: P0
+        status: pending
+
+  # ============================================
+  # 张量断言
+  # ============================================
+  - id: ASSERT-003
+    name: 张量断言
+    description: 针对张量/数组的专用断言
+    priority: P0
+    status: pending
+    sub_requirements:
+      - id: ASSERT-003-01
+        name: 形状断言
+        description: assertShape，验证张量形状
+        priority: P0
+        status: pending
+      - id: ASSERT-003-02
+        name: 数据类型断言
+        description: assertDtype，验证数据类型
+        priority: P0
+        status: pending
+      - id: ASSERT-003-03
+        name: 元素级近似断言
+        description: assertAllClose，元素级近似比较
+        priority: P0
+        status: pending
+      - id: ASSERT-003-04
+        name: NaN/Inf检测
+        description: assertNoNaN/assertNoInf
+        priority: P0
+        status: pending
+      - id: ASSERT-003-05
+        name: 张量范围断言
+        description: assertTensorInRange
+        priority: P1
+        status: pending
+      - id: ASSERT-003-06
+        name: 梯度检查断言
+        description: assertGradientsValid
+        priority: P1
+        status: pending
+
+  # ============================================
+  # 分类结果断言
+  # ============================================
+  - id: ASSERT-004
+    name: 分类结果断言
+    description: 针对分类任务结果的断言
+    priority: P0
+    status: pending
+    sub_requirements:
+      - id: ASSERT-004-01
+        name: 类别匹配断言
+        description: 验证预测类别与标签匹配
+        priority: P0
+        status: pending
+      - id: ASSERT-004-02
+        name: Top-K准确率断言
+        description: 验证正确标签在Top-K预测中
+        priority: P0
+        status: pending
+      - id: ASSERT-004-03
+        name: 概率阈值断言
+        description: 验证预测概率超过阈值
+        priority: P1
+        status: pending
+      - id: ASSERT-004-04
+        name: 混淆矩阵断言
+        description: 基于混淆矩阵的整体断言
+        priority: P1
+        status: pending
+
+  # ============================================
+  # 检测结果断言
+  # ============================================
+  - id: ASSERT-005
+    name: 目标检测断言
+    description: 针对目标检测结果的断言
+    priority: P1
+    status: pending
+    sub_requirements:
+      - id: ASSERT-005-01
+        name: 边界框IoU断言
+        description: 验证检测框与真值框的IoU
+        priority: P1
+        status: pending
+      - id: ASSERT-005-02
+        name: 检测数量断言
+        description: 验证检测出的目标数量
+        priority: P1
+        status: pending
+      - id: ASSERT-005-03
+        name: 类别检测断言
+        description: 验证指定类别是否被检测到
+        priority: P1
+        status: pending
+      - id: ASSERT-005-04
+        name: 置信度断言
+        description: 验证检测置信度达到阈值
+        priority: P1
+        status: pending
+
+  # ============================================
+  # 文本/NLP断言
+  # ============================================
+  - id: ASSERT-006
+    name: 文本断言
+    description: 针对文本生成和NLP任务的断言
+    priority: P1
+    status: pending
+    sub_requirements:
+      - id: ASSERT-006-01
+        name: 文本包含断言
+        description: 验证输出包含指定关键词
+        priority: P1
+        status: pending
+      - id: ASSERT-006-02
+        name: 文本相似度断言
+        description: 验证文本相似度达到阈值
+        priority: P1
+        status: pending
+      - id: ASSERT-006-03
+        name: 文本长度断言
+        description: 验证生成文本长度在范围内
+        priority: P1
+        status: pending
+      - id: ASSERT-006-04
+        name: 格式匹配断言
+        description: 验证输出符合指定格式/正则
+        priority: P1
+        status: pending
+      - id: ASSERT-006-05
+        name: JSON结构断言
+        description: 验证输出是有效JSON且符合schema
+        priority: P1
+        status: pending
+
+  # ============================================
+  # 性能断言
+  # ============================================
+  - id: ASSERT-007
+    name: 性能断言
+    description: 针对性能指标的断言
+    priority: P0
+    status: pending
+    sub_requirements:
+      - id: ASSERT-007-01
+        name: 延迟断言
+        description: 验证推理延迟小于阈值
+        priority: P0
+        status: pending
+      - id: ASSERT-007-02
+        name: 吞吐量断言
+        description: 验证吞吐量大于阈值
+        priority: P0
+        status: pending
+      - id: ASSERT-007-03
+        name: 内存断言
+        description: 验证内存使用小于阈值
+        priority: P0
+        status: pending
+      - id: ASSERT-007-04
+        name: 性能回归断言
+        description: 验证性能不低于基准的指定比例
+        priority: P1
+        status: pending
+
+  # ============================================
+  # 精度指标断言
+  # ============================================
+  - id: ASSERT-008
+    name: 精度指标断言
+    description: 针对模型精度指标的断言
+    priority: P0
+    status: pending
+    sub_requirements:
+      - id: ASSERT-008-01
+        name: 准确率断言
+        description: 验证accuracy达到阈值
+        priority: P0
+        status: pending
+      - id: ASSERT-008-02
+        name: 精确率召回率断言
+        description: 验证precision/recall达到阈值
+        priority: P0
+        status: pending
+      - id: ASSERT-008-03
+        name: F1分数断言
+        description: 验证F1 score达到阈值
+        priority: P0
+        status: pending
+      - id: ASSERT-008-04
+        name: AUC断言
+        description: 验证AUC-ROC达到阈值
+        priority: P1
+        status: pending
+      - id: ASSERT-008-05
+        name: 回归损失断言
+        description: 验证MSE/MAE小于阈值
+        priority: P0
+        status: pending
+
+  # ============================================
+  # 结果对比
+  # ============================================
+  - id: ASSERT-009
+    name: 结果快照对比
+    description: 与历史快照进行对比验证
+    priority: P1
+    status: pending
+    sub_requirements:
+      - id: ASSERT-009-01
+        name: 快照保存
+        description: 保存测试结果作为基准快照
+        priority: P1
+        status: pending
+      - id: ASSERT-009-02
+        name: 快照对比
+        description: 将当前结果与快照对比
+        priority: P1
+        status: pending
+      - id: ASSERT-009-03
+        name: 快照更新
+        description: 支持更新快照为新基准
+        priority: P1
+        status: pending
+      - id: ASSERT-009-04
+        name: 差异报告
+        description: 生成详细的差异报告
+        priority: P1
+        status: pending
+
+  # ============================================
+  # 自定义断言
+  # ============================================
+  - id: ASSERT-010
+    name: 自定义断言扩展
+    description: 支持用户自定义断言方法
+    priority: P1
+    status: pending
+    sub_requirements:
+      - id: ASSERT-010-01
+        name: 断言注册机制
+        description: 允许注册自定义断言函数
+        priority: P1
+        status: pending
+      - id: ASSERT-010-02
+        name: 断言组合
+        description: 组合多个断言成复合断言
+        priority: P1
+        status: pending
+      - id: ASSERT-010-03
+        name: 断言别名
+        description: 为常用断言设置别名
+        priority: P2
+        status: pending
+      - id: ASSERT-010-04
+        name: 软断言支持
+        description: 支持软断言，收集所有失败而非立即停止
+        priority: P1
+        status: pending

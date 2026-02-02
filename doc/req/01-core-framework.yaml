@@ -1,0 +1,237 @@
+# AI测试框架 - 核心框架需求
+# 分类: 核心框架 (Core Framework)
+# 版本: 1.0.0
+# 创建时间: 2026-02-02
+
+module:
+  id: CORE
+  name: 核心框架
+  description: 测试框架的核心引擎和基础设施
+
+requirements:
+
+  # ============================================
+  # 测试引擎
+  # ============================================
+  - id: CORE-001
+    name: 测试引擎初始化
+    description: 框架启动时完成配置加载、环境检测、资源初始化等工作
+    priority: P0
+    status: pending
+    sub_requirements:
+      - id: CORE-001-01
+        name: 配置文件加载
+        description: 支持从yaml/json文件加载框架配置
+        priority: P0
+        status: pending
+      - id: CORE-001-02
+        name: 环境变量支持
+        description: 支持从环境变量覆盖配置项
+        priority: P1
+        status: pending
+      - id: CORE-001-03
+        name: 运行环境检测
+        description: 检测Python版本、依赖库、GPU可用性等
+        priority: P0
+        status: pending
+
+  - id: CORE-002
+    name: 测试用例发现
+    description: 自动发现并收集项目中的测试用例
+    priority: P0
+    status: pending
+    sub_requirements:
+      - id: CORE-002-01
+        name: 基于装饰器的用例标记
+        description: 使用装饰器标记测试函数和测试类
+        priority: P0
+        status: pending
+      - id: CORE-002-02
+        name: 目录扫描发现
+        description: 扫描指定目录下的测试文件
+        priority: P0
+        status: pending
+      - id: CORE-002-03
+        name: 命名约定发现
+        description: 支持test_*.py或*_test.py命名约定
+        priority: P1
+        status: pending
+      - id: CORE-002-04
+        name: 测试用例过滤
+        description: 支持按标签、名称、路径过滤用例
+        priority: P1
+        status: pending
+
+  - id: CORE-003
+    name: 测试执行调度
+    description: 管理测试用例的执行顺序和并发
+    priority: P0
+    status: pending
+    sub_requirements:
+      - id: CORE-003-01
+        name: 顺序执行
+        description: 按依赖关系顺序执行测试用例
+        priority: P0
+        status: pending
+      - id: CORE-003-02
+        name: 并行执行
+        description: 支持多进程/多线程并行执行独立用例
+        priority: P1
+        status: pending
+      - id: CORE-003-03
+        name: 分布式执行
+        description: 支持在多台机器上分布式执行测试
+        priority: P2
+        status: pending
+      - id: CORE-003-04
+        name: 执行超时控制
+        description: 单个用例和整体执行的超时机制
+        priority: P0
+        status: pending
+
+  # ============================================
+  # 生命周期管理
+  # ============================================
+  - id: CORE-004
+    name: 测试生命周期钩子
+    description: 提供测试执行各阶段的钩子函数
+    priority: P0
+    status: pending
+    sub_requirements:
+      - id: CORE-004-01
+        name: 全局setup/teardown
+        description: 测试套件级别的初始化和清理
+        priority: P0
+        status: pending
+      - id: CORE-004-02
+        name: 模块setup/teardown
+        description: 测试模块级别的初始化和清理
+        priority: P0
+        status: pending
+      - id: CORE-004-03
+        name: 用例setup/teardown
+        description: 单个测试用例的初始化和清理
+        priority: P0
+        status: pending
+      - id: CORE-004-04
+        name: 异步钩子支持
+        description: 支持异步的setup/teardown函数
+        priority: P1
+        status: pending
+
+  - id: CORE-005
+    name: Fixture机制
+    description: 可复用的测试资源和上下文管理
+    priority: P0
+    status: pending
+    sub_requirements:
+      - id: CORE-005-01
+        name: Fixture定义
+        description: 使用装饰器定义fixture
+        priority: P0
+        status: pending
+      - id: CORE-005-02
+        name: Fixture作用域
+        description: 支持function/class/module/session级别
+        priority: P0
+        status: pending
+      - id: CORE-005-03
+        name: Fixture依赖注入
+        description: 自动注入fixture到测试函数
+        priority: P0
+        status: pending
+      - id: CORE-005-04
+        name: 参数化Fixture
+        description: Fixture支持参数化生成多个实例
+        priority: P1
+        status: pending
+
+  # ============================================
+  # 错误处理
+  # ============================================
+  - id: CORE-006
+    name: 异常捕获与处理
+    description: 统一的异常捕获和错误处理机制
+    priority: P0
+    status: pending
+    sub_requirements:
+      - id: CORE-006-01
+        name: 测试失败捕获
+        description: 捕获断言失败和测试异常
+        priority: P0
+        status: pending
+      - id: CORE-006-02
+        name: 框架错误处理
+        description: 处理框架自身的配置和运行错误
+        priority: P0
+        status: pending
+      - id: CORE-006-03
+        name: 错误重试机制
+        description: 支持失败用例的自动重试
+        priority: P1
+        status: pending
+      - id: CORE-006-04
+        name: 错误截图/日志
+        description: 失败时自动保存上下文信息
+        priority: P1
+        status: pending
+
+  # ============================================
+  # 日志系统
+  # ============================================
+  - id: CORE-007
+    name: 日志管理
+    description: 框架运行日志和测试日志管理
+    priority: P0
+    status: pending
+    sub_requirements:
+      - id: CORE-007-01
+        name: 日志级别控制
+        description: 支持DEBUG/INFO/WARNING/ERROR等级别
+        priority: P0
+        status: pending
+      - id: CORE-007-02
+        name: 日志输出目标
+        description: 支持控制台、文件、远程等输出
+        priority: P0
+        status: pending
+      - id: CORE-007-03
+        name: 结构化日志
+        description: 支持JSON格式的结构化日志
+        priority: P1
+        status: pending
+      - id: CORE-007-04
+        name: 用例日志隔离
+        description: 每个测试用例的日志独立存储
+        priority: P1
+        status: pending
+
+  # ============================================
+  # 命令行接口
+  # ============================================
+  - id: CORE-008
+    name: CLI命令行工具
+    description: 框架的命令行入口和参数解析
+    priority: P0
+    status: pending
+    sub_requirements:
+      - id: CORE-008-01
+        name: 测试执行命令
+        description: 主命令用于执行测试
+        priority: P0
+        status: pending
+      - id: CORE-008-02
+        name: 用例列表命令
+        description: 列出发现的测试用例
+        priority: P1
+        status: pending
+      - id: CORE-008-03
+        name: 配置查看命令
+        description: 查看当前生效的配置
+        priority: P2
+        status: pending
+      - id: CORE-008-04
+        name: 命令参数解析
+        description: 支持丰富的命令行参数
+        priority: P0
+        status: pending
