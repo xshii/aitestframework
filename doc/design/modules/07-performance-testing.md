@@ -14,8 +14,22 @@
 
 ### 模块定位
 
-性能测试模块作为AI测试框架的性能验证层，集成 `aidevtools.analysis` 提供的 Cost Model 能力，提供：
+性能测试模块作为AI测试框架的性能验证层，提供两种互补的性能分析能力：
+
+1. **Cost Model 分析** (集成 `aidevtools.analysis`)
+   - 算子级性能理论分析：时延、带宽、算力估算
+   - Roofline 分析：瓶颈识别
+   - 无需实际硬件即可评估
+
+2. **实际硬件性能采集** (新增)
+   - 真实推理时延测量
+   - 内存/显存占用监控
+   - CPU/GPU/NPU 利用率采集
+   - 性能 Profiling 数据收集
+
+核心功能：
 - **算子级性能分析**：集成 PaperAnalyzer 进行时延、带宽、算力分析
+- **实际硬件测量**：真实硬件上的延迟、吞吐量、资源占用测量
 - **性能回归测试**：跨版本性能对比与回归检测
 - **性能断言**：时延、吞吐量、利用率等指标的阈值断言
 - **芯片对比测试**（可选，低优先级）：多芯片性能对比
@@ -32,15 +46,21 @@
 │  │  │ TestCase  │  │ Assertion │  │  Compare  │  │  Report   │        │    │
 │  │  └───────────┘  └───────────┘  └───────────┘  └───────────┘        │    │
 │  └─────────────────────────────────────────────────────────────────────┘    │
-│                                    │                                        │
-│                                    ▼                                        │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                    aidevtools.analysis (Cost Model)                  │    │
-│  │  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐        │    │
-│  │  │  Paper    │  │   Chip    │  │   Pass    │  │   Model   │        │    │
-│  │  │ Analyzer  │  │   Spec    │  │   Chain   │  │  Presets  │        │    │
-│  │  └───────────┘  └───────────┘  └───────────┘  └───────────┘        │    │
-│  └─────────────────────────────────────────────────────────────────────┘    │
+│                          │                     │                            │
+│            ┌─────────────┘                     └─────────────┐              │
+│            ▼                                                 ▼              │
+│  ┌──────────────────────────────┐      ┌──────────────────────────────┐    │
+│  │  aidevtools.analysis         │      │  Hardware Performance        │    │
+│  │  (Cost Model - 理论分析)      │      │  (实际测量)                   │    │
+│  │  ┌─────────┐  ┌─────────┐   │      │  ┌─────────┐  ┌─────────┐   │    │
+│  │  │ Paper   │  │  Chip   │   │      │  │ Latency │  │ Memory  │   │    │
+│  │  │Analyzer │  │  Spec   │   │      │  │ Profiler│  │ Monitor │   │    │
+│  │  └─────────┘  └─────────┘   │      │  └─────────┘  └─────────┘   │    │
+│  │  ┌─────────┐  ┌─────────┐   │      │  ┌─────────┐  ┌─────────┐   │    │
+│  │  │ Pass    │  │  Model  │   │      │  │ GPU/NPU │  │Throughput│   │    │
+│  │  │ Chain   │  │ Presets │   │      │  │ Utiliz. │  │  Bench  │   │    │
+│  │  └─────────┘  └─────────┘   │      │  └─────────┘  └─────────┘   │    │
+│  └──────────────────────────────┘      └──────────────────────────────┘    │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -93,6 +113,33 @@
 │  │ + compare_chips()        │                │ + generate_xlsx()        │   │
 │  │ + find_best_chip()       │                │ + generate_gantt()       │   │
 │  └──────────────────────────┘                └──────────────────────────┘   │
+│                                                                             │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │                 Hardware Performance Measurement (新增)               │   │
+│  │                                                                       │   │
+│  │  ┌──────────────────────┐    ┌──────────────────────┐                │   │
+│  │  │   LatencyProfiler    │    │    MemoryMonitor     │                │   │
+│  │  ├──────────────────────┤    ├──────────────────────┤                │   │
+│  │  │ - warmup_iters: int  │    │ - device: str        │                │   │
+│  │  │ - test_iters: int    │    │ - sample_interval    │                │   │
+│  │  ├──────────────────────┤    ├──────────────────────┤                │   │
+│  │  │ + profile_latency()  │    │ + start_monitor()    │                │   │
+│  │  │ + get_percentiles()  │    │ + stop_monitor()     │                │   │
+│  │  │ + compute_stats()    │    │ + get_peak_memory()  │                │   │
+│  │  └──────────────────────┘    └──────────────────────┘                │   │
+│  │                                                                       │   │
+│  │  ┌──────────────────────┐    ┌──────────────────────┐                │   │
+│  │  │  DeviceUtilMonitor   │    │  ThroughputBenchmark │                │   │
+│  │  ├──────────────────────┤    ├──────────────────────┤                │   │
+│  │  │ - device_type: str   │    │ - batch_sizes: List  │                │   │
+│  │  │ - poll_interval: float   │ - duration: float    │                │   │
+│  │  ├──────────────────────┤    ├──────────────────────┤                │   │
+│  │  │ + get_gpu_util()     │    │ + run_benchmark()    │                │   │
+│  │  │ + get_npu_util()     │    │ + compute_qps()      │                │   │
+│  │  │ + get_cpu_util()     │    │ + find_optimal_batch()│               │   │
+│  │  └──────────────────────┘    └──────────────────────┘                │   │
+│  │                                                                       │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -224,6 +271,98 @@ class BaselineComparison:
 
     # 改进项
     improvements: List[str]
+
+
+# ============================================
+# 实际硬件测量数据结构 (新增)
+# ============================================
+
+@dataclass
+class HardwareLatencyResult:
+    """实际硬件延迟测量结果"""
+    # 统计指标 (单位: ms)
+    mean_ms: float
+    std_ms: float
+    min_ms: float
+    max_ms: float
+    p50_ms: float
+    p90_ms: float
+    p95_ms: float
+    p99_ms: float
+
+    # 原始数据
+    raw_latencies: List[float] = field(default_factory=list)
+
+    # 测试配置
+    warmup_iters: int = 10
+    test_iters: int = 100
+
+
+@dataclass
+class MemoryUsageResult:
+    """内存使用测量结果"""
+    # 峰值内存 (单位: MB)
+    peak_cpu_memory_mb: float
+    peak_gpu_memory_mb: float = 0.0
+
+    # 平均内存
+    avg_cpu_memory_mb: float = 0.0
+    avg_gpu_memory_mb: float = 0.0
+
+    # 内存增量 (推理前后差值)
+    delta_cpu_memory_mb: float = 0.0
+    delta_gpu_memory_mb: float = 0.0
+
+
+@dataclass
+class DeviceUtilResult:
+    """设备利用率测量结果"""
+    # GPU 利用率 (%)
+    gpu_util_mean: float = 0.0
+    gpu_util_max: float = 0.0
+
+    # NPU 利用率 (%)
+    npu_util_mean: float = 0.0
+    npu_util_max: float = 0.0
+
+    # CPU 利用率 (%)
+    cpu_util_mean: float = 0.0
+    cpu_util_max: float = 0.0
+
+
+@dataclass
+class ThroughputResult:
+    """吞吐量测量结果"""
+    # QPS (queries per second)
+    qps: float
+
+    # 每秒处理样本数
+    samples_per_second: float
+
+    # 测试配置
+    batch_size: int
+    duration_seconds: float
+    total_samples: int
+
+
+@dataclass
+class HardwarePerfResult:
+    """完整硬件性能测量结果"""
+    # 测试信息
+    test_name: str
+    model_name: str
+    device: str
+    timestamp: datetime
+
+    # 各项测量结果
+    latency: HardwareLatencyResult
+    memory: MemoryUsageResult
+    utilization: DeviceUtilResult
+    throughput: Optional[ThroughputResult] = None
+
+    # 与 Cost Model 对比
+    cost_model_latency_us: Optional[float] = None
+    latency_ratio: Optional[float] = None  # actual / cost_model
 
 
 @dataclass
@@ -514,11 +653,23 @@ src/aitest/performance/
 ├── config.py                   # 配置定义
 ├── results.py                  # 结果数据类
 │
-├── integration/                # aidevtools 集成
+├── integration/                # aidevtools 集成 (Cost Model)
 │   ├── __init__.py
 │   ├── analyzer_wrapper.py    # PaperAnalyzer 封装
 │   ├── chip_adapter.py        # ChipSpec 适配
 │   └── profile_collector.py   # Profile 收集器
+│
+├── hardware/                   # 实际硬件测量 (新增)
+│   ├── __init__.py
+│   ├── latency_profiler.py    # 延迟测量器
+│   ├── memory_monitor.py      # 内存监控器
+│   ├── device_util.py         # 设备利用率监控
+│   ├── throughput_bench.py    # 吞吐量基准测试
+│   └── backends/              # 设备后端
+│       ├── __init__.py
+│       ├── cuda.py            # CUDA/GPU 后端
+│       ├── npu.py             # NPU 后端
+│       └── cpu.py             # CPU 后端
 │
 ├── assertions/                 # 性能断言
 │   ├── __init__.py
@@ -526,6 +677,7 @@ src/aitest/performance/
 │   ├── throughput.py          # 吞吐量断言
 │   ├── bandwidth.py           # 带宽断言
 │   ├── utilization.py         # 利用率断言
+│   ├── memory.py              # 内存断言 (新增)
 │   └── regression.py          # 回归检测断言
 │
 ├── baseline/                   # 基线管理
@@ -748,7 +900,221 @@ class TestPerformanceRegression:
         print(f"Baseline saved: transformer_medium @ {version}")
 ```
 
-### 2.4 CI 配置示例
+### 2.4 实际硬件性能测量示例 (新增)
+
+```python
+"""实际硬件性能测量用例"""
+
+import torch
+from aitest.performance.hardware import (
+    LatencyProfiler,
+    MemoryMonitor,
+    DeviceUtilMonitor,
+    ThroughputBenchmark,
+)
+from aitest.performance import HardwarePerfResult, assert_latency_ms, assert_memory_mb
+
+
+# ============================================
+# 用例1: 延迟测量
+# ============================================
+def test_inference_latency():
+    """测量推理延迟"""
+
+    model = torch.load("models/transformer.pt")
+    model.eval().cuda()
+
+    input_data = torch.randn(1, 512, 768).cuda()
+
+    # 创建延迟测量器
+    profiler = LatencyProfiler(
+        warmup_iters=10,
+        test_iters=100,
+        device="cuda",
+    )
+
+    # 测量延迟
+    def inference_fn():
+        with torch.no_grad():
+            return model(input_data)
+
+    latency_result = profiler.profile_latency(inference_fn)
+
+    # 打印结果
+    print(f"Latency (ms):")
+    print(f"  Mean: {latency_result.mean_ms:.2f}")
+    print(f"  P50:  {latency_result.p50_ms:.2f}")
+    print(f"  P95:  {latency_result.p95_ms:.2f}")
+    print(f"  P99:  {latency_result.p99_ms:.2f}")
+
+    # 断言延迟
+    assert_latency_ms(latency_result.p99_ms, max_ms=10.0)
+
+    return latency_result
+
+
+# ============================================
+# 用例2: 内存监控
+# ============================================
+def test_memory_usage():
+    """监控推理内存占用"""
+
+    model = torch.load("models/transformer.pt")
+    input_data = torch.randn(1, 512, 768)
+
+    # 创建内存监控器
+    monitor = MemoryMonitor(device="cuda")
+
+    # 开始监控
+    monitor.start()
+
+    # 执行推理
+    model.cuda()
+    input_data = input_data.cuda()
+    with torch.no_grad():
+        output = model(input_data)
+
+    # 停止监控
+    memory_result = monitor.stop()
+
+    # 打印结果
+    print(f"Memory Usage:")
+    print(f"  Peak GPU: {memory_result.peak_gpu_memory_mb:.1f} MB")
+    print(f"  Peak CPU: {memory_result.peak_cpu_memory_mb:.1f} MB")
+
+    # 断言内存
+    assert_memory_mb(memory_result.peak_gpu_memory_mb, max_mb=2000)
+
+    return memory_result
+
+
+# ============================================
+# 用例3: 设备利用率监控
+# ============================================
+def test_device_utilization():
+    """监控设备利用率"""
+
+    model = torch.load("models/transformer.pt").cuda().eval()
+    input_data = torch.randn(1, 512, 768).cuda()
+
+    # 创建利用率监控器
+    util_monitor = DeviceUtilMonitor(device_type="cuda", poll_interval=0.1)
+
+    # 开始监控
+    util_monitor.start()
+
+    # 执行多次推理
+    for _ in range(100):
+        with torch.no_grad():
+            model(input_data)
+
+    # 停止监控
+    util_result = util_monitor.stop()
+
+    print(f"Device Utilization:")
+    print(f"  GPU Mean: {util_result.gpu_util_mean:.1f}%")
+    print(f"  GPU Max:  {util_result.gpu_util_max:.1f}%")
+
+    return util_result
+
+
+# ============================================
+# 用例4: 吞吐量测试
+# ============================================
+def test_throughput():
+    """测试推理吞吐量"""
+
+    model = torch.load("models/transformer.pt").cuda().eval()
+
+    # 创建吞吐量基准测试
+    benchmark = ThroughputBenchmark(
+        batch_sizes=[1, 4, 8, 16, 32],
+        duration_seconds=10.0,
+        device="cuda",
+    )
+
+    def create_input(batch_size):
+        return torch.randn(batch_size, 512, 768).cuda()
+
+    def inference_fn(input_data):
+        with torch.no_grad():
+            return model(input_data)
+
+    # 运行基准测试
+    results = benchmark.run(create_input, inference_fn)
+
+    # 打印结果
+    print(f"\nThroughput Results:")
+    print(f"{'Batch':>6} {'QPS':>10} {'Samples/s':>12}")
+    print("-" * 30)
+    for r in results:
+        print(f"{r.batch_size:>6} {r.qps:>10.1f} {r.samples_per_second:>12.1f}")
+
+    # 找到最优 batch size
+    optimal = benchmark.find_optimal_batch()
+    print(f"\nOptimal batch size: {optimal.batch_size} (QPS: {optimal.qps:.1f})")
+
+    return results
+
+
+# ============================================
+# 用例5: 完整性能测试 (Cost Model + 实际测量)
+# ============================================
+def test_full_performance():
+    """完整性能测试: Cost Model 分析 + 实际硬件测量"""
+
+    from aidevtools.analysis import transformer_layer, PaperAnalyzer
+
+    # 1. Cost Model 分析
+    profiles = transformer_layer(batch=4, seq=256, hidden=512, num_heads=8)
+    analyzer = PaperAnalyzer(chip="npu_910")
+    analyzer.add_profiles(profiles)
+    cost_model_result = analyzer.analyze()
+
+    cost_model_latency_us = cost_model_result.summary.totals.latency_us
+
+    # 2. 实际硬件测量
+    model = torch.load("models/transformer.pt").cuda().eval()
+    input_data = torch.randn(4, 256, 512).cuda()
+
+    profiler = LatencyProfiler(warmup_iters=10, test_iters=100)
+    latency_result = profiler.profile_latency(lambda: model(input_data))
+
+    memory_monitor = MemoryMonitor(device="cuda")
+    memory_monitor.start()
+    with torch.no_grad():
+        model(input_data)
+    memory_result = memory_monitor.stop()
+
+    # 3. 对比分析
+    actual_latency_us = latency_result.mean_ms * 1000
+    ratio = actual_latency_us / cost_model_latency_us
+
+    print(f"\n{'='*50}")
+    print(f"Performance Comparison")
+    print(f"{'='*50}")
+    print(f"Cost Model Latency:  {cost_model_latency_us:.1f} us")
+    print(f"Actual Latency:      {actual_latency_us:.1f} us")
+    print(f"Ratio (actual/model): {ratio:.2f}x")
+    print(f"Peak GPU Memory:     {memory_result.peak_gpu_memory_mb:.1f} MB")
+
+    # 断言
+    assert ratio < 2.0, f"Actual latency is {ratio:.1f}x of cost model estimate"
+
+    return HardwarePerfResult(
+        test_name="transformer_full_perf",
+        model_name="transformer",
+        device="cuda",
+        timestamp=datetime.now(),
+        latency=latency_result,
+        memory=memory_result,
+        utilization=DeviceUtilResult(),
+        cost_model_latency_us=cost_model_latency_us,
+        latency_ratio=ratio,
+    )
+```
+
+### 2.5 CI 配置示例
 
 ```yaml
 # .github/workflows/perf-test.yml
@@ -948,20 +1314,40 @@ performance_gate:
 | 通用Benchmark | MODEL-006 | transformer_layer(), 自定义配置 | P1 |
 | Roofline分析 | MODEL-005-04 | RooflinePass, bottleneck stats | P1 |
 | 芯片对比 | MODEL-005-06 | ChipSpec, load_chip_spec() | P2 (可选) |
+| 延迟测量 | MODEL-005-01 | LatencyProfiler | 实际硬件 |
+| 内存监控 | MODEL-005-03 | MemoryMonitor | 实际硬件 |
+| 利用率监控 | MODEL-005-04 | DeviceUtilMonitor | 实际硬件 |
+| 吞吐量测试 | MODEL-005-02 | ThroughputBenchmark | 实际硬件 |
 
 ---
 
 ## 需求追溯
 
-| 需求ID | 需求名称 | 模块功能 | aidevtools 集成点 |
-|--------|----------|----------|-------------------|
-| MODEL-005 | 推理性能测试 | PerfTestRunner | PaperAnalyzer |
-| MODEL-005-01 | 推理延迟测试 | assert_latency_us | LatencyResult |
-| MODEL-005-02 | 吞吐量测试 | assert_throughput | AnalysisSummary |
-| MODEL-005-04 | GPU利用率测试 | Roofline分析 | RooflinePass |
-| MODEL-005-06 | 性能基准对比 | BaselineStore | export_xlsx |
-| MODEL-006 | 压力测试 | 批次扩展测试 | transformer_layer() |
+| 需求ID | 需求名称 | 模块功能 | 实现方式 |
+|--------|----------|----------|----------|
+| MODEL-005 | 推理性能测试 | PerfTestRunner | Cost Model + 硬件测量 |
+| MODEL-005-01 | 推理延迟测试 | LatencyProfiler, assert_latency | 硬件测量 |
+| MODEL-005-02 | 吞吐量测试 | ThroughputBenchmark, assert_throughput | 硬件测量 |
+| MODEL-005-03 | 内存占用测试 | MemoryMonitor, assert_memory | 硬件测量 |
+| MODEL-005-04 | GPU利用率测试 | DeviceUtilMonitor, Roofline分析 | 硬件测量 + Cost Model |
+| MODEL-005-06 | 性能基准对比 | BaselineStore | Cost Model + 硬件测量 |
+| MODEL-006 | 压力测试 | 批次扩展测试 | 硬件测量 |
+
+### 性能测试两种模式对比
+
+| 特性 | Cost Model (aidevtools) | 实际硬件测量 |
+|------|------------------------|--------------|
+| **无需硬件** | ✓ | ✗ |
+| **快速评估** | ✓ | ✗ |
+| **精确测量** | ✗ | ✓ |
+| **内存监控** | ✗ | ✓ |
+| **利用率采集** | ✗ | ✓ |
+| **适用场景** | 早期评估、架构选型 | CI回归、性能验收 |
 
 ---
 
-*本文档为AI测试框架性能测试模块设计，通过集成 aidevtools.analysis 提供的 Cost Model 能力，使用通用 Transformer Benchmark 配置（small/medium/large）实现算子级性能分析和性能回归测试。*
+*本文档为AI测试框架性能测试模块设计，提供两种互补的性能分析能力：
+1. **Cost Model 分析** - 通过集成 aidevtools.analysis 进行理论性能估算
+2. **实际硬件测量** - 在真实设备上采集延迟、内存、利用率等指标
+
+使用通用 Transformer Benchmark 配置（small/medium/large）实现算子级性能分析和性能回归测试。*

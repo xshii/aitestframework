@@ -8,6 +8,42 @@
 | **模块名称** | 断言与验证 |
 | **职责** | 测试结果的断言、比较和验证机制 |
 | **需求覆盖** | ASSERT-001 ~ ASSERT-010 |
+| **外部依赖** | aidevtools.tools.compare (精度比对) |
+
+### 模块定位
+
+断言与验证模块作为AI测试框架的核心验证层，集成 `aidevtools.tools.compare` 提供的精度比对能力，提供：
+- **基础断言**：等值、布尔、空值、包含、异常、类型断言
+- **数值断言**：近似相等、相对误差、范围断言
+- **张量断言**：形状、数据类型、元素级近似、NaN/Inf检测
+- **算子精度验证**：集成三列比对机制 (exact/fuzzy_pure/fuzzy_qnt)
+- **性能断言**：延迟、吞吐量、内存断言
+- **快照对比**：结果快照保存与对比
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     Assertion & Validation Module                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                      Test Framework Layer                            │    │
+│  │  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐        │    │
+│  │  │  Basic    │  │  Tensor   │  │ Operator  │  │ Snapshot  │        │    │
+│  │  │ Assertion │  │ Assertion │  │ Precision │  │  Compare  │        │    │
+│  │  └───────────┘  └───────────┘  └───────────┘  └───────────┘        │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                    │                                        │
+│                                    ▼                                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                    aidevtools.tools.compare (精度比对)               │    │
+│  │  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐        │    │
+│  │  │ compare_  │  │ compare_  │  │ compare_  │  │ compare_  │        │    │
+│  │  │  3col     │  │  isclose  │  │   exact   │  │   full    │        │    │
+│  │  └───────────┘  └───────────┘  └───────────┘  └───────────┘        │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -59,6 +95,13 @@
 │  │  │ assertThroughput│  │ assertPrecision │  │ loadSnapshot    │        │  │
 │  │  │ assertMemory    │  │ assertRecall    │  │ compareSnapshot │        │  │
 │  │  │ assertRegression│  │ assertF1Score   │  │ updateSnapshot  │        │  │
+│  │  └─────────────────┘  └─────────────────┘  └─────────────────┘        │  │
+│  │                                                                       │  │
+│  │  Operator Precision (aidevtools集成)                                  │  │
+│  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐        │  │
+│  │  │ assert3Col      │  │ assertIsClose   │  │ assertExact     │        │  │
+│  │  │ assertPerfect   │  │ assertQSNR      │  │ assertCosine    │        │  │
+│  │  │ assertNoQuantIssue│ │ assertMaxAbs   │  │ assertExceedRatio│       │  │
 │  │  └─────────────────┘  └─────────────────┘  └─────────────────┘        │  │
 │  │                                                                       │  │
 │  └───────────────────────────────────────────────────────────────────────┘  │
@@ -129,6 +172,81 @@ class SnapshotDiff:
     removed: List[str]
     changed: List[tuple]
     unchanged_count: int
+
+
+# ============================================
+# 算子精度比对数据结构 (复用 aidevtools.tools.compare)
+# ============================================
+
+# 从 aidevtools 导入核心数据结构
+from aidevtools.tools.compare import (
+    DiffResult,          # 模糊比对结果
+    ExactResult,         # 精确比对结果
+    IsCloseResult,       # IsClose 比对结果
+    FullCompareResult,   # 三列完整比对结果
+    CompareThresholds,   # 比对阈值配置
+)
+
+
+class OpCompareStatus(Enum):
+    """算子比对状态 (来自 FullCompareResult.status)"""
+    PERFECT = "PERFECT"       # exact 通过 (bit级精确)
+    PASS = "PASS"             # exact 不过，但 fuzzy_qnt 通过
+    QUANT_ISSUE = "QUANT_ISSUE"  # fuzzy_pure 通过，fuzzy_qnt 不过 (量化问题)
+    FAIL = "FAIL"             # 都不过
+
+
+@dataclass
+class OpPrecisionResult:
+    """算子精度验证结果"""
+    op_name: str
+    op_id: int
+    status: OpCompareStatus
+
+    # 三列比对结果
+    exact: ExactResult           # 精确比对
+    fuzzy_pure: DiffResult       # 纯 fp32 模糊比对
+    fuzzy_qnt: DiffResult        # 量化感知模糊比对
+
+    # 汇总指标
+    max_abs_error: float
+    qsnr_db: float               # QSNR (dB)
+    cosine_similarity: float
+
+    # 断言配置
+    thresholds: CompareThresholds
+
+    @property
+    def passed(self) -> bool:
+        """是否通过验证"""
+        return self.status in (OpCompareStatus.PERFECT, OpCompareStatus.PASS)
+
+
+@dataclass
+class BatchPrecisionResult:
+    """批量算子精度验证结果"""
+    op_results: List[OpPrecisionResult]
+
+    # 汇总统计
+    total_count: int
+    perfect_count: int
+    pass_count: int
+    quant_issue_count: int
+    fail_count: int
+
+    @property
+    def all_passed(self) -> bool:
+        """是否全部通过"""
+        return self.fail_count == 0
+
+    @property
+    def summary(self) -> str:
+        """汇总信息"""
+        return (
+            f"{self.perfect_count} PERFECT, {self.pass_count} PASS, "
+            f"{self.quant_issue_count} QUANT_ISSUE, {self.fail_count} FAIL "
+            f"(total: {self.total_count})"
+        )
 ```
 
 ---
@@ -153,7 +271,14 @@ aitest/assertion/
 ├── snapshot.py          # 快照对比
 ├── custom.py            # 自定义断言
 ├── errors.py            # 异常定义
-└── matchers.py          # 匹配器
+├── matchers.py          # 匹配器
+│
+├── operator/            # 算子精度验证 (aidevtools集成)
+│   ├── __init__.py
+│   ├── precision.py     # 精度断言 (三列比对封装)
+│   ├── isclose.py       # IsClose 断言
+│   ├── thresholds.py    # 阈值配置
+│   └── report.py        # 比对报告生成
 ```
 
 ### 2.2 实现示例
@@ -388,6 +513,228 @@ class SnapshotManager:
             changed=[] if stored == current else [("value", stored, current)],
             unchanged_count=1 if stored == current else 0
         )
+
+
+# assertion/operator/precision.py
+
+"""
+算子精度验证模块 - 封装 aidevtools.tools.compare 的三列比对功能
+
+三列比对机制:
+- exact: 精确比对 (bit级或指定误差)
+- fuzzy_pure: 纯 fp32 模糊比对
+- fuzzy_qnt: 量化感知模糊比对
+
+状态判定:
+- PERFECT: exact 通过
+- PASS: exact 不过，但 fuzzy_qnt 通过
+- QUANT_ISSUE: fuzzy_pure 通过，fuzzy_qnt 不过 (量化问题)
+- FAIL: 都不过
+"""
+
+import numpy as np
+from typing import List, Optional
+from dataclasses import dataclass
+
+# 从 aidevtools 导入核心比对函数
+from aidevtools.tools.compare import (
+    compare_3col,
+    compare_isclose,
+    compare_exact,
+    compare_full,
+    CompareThresholds,
+    FullCompareResult,
+    IsCloseResult,
+    print_compare_table,
+)
+
+
+class OpPrecisionAssertion:
+    """算子精度断言"""
+
+    def __init__(self, thresholds: CompareThresholds = None):
+        self.thresholds = thresholds or CompareThresholds()
+
+    def assert_3col(
+        self,
+        op_name: str,
+        op_id: int,
+        result: np.ndarray,
+        golden_pure: np.ndarray,
+        golden_qnt: np.ndarray,
+    ) -> FullCompareResult:
+        """
+        三列比对断言
+
+        Args:
+            op_name: 算子名称
+            op_id: 算子 ID
+            result: DUT 输出
+            golden_pure: 纯 fp32 golden
+            golden_qnt: 量化感知 golden
+
+        Returns:
+            FullCompareResult
+
+        Raises:
+            AssertionError: 当状态为 FAIL 时
+        """
+        comparison = compare_3col(
+            op_name=op_name,
+            op_id=op_id,
+            result=result,
+            golden_pure=golden_pure,
+            golden_qnt=golden_qnt,
+            thresholds=self.thresholds,
+        )
+
+        if comparison.status == "FAIL":
+            raise AssertionError(
+                f"Operator {op_name}_{op_id} precision check FAILED\n"
+                f"  exact: mismatch={comparison.exact.mismatch_count}\n"
+                f"  fuzzy_pure: max_abs={comparison.fuzzy_pure.max_abs:.2e}, "
+                f"qsnr={comparison.fuzzy_pure.qsnr:.1f}dB\n"
+                f"  fuzzy_qnt: max_abs={comparison.fuzzy_qnt.max_abs:.2e}, "
+                f"qsnr={comparison.fuzzy_qnt.qsnr:.1f}dB"
+            )
+
+        return comparison
+
+    def assert_perfect(
+        self,
+        op_name: str,
+        result: np.ndarray,
+        golden: np.ndarray,
+    ):
+        """断言 bit 级精确匹配"""
+        exact_result = compare_exact(golden, result, max_abs=0.0, max_count=0)
+
+        if not exact_result.passed:
+            raise AssertionError(
+                f"Operator {op_name} is not bit-exact\n"
+                f"  mismatch_count: {exact_result.mismatch_count}\n"
+                f"  first_diff_offset: {exact_result.first_diff_offset}\n"
+                f"  max_abs: {exact_result.max_abs:.2e}"
+            )
+
+    def assert_isclose(
+        self,
+        result: np.ndarray,
+        golden: np.ndarray,
+        atol: float = 1e-5,
+        rtol: float = 1e-3,
+        max_exceed_ratio: float = 0.0,
+        name: str = "",
+    ) -> IsCloseResult:
+        """
+        IsClose 断言 - 逐元素误差检查
+
+        判断条件: |result - golden| <= atol + rtol * |golden|
+
+        Args:
+            result: DUT 输出
+            golden: 参考数据
+            atol: 绝对误差门限
+            rtol: 相对误差门限
+            max_exceed_ratio: 允许的最大超限比例
+
+        Raises:
+            AssertionError: 当超限比例超过阈值时
+        """
+        isclose_result = compare_isclose(
+            golden=golden,
+            result=result,
+            atol=atol,
+            rtol=rtol,
+            max_exceed_ratio=max_exceed_ratio,
+        )
+
+        if not isclose_result.passed:
+            name_str = f"[{name}] " if name else ""
+            raise AssertionError(
+                f"{name_str}IsClose check FAILED\n"
+                f"  exceed_ratio: {isclose_result.exceed_ratio:.4%} > "
+                f"{max_exceed_ratio:.4%}\n"
+                f"  exceed_count: {isclose_result.exceed_count} / "
+                f"{isclose_result.total_elements}\n"
+                f"  max_abs_error: {isclose_result.max_abs_error:.6e}\n"
+                f"  max_rel_error: {isclose_result.max_rel_error:.6e}"
+            )
+
+        return isclose_result
+
+    def assert_qsnr(
+        self,
+        result: np.ndarray,
+        golden: np.ndarray,
+        min_qsnr_db: float = 30.0,
+        name: str = "",
+    ):
+        """断言 QSNR 不低于阈值"""
+        from aidevtools.tools.compare import calc_qsnr
+
+        qsnr = calc_qsnr(golden, result)
+
+        if qsnr < min_qsnr_db:
+            name_str = f"[{name}] " if name else ""
+            raise AssertionError(
+                f"{name_str}QSNR check FAILED\n"
+                f"  QSNR: {qsnr:.1f} dB < {min_qsnr_db:.1f} dB"
+            )
+
+    def assert_cosine(
+        self,
+        result: np.ndarray,
+        golden: np.ndarray,
+        min_cosine: float = 0.999,
+        name: str = "",
+    ):
+        """断言余弦相似度不低于阈值"""
+        from aidevtools.tools.compare import calc_cosine
+
+        cosine = calc_cosine(golden, result)
+
+        if cosine < min_cosine:
+            name_str = f"[{name}] " if name else ""
+            raise AssertionError(
+                f"{name_str}Cosine similarity check FAILED\n"
+                f"  Cosine: {cosine:.6f} < {min_cosine:.6f}"
+            )
+
+
+def assert_batch_precision(
+    results: List[FullCompareResult],
+    allow_quant_issue: bool = True,
+) -> None:
+    """
+    批量精度断言
+
+    Args:
+        results: 比对结果列表
+        allow_quant_issue: 是否允许量化问题 (QUANT_ISSUE 状态)
+
+    Raises:
+        AssertionError: 当存在 FAIL 状态，或不允许量化问题时存在 QUANT_ISSUE
+    """
+    fail_count = sum(1 for r in results if r.status == "FAIL")
+    quant_issue_count = sum(1 for r in results if r.status == "QUANT_ISSUE")
+
+    if fail_count > 0:
+        failed_ops = [f"{r.op_name}_{r.op_id}" for r in results if r.status == "FAIL"]
+        raise AssertionError(
+            f"Batch precision check FAILED: {fail_count} operators failed\n"
+            f"  Failed ops: {', '.join(failed_ops)}"
+        )
+
+    if not allow_quant_issue and quant_issue_count > 0:
+        quant_ops = [f"{r.op_name}_{r.op_id}" for r in results if r.status == "QUANT_ISSUE"]
+        raise AssertionError(
+            f"Batch precision check FAILED: {quant_issue_count} operators have quant issues\n"
+            f"  Quant issue ops: {', '.join(quant_ops)}"
+        )
+
+    # 打印汇总表格
+    print_compare_table(results)
 ```
 
 ---
@@ -421,21 +768,199 @@ snapshot = SnapshotManager("snapshots/")
 snapshot.compare("model_output_v1", current_output)
 ```
 
-### 3.2 需求追溯
+### 3.2 算子精度验证示例 (aidevtools集成)
 
-| 需求ID | 实现类/方法 | 测试用例 |
-|--------|-------------|----------|
-| ASSERT-001 | `basic.py` | test_basic_assertions |
-| ASSERT-002 | `numeric.py` | test_numeric_assertions |
-| ASSERT-003 | `tensor.py` | test_tensor_assertions |
-| ASSERT-004 | `classification.py` | test_classification_assertions |
-| ASSERT-005 | `detection.py` | test_detection_assertions |
-| ASSERT-006 | `text.py` | test_text_assertions |
-| ASSERT-007 | `performance.py` | test_performance_assertions |
-| ASSERT-008 | `metric.py` | test_metric_assertions |
-| ASSERT-009 | `snapshot.py` | test_snapshot |
-| ASSERT-010 | `custom.py` | test_custom_assertions |
+```python
+"""算子精度验证用例 - 使用 aidevtools 三列比对"""
+
+import numpy as np
+from aitest.assertion.operator import OpPrecisionAssertion, assert_batch_precision
+from aidevtools.tools.compare import CompareThresholds, compare_3col
+
+
+# ============================================
+# 用例1: 单算子三列比对
+# ============================================
+def test_matmul_precision():
+    """测试 MatMul 算子精度"""
+
+    # 准备测试数据
+    dut_output = np.load("outputs/matmul_0_dut.npy")       # DUT 输出
+    golden_pure = np.load("outputs/matmul_0_pure.npy")    # 纯 fp32 golden
+    golden_qnt = np.load("outputs/matmul_0_qnt.npy")      # 量化感知 golden
+
+    # 配置比对阈值
+    thresholds = CompareThresholds(
+        exact_max_abs=0.0,      # 精确比对: bit 级
+        exact_max_count=0,
+        fuzzy_atol=1e-5,        # 模糊比对: 绝对误差
+        fuzzy_rtol=1e-3,        # 模糊比对: 相对误差
+        fuzzy_min_qsnr=30.0,    # 最小 QSNR (dB)
+        fuzzy_min_cosine=0.999, # 最小余弦相似度
+    )
+
+    # 执行三列比对
+    assertion = OpPrecisionAssertion(thresholds)
+    result = assertion.assert_3col(
+        op_name="MatMul",
+        op_id=0,
+        result=dut_output,
+        golden_pure=golden_pure,
+        golden_qnt=golden_qnt,
+    )
+
+    # 打印结果
+    print(f"Status: {result.status}")  # PERFECT / PASS / QUANT_ISSUE / FAIL
+    print(f"QSNR: {result.fuzzy_qnt.qsnr:.1f} dB")
+    print(f"Cosine: {result.fuzzy_qnt.cosine:.6f}")
+
+
+# ============================================
+# 用例2: IsClose 断言
+# ============================================
+def test_softmax_isclose():
+    """测试 Softmax 算子 IsClose 精度"""
+
+    dut_output = np.load("outputs/softmax_0_dut.npy")
+    golden = np.load("outputs/softmax_0_golden.npy")
+
+    assertion = OpPrecisionAssertion()
+    result = assertion.assert_isclose(
+        result=dut_output,
+        golden=golden,
+        atol=1e-4,              # 绝对误差门限
+        rtol=1e-2,              # 相对误差门限
+        max_exceed_ratio=0.01,  # 允许 1% 元素超限
+        name="Softmax_0",
+    )
+
+    print(f"Exceed ratio: {result.exceed_ratio:.4%}")
+    print(f"Max abs error: {result.max_abs_error:.6e}")
+
+
+# ============================================
+# 用例3: 批量算子精度验证
+# ============================================
+def test_transformer_layer_precision():
+    """测试 Transformer 层所有算子精度"""
+
+    # 算子列表
+    ops = [
+        ("LayerNorm", 0), ("Linear", 0), ("Linear", 1), ("Linear", 2),
+        ("Attention", 0), ("Linear", 3), ("Add", 0),
+        ("LayerNorm", 1), ("Linear", 4), ("GELU", 0), ("Linear", 5), ("Add", 1),
+    ]
+
+    results = []
+    for op_name, op_id in ops:
+        dut = np.load(f"outputs/{op_name}_{op_id}_dut.npy")
+        pure = np.load(f"outputs/{op_name}_{op_id}_pure.npy")
+        qnt = np.load(f"outputs/{op_name}_{op_id}_qnt.npy")
+
+        result = compare_3col(
+            op_name=op_name,
+            op_id=op_id,
+            result=dut,
+            golden_pure=pure,
+            golden_qnt=qnt,
+        )
+        results.append(result)
+
+    # 批量断言 (允许 QUANT_ISSUE，但不允许 FAIL)
+    assert_batch_precision(results, allow_quant_issue=True)
+
+
+# ============================================
+# 用例4: QSNR 和 Cosine 断言
+# ============================================
+def test_conv_qsnr_cosine():
+    """测试 Conv 算子 QSNR 和余弦相似度"""
+
+    dut_output = np.load("outputs/conv_0_dut.npy")
+    golden = np.load("outputs/conv_0_golden.npy")
+
+    assertion = OpPrecisionAssertion()
+
+    # QSNR 断言: 不低于 35 dB
+    assertion.assert_qsnr(dut_output, golden, min_qsnr_db=35.0, name="Conv_0")
+
+    # 余弦相似度断言: 不低于 0.9999
+    assertion.assert_cosine(dut_output, golden, min_cosine=0.9999, name="Conv_0")
+
+
+# ============================================
+# 用例5: Pytest 集成
+# ============================================
+import pytest
+
+class TestOpPrecision:
+    """算子精度测试套件"""
+
+    @pytest.fixture
+    def assertion(self):
+        return OpPrecisionAssertion(
+            CompareThresholds(fuzzy_min_qsnr=30.0, fuzzy_min_cosine=0.999)
+        )
+
+    @pytest.mark.parametrize("op_name,op_id", [
+        ("MatMul", 0), ("MatMul", 1), ("Add", 0), ("LayerNorm", 0),
+    ])
+    def test_op_precision(self, assertion, op_name, op_id):
+        """参数化测试多个算子"""
+
+        dut = np.load(f"outputs/{op_name}_{op_id}_dut.npy")
+        pure = np.load(f"outputs/{op_name}_{op_id}_pure.npy")
+        qnt = np.load(f"outputs/{op_name}_{op_id}_qnt.npy")
+
+        result = assertion.assert_3col(
+            op_name=op_name,
+            op_id=op_id,
+            result=dut,
+            golden_pure=pure,
+            golden_qnt=qnt,
+        )
+
+        assert result.status in ("PERFECT", "PASS")
+```
+
+### 3.3 需求追溯
+
+| 需求ID | 实现类/方法 | 测试用例 | aidevtools 集成 |
+|--------|-------------|----------|-----------------|
+| ASSERT-001 | `basic.py` | test_basic_assertions | - |
+| ASSERT-002 | `numeric.py` | test_numeric_assertions | - |
+| ASSERT-003 | `tensor.py`, `operator/precision.py` | test_tensor_assertions | `compare_isclose`, `compare_full` |
+| ASSERT-003-03 | `OpPrecisionAssertion.assert_isclose` | test_isclose | `compare_isclose` |
+| ASSERT-003-04 | `OpPrecisionAssertion.assert_3col` | test_nan_inf | `compare_3col` |
+| ASSERT-004 | `classification.py` | test_classification_assertions | - |
+| ASSERT-005 | `detection.py` | test_detection_assertions | - |
+| ASSERT-006 | `text.py` | test_text_assertions | - |
+| ASSERT-007 | `performance.py` | test_performance_assertions | - |
+| ASSERT-008 | `metric.py` | test_metric_assertions | - |
+| ASSERT-009 | `snapshot.py` | test_snapshot | - |
+| ASSERT-010 | `custom.py` | test_custom_assertions | - |
+
+### 3.4 算子精度验证需求追溯
+
+| 功能 | aidevtools 函数 | aitestframework 封装 | 说明 |
+|------|-----------------|---------------------|------|
+| 三列比对 | `compare_3col()` | `OpPrecisionAssertion.assert_3col()` | exact + fuzzy_pure + fuzzy_qnt |
+| 精确比对 | `compare_exact()` | `OpPrecisionAssertion.assert_perfect()` | bit 级或指定误差 |
+| IsClose比对 | `compare_isclose()` | `OpPrecisionAssertion.assert_isclose()` | 逐元素误差检查 |
+| 完整比对 | `compare_full()` | 内部使用 | max_abs, qsnr, cosine |
+| QSNR断言 | `calc_qsnr()` | `OpPrecisionAssertion.assert_qsnr()` | 信噪比 (dB) |
+| 余弦相似度 | `calc_cosine()` | `OpPrecisionAssertion.assert_cosine()` | [-1, 1] |
+| 批量断言 | `print_compare_table()` | `assert_batch_precision()` | 汇总表格输出 |
+
+### 3.5 比对状态说明
+
+| 状态 | 条件 | 含义 |
+|------|------|------|
+| **PERFECT** | exact 通过 | bit 级精确匹配 |
+| **PASS** | exact 不过，fuzzy_qnt 通过 | 数值误差在可接受范围内 |
+| **QUANT_ISSUE** | fuzzy_pure 通过，fuzzy_qnt 不过 | 量化精度问题，需检查量化配置 |
+| **FAIL** | 都不过 | 算子实现存在问题 |
 
 ---
 
-*本文档为断言与验证模块的详细设计，基于4+1视图方法。*
+*本文档为断言与验证模块的详细设计，基于4+1视图方法，集成 aidevtools.tools.compare 提供的精度比对能力。*

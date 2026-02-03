@@ -8,6 +8,42 @@
 | **模块名称** | AI模型测试 |
 | **职责** | 针对AI/ML模型的专项测试能力 |
 | **需求覆盖** | MODEL-001 ~ MODEL-009 |
+| **外部依赖** | aidevtools.tools.compare (算子精度比对), aidevtools.golden (Golden生成) |
+
+### 模块定位
+
+AI模型测试模块作为测试框架的核心模块，集成 `aidevtools` 提供的算子验证能力，实现：
+- **模型加载**：支持 PyTorch、TensorFlow、ONNX 等多框架模型
+- **推理验证**：单样本/批量推理正确性验证
+- **算子级验证**：集成三列比对机制，验证每个算子的精度
+- **精度评估**：分类、回归、检测等任务精度指标
+- **性能测试**：延迟、吞吐量、内存占用测试
+- **鲁棒性测试**：边界值、异常输入、噪声注入测试
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        AI Model Testing Module                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                      Test Framework Layer                            │    │
+│  │  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐        │    │
+│  │  │  Model    │  │ Inference │  │ Operator  │  │ Accuracy  │        │    │
+│  │  │  Loader   │  │ Validator │  │ Verifier  │  │ Evaluator │        │    │
+│  │  └───────────┘  └───────────┘  └───────────┘  └───────────┘        │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                    │                                        │
+│                                    ▼                                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                    aidevtools (算子验证)                              │    │
+│  │  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐        │    │
+│  │  │  Golden   │  │ compare_  │  │ compare_  │  │  Formats  │        │    │
+│  │  │ Generator │  │   3col    │  │  isclose  │  │ (BFP/GF)  │        │    │
+│  │  └───────────┘  └───────────┘  └───────────┘  └───────────┘        │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -81,6 +117,20 @@
 │  │  │ + test_precision()   │    │ + test_safety()      │                 │  │
 │  │  └──────────────────────┘    │ + evaluate_quality() │                 │  │
 │  │                              └──────────────────────┘                 │  │
+│  │                                                                       │  │
+│  │  ┌──────────────────────┐    ┌──────────────────────┐                 │  │
+│  │  │  OperatorVerifier    │    │     GoldenManager    │                 │  │
+│  │  │  (aidevtools集成)    │    │   (aidevtools集成)   │                 │  │
+│  │  ├──────────────────────┤    ├──────────────────────┤                 │  │
+│  │  │ - thresholds: Config │    │ - golden_dir: Path   │                 │  │
+│  │  │ - precision_assert   │    │ - generator: Golden  │                 │  │
+│  │  ├──────────────────────┤    ├──────────────────────┤                 │  │
+│  │  │ + verify_op_3col()   │    │ + generate_golden()  │                 │  │
+│  │  │ + verify_op_isclose()│    │ + load_golden()      │                 │  │
+│  │  │ + verify_model_ops() │    │ + update_golden()    │                 │  │
+│  │  │ + generate_report()  │    │ + compare_with_dut() │                 │  │
+│  │  └──────────────────────┘    └──────────────────────┘                 │  │
+│  │                                                                       │  │
 │  └───────────────────────────────────────────────────────────────────────┘  │
 │                                                                             │
 │  ┌───────────────────────────────────────────────────────────────────────┐  │
@@ -394,6 +444,15 @@ aitest/model/
 │   ├── detection.py             # 检测指标
 │   ├── nlp.py                   # NLP指标
 │   └── performance.py           # 性能指标
+│
+├── operator/                    # 算子级验证 (aidevtools集成)
+│   ├── __init__.py
+│   ├── verifier.py              # OperatorVerifier 主类
+│   ├── golden.py                # GoldenManager
+│   ├── hooks.py                 # 推理 Hook (收集中间结果)
+│   ├── report.py                # 验证报告生成
+│   └── config.py                # 验证配置
+│
 ├── decorators.py                # @model_test等装饰器
 └── cache.py                     # 模型缓存
 ```
@@ -546,6 +605,237 @@ class AccuracyEvaluator:
         return np.mean(pred_classes == labels)
 
     # ... 其他指标计算方法
+
+
+# model/operator/verifier.py
+
+"""
+算子级验证模块 - 集成 aidevtools 的精度比对能力
+
+功能:
+1. 收集模型推理过程中每个算子的输入输出
+2. 与 Golden 数据进行三列比对 (exact/fuzzy_pure/fuzzy_qnt)
+3. 生成详细的算子精度验证报告
+"""
+
+from pathlib import Path
+from typing import List, Dict, Optional
+from dataclasses import dataclass
+import numpy as np
+
+# 从 aidevtools 导入比对函数
+from aidevtools.tools.compare import (
+    compare_3col,
+    compare_isclose,
+    CompareThresholds,
+    FullCompareResult,
+    IsCloseResult,
+    print_compare_table,
+)
+
+
+@dataclass
+class OpVerifyConfig:
+    """算子验证配置"""
+    # 比对阈值
+    thresholds: CompareThresholds = None
+    # Golden 路径
+    golden_dir: Path = None
+    # 是否允许量化问题
+    allow_quant_issue: bool = True
+    # 是否生成详细报告
+    generate_report: bool = True
+
+    def __post_init__(self):
+        if self.thresholds is None:
+            self.thresholds = CompareThresholds(
+                exact_max_abs=0.0,
+                exact_max_count=0,
+                fuzzy_atol=1e-5,
+                fuzzy_rtol=1e-3,
+                fuzzy_min_qsnr=30.0,
+                fuzzy_min_cosine=0.999,
+            )
+
+
+class OperatorVerifier:
+    """算子级验证器"""
+
+    def __init__(self, config: OpVerifyConfig = None):
+        self.config = config or OpVerifyConfig()
+        self.results: List[FullCompareResult] = []
+
+    def verify_op(
+        self,
+        op_name: str,
+        op_id: int,
+        dut_output: np.ndarray,
+        golden_pure: np.ndarray,
+        golden_qnt: np.ndarray = None,
+    ) -> FullCompareResult:
+        """
+        验证单个算子
+
+        Args:
+            op_name: 算子名称
+            op_id: 算子 ID
+            dut_output: DUT 输出
+            golden_pure: 纯 fp32 Golden
+            golden_qnt: 量化感知 Golden (可选，默认使用 golden_pure)
+
+        Returns:
+            FullCompareResult
+        """
+        if golden_qnt is None:
+            golden_qnt = golden_pure
+
+        result = compare_3col(
+            op_name=op_name,
+            op_id=op_id,
+            result=dut_output,
+            golden_pure=golden_pure,
+            golden_qnt=golden_qnt,
+            thresholds=self.config.thresholds,
+        )
+
+        self.results.append(result)
+        return result
+
+    def verify_isclose(
+        self,
+        name: str,
+        dut_output: np.ndarray,
+        golden: np.ndarray,
+        atol: float = 1e-5,
+        rtol: float = 1e-3,
+        max_exceed_ratio: float = 0.0,
+    ) -> IsCloseResult:
+        """
+        IsClose 验证
+
+        Args:
+            name: 验证名称
+            dut_output: DUT 输出
+            golden: Golden 数据
+            atol: 绝对误差门限
+            rtol: 相对误差门限
+            max_exceed_ratio: 允许的最大超限比例
+        """
+        return compare_isclose(
+            golden=golden,
+            result=dut_output,
+            atol=atol,
+            rtol=rtol,
+            max_exceed_ratio=max_exceed_ratio,
+        )
+
+    def verify_model_ops(
+        self,
+        op_outputs: Dict[str, np.ndarray],
+        golden_dir: Path,
+    ) -> List[FullCompareResult]:
+        """
+        验证模型所有算子
+
+        Args:
+            op_outputs: 算子输出字典 {op_name_id: output}
+            golden_dir: Golden 数据目录
+
+        Returns:
+            List[FullCompareResult]
+        """
+        self.results = []
+
+        for op_key, dut_output in op_outputs.items():
+            # 解析算子名称和 ID
+            parts = op_key.rsplit("_", 1)
+            op_name = parts[0]
+            op_id = int(parts[1]) if len(parts) > 1 else 0
+
+            # 加载 Golden
+            pure_path = golden_dir / f"{op_key}_pure.npy"
+            qnt_path = golden_dir / f"{op_key}_qnt.npy"
+
+            if not pure_path.exists():
+                print(f"Warning: Golden not found for {op_key}")
+                continue
+
+            golden_pure = np.load(pure_path)
+            golden_qnt = np.load(qnt_path) if qnt_path.exists() else golden_pure
+
+            self.verify_op(op_name, op_id, dut_output, golden_pure, golden_qnt)
+
+        return self.results
+
+    def check_all_passed(self) -> bool:
+        """检查所有算子是否通过验证"""
+        for r in self.results:
+            if r.status == "FAIL":
+                return False
+            if not self.config.allow_quant_issue and r.status == "QUANT_ISSUE":
+                return False
+        return True
+
+    def print_summary(self):
+        """打印汇总表格"""
+        print_compare_table(self.results)
+
+    def get_summary(self) -> Dict:
+        """获取汇总统计"""
+        status_counts = {"PERFECT": 0, "PASS": 0, "QUANT_ISSUE": 0, "FAIL": 0}
+        for r in self.results:
+            if r.status in status_counts:
+                status_counts[r.status] += 1
+
+        return {
+            "total": len(self.results),
+            "passed": status_counts["PERFECT"] + status_counts["PASS"],
+            **status_counts,
+        }
+
+
+class GoldenManager:
+    """Golden 数据管理器"""
+
+    def __init__(self, golden_dir: Path):
+        self.golden_dir = Path(golden_dir)
+        self.golden_dir.mkdir(parents=True, exist_ok=True)
+
+    def save_golden(
+        self,
+        op_name: str,
+        op_id: int,
+        pure_output: np.ndarray,
+        qnt_output: np.ndarray = None,
+    ):
+        """保存 Golden 数据"""
+        key = f"{op_name}_{op_id}"
+        np.save(self.golden_dir / f"{key}_pure.npy", pure_output)
+        if qnt_output is not None:
+            np.save(self.golden_dir / f"{key}_qnt.npy", qnt_output)
+
+    def load_golden(
+        self,
+        op_name: str,
+        op_id: int,
+    ) -> tuple:
+        """加载 Golden 数据"""
+        key = f"{op_name}_{op_id}"
+        pure_path = self.golden_dir / f"{key}_pure.npy"
+        qnt_path = self.golden_dir / f"{key}_qnt.npy"
+
+        pure = np.load(pure_path) if pure_path.exists() else None
+        qnt = np.load(qnt_path) if qnt_path.exists() else pure
+
+        return pure, qnt
+
+    def list_ops(self) -> List[str]:
+        """列出所有已保存的算子"""
+        ops = set()
+        for f in self.golden_dir.glob("*_pure.npy"):
+            op_key = f.stem.replace("_pure", "")
+            ops.add(op_key)
+        return sorted(ops)
 ```
 
 ---
@@ -633,20 +923,137 @@ def test_latency(perf_tester):
     assert_throughput(latency.qps).greater_than(100)
 ```
 
+**UC-MODEL-04: 算子级精度验证 (aidevtools集成)**
+
+```python
+"""算子级精度验证用例"""
+
+from pathlib import Path
+from aitest.model.operator import OperatorVerifier, GoldenManager, OpVerifyConfig
+from aidevtools.tools.compare import CompareThresholds
+
+
+class TestOperatorPrecision:
+    """算子精度测试套件"""
+
+    def setup(self):
+        # 配置验证参数
+        self.config = OpVerifyConfig(
+            thresholds=CompareThresholds(
+                fuzzy_atol=1e-5,
+                fuzzy_rtol=1e-3,
+                fuzzy_min_qsnr=30.0,
+                fuzzy_min_cosine=0.999,
+            ),
+            golden_dir=Path("./golden_data"),
+            allow_quant_issue=True,
+        )
+        self.verifier = OperatorVerifier(self.config)
+
+    def test_single_op_precision(self):
+        """测试单个算子精度"""
+        import numpy as np
+
+        # 加载 DUT 输出和 Golden
+        dut_output = np.load("outputs/MatMul_0_dut.npy")
+        golden_pure = np.load("golden_data/MatMul_0_pure.npy")
+        golden_qnt = np.load("golden_data/MatMul_0_qnt.npy")
+
+        # 三列比对
+        result = self.verifier.verify_op(
+            op_name="MatMul",
+            op_id=0,
+            dut_output=dut_output,
+            golden_pure=golden_pure,
+            golden_qnt=golden_qnt,
+        )
+
+        # 验证状态
+        assert result.status in ("PERFECT", "PASS"), \
+            f"MatMul_0 precision check failed: {result.status}"
+
+        # 验证 QSNR
+        assert result.fuzzy_qnt.qsnr >= 30.0, \
+            f"QSNR too low: {result.fuzzy_qnt.qsnr:.1f} dB"
+
+    def test_model_all_ops(self):
+        """测试模型所有算子"""
+
+        # 收集所有算子输出 (通过推理 Hook 或文件加载)
+        op_outputs = {}
+        for f in Path("outputs").glob("*_dut.npy"):
+            op_key = f.stem.replace("_dut", "")
+            op_outputs[op_key] = np.load(f)
+
+        # 批量验证
+        results = self.verifier.verify_model_ops(
+            op_outputs=op_outputs,
+            golden_dir=Path("golden_data"),
+        )
+
+        # 打印汇总表格
+        self.verifier.print_summary()
+
+        # 验证通过率
+        summary = self.verifier.get_summary()
+        assert summary["FAIL"] == 0, \
+            f"{summary['FAIL']} operators failed precision check"
+
+        print(f"\nPrecision Summary: {summary['passed']}/{summary['total']} passed")
+        print(f"  PERFECT: {summary['PERFECT']}")
+        print(f"  PASS: {summary['PASS']}")
+        print(f"  QUANT_ISSUE: {summary['QUANT_ISSUE']}")
+
+
+@model_test(model="models/transformer.pt", framework="pytorch")
+def test_transformer_op_precision(model):
+    """端到端算子精度验证"""
+
+    # 1. 运行推理并收集算子输出
+    from aitest.model.operator.hooks import register_op_hooks, collect_outputs
+
+    hooks = register_op_hooks(model)
+    input_data = torch.randn(1, 512, 768)
+    output = model(input_data)
+    op_outputs = collect_outputs(hooks)
+
+    # 2. 验证每个算子
+    verifier = OperatorVerifier()
+    for op_name, dut_output in op_outputs.items():
+        golden_pure, golden_qnt = GoldenManager("./golden").load_golden(op_name, 0)
+        verifier.verify_op(op_name, 0, dut_output.numpy(), golden_pure, golden_qnt)
+
+    # 3. 检查结果
+    assert verifier.check_all_passed(), "Some operators failed precision check"
+    verifier.print_summary()
+```
+
 ### 5.2 需求追溯
 
-| 需求ID | 实现类/方法 | 测试用例 |
-|--------|-------------|----------|
-| MODEL-001 | `PyTorchLoader`, `TensorFlowLoader`, `ONNXLoader` | test_model_loading |
-| MODEL-002 | `ModelRegistry`, `ModelVersion` | test_model_versioning |
-| MODEL-003 | `InferenceValidator` | test_inference_correctness |
-| MODEL-004 | `AccuracyEvaluator` | test_accuracy_evaluation |
-| MODEL-005 | `PerformanceTester` | test_performance |
-| MODEL-006 | `StressTester` | test_stress |
-| MODEL-007 | `RobustnessTester` | test_robustness |
-| MODEL-008 | `ConsistencyTester` | test_consistency |
-| MODEL-009 | `LLMTester` | test_llm |
+| 需求ID | 实现类/方法 | 测试用例 | aidevtools 集成 |
+|--------|-------------|----------|-----------------|
+| MODEL-001 | `PyTorchLoader`, `TensorFlowLoader`, `ONNXLoader` | test_model_loading | - |
+| MODEL-002 | `ModelRegistry`, `ModelVersion` | test_model_versioning | - |
+| MODEL-003 | `InferenceValidator`, `OperatorVerifier` | test_inference_correctness | `compare_3col`, `compare_isclose` |
+| MODEL-003-01 | `OperatorVerifier.verify_op` | test_single_op_precision | `compare_3col` |
+| MODEL-003-03 | `OperatorVerifier.verify_model_ops` | test_model_all_ops | `print_compare_table` |
+| MODEL-004 | `AccuracyEvaluator` | test_accuracy_evaluation | - |
+| MODEL-005 | `PerformanceTester` | test_performance | - |
+| MODEL-006 | `StressTester` | test_stress | - |
+| MODEL-007 | `RobustnessTester` | test_robustness | - |
+| MODEL-008 | `ConsistencyTester` | test_consistency | - |
+| MODEL-009 | `LLMTester` | test_llm | - |
+
+### 5.3 算子验证功能追溯
+
+| 功能 | aidevtools 函数 | aitestframework 封装 | 说明 |
+|------|-----------------|---------------------|------|
+| 三列比对 | `compare_3col()` | `OperatorVerifier.verify_op()` | exact + fuzzy_pure + fuzzy_qnt |
+| IsClose 验证 | `compare_isclose()` | `OperatorVerifier.verify_isclose()` | 逐元素误差检查 |
+| 批量验证 | `print_compare_table()` | `OperatorVerifier.verify_model_ops()` | 模型所有算子验证 |
+| Golden 管理 | - | `GoldenManager` | Golden 数据存储/加载 |
+| 验证配置 | `CompareThresholds` | `OpVerifyConfig` | 比对阈值配置 |
 
 ---
 
-*本文档为AI模型测试模块的详细设计，基于4+1视图方法。*
+*本文档为AI模型测试模块的详细设计，基于4+1视图方法，集成 aidevtools 提供的算子精度比对能力。*
