@@ -552,47 +552,55 @@ src/aitest/performance/
 ### 2.1 基本性能测试
 
 ```python
-"""基本性能测试用例"""
+"""基本性能测试用例 - 使用通用模型配置"""
 
 from aitest import performance_test
 from aitest.performance import PerfTestConfig, assert_latency_us, assert_throughput
 
-# 使用 aidevtools 的预定义模型
-from aidevtools.analysis import from_preset, PaperAnalyzer
+# 使用 aidevtools 的通用模型层函数
+from aidevtools.analysis import transformer_layer, PaperAnalyzer
+
+
+# ============================================
+# 通用 Benchmark 配置 (中小模型)
+# ============================================
+BENCHMARK_CONFIGS = {
+    # 小型模型 - 快速验证
+    "small": {"batch": 8, "seq": 128, "hidden": 256, "num_heads": 4},
+    # 中型模型 - 标准测试
+    "medium": {"batch": 4, "seq": 256, "hidden": 512, "num_heads": 8},
+    # 大型模型 - 压力测试
+    "large": {"batch": 2, "seq": 512, "hidden": 768, "num_heads": 12},
+}
 
 
 @performance_test(chip="npu_910")
-def test_llama_7b_latency():
-    """测试 LLaMA-7B 单层推理时延"""
+def test_transformer_small_latency():
+    """测试小型Transformer层推理时延"""
 
-    # 获取模型 profiles
-    profiles = from_preset("llama-7b", batch=1)
+    config = BENCHMARK_CONFIGS["small"]
+    profiles = transformer_layer(**config)
 
-    # 使用 PaperAnalyzer 分析
     analyzer = PaperAnalyzer(chip="npu_910")
     analyzer.add_profiles(profiles)
     result = analyzer.analyze()
 
     # 断言时延
     total_latency_us = result.summary.totals.latency_us
-    assert_latency_us(total_latency_us, max_us=2000)  # < 2ms
-
-    # 断言吞吐量
-    achieved_tflops = result.summary.throughput.achieved_tflops
-    assert_throughput(achieved_tflops, min_tflops=100)
+    assert_latency_us(total_latency_us, max_us=500)  # < 500us
 
     return result
 
 
 @performance_test(chip="npu_910")
-def test_bert_base_batch_scaling():
-    """测试 BERT-Base 批次扩展性"""
+def test_transformer_batch_scaling():
+    """测试Transformer层批次扩展性"""
 
-    from aidevtools.analysis import bert_layer
+    base_config = {"seq": 256, "hidden": 512, "num_heads": 8}
 
     results = []
-    for batch_size in [1, 4, 8, 16, 32]:
-        profiles = bert_layer(batch=batch_size)
+    for batch_size in [1, 2, 4, 8, 16]:
+        profiles = transformer_layer(batch=batch_size, **base_config)
 
         analyzer = PaperAnalyzer(chip="npu_910")
         analyzer.add_profiles(profiles)
@@ -604,14 +612,36 @@ def test_bert_base_batch_scaling():
             "throughput_tflops": result.summary.throughput.achieved_tflops,
         })
 
-    # 验证线性扩展性
-    # batch=32 的吞吐量应该接近 batch=1 的 32 倍
+    # 验证扩展性
     throughput_1 = results[0]["throughput_tflops"]
-    throughput_32 = results[4]["throughput_tflops"]
-    scaling_efficiency = throughput_32 / (throughput_1 * 32)
+    throughput_16 = results[4]["throughput_tflops"]
+    scaling_efficiency = throughput_16 / (throughput_1 * 16)
 
-    assert scaling_efficiency > 0.8, \
+    assert scaling_efficiency > 0.7, \
         f"批次扩展效率过低: {scaling_efficiency:.2f}"
+
+    return results
+
+
+@performance_test(chip="npu_910")
+def test_sweep_hidden_dim():
+    """扫描不同hidden维度的性能"""
+
+    results = []
+    for hidden in [256, 512, 768, 1024]:
+        profiles = transformer_layer(
+            batch=4, seq=256, hidden=hidden, num_heads=hidden // 64
+        )
+
+        analyzer = PaperAnalyzer(chip="npu_910")
+        analyzer.add_profiles(profiles)
+        result = analyzer.analyze()
+
+        results.append({
+            "hidden": hidden,
+            "latency_us": result.summary.totals.latency_us,
+            "tflops": result.summary.throughput.achieved_tflops,
+        })
 
     return results
 ```
@@ -622,53 +652,31 @@ def test_bert_base_batch_scaling():
 """芯片对比测试 - 可选功能，低优先级"""
 
 from aitest.performance import ChipTestSuite
-from aidevtools.analysis import from_preset, list_chips
+from aidevtools.analysis import transformer_layer, list_chips
 
 
 class TestChipComparison(ChipTestSuite):
     """芯片对比测试套件"""
 
-    chips = ["npu_310", "npu_910", "gpu_a100"]
-    model_preset = "llama-7b"
-    batch_size = 4
+    chips = ["npu_310", "npu_910"]
+    # 使用通用中型配置
+    config = {"batch": 4, "seq": 256, "hidden": 512, "num_heads": 8}
 
     def test_latency_comparison(self):
         """对比各芯片时延"""
 
-        profiles = from_preset(self.model_preset, batch=self.batch_size)
+        profiles = transformer_layer(**self.config)
         results = self.run_on_all_chips(profiles)
 
-        # 生成对比报告
         comparison = self.compare_chips(results)
 
         print(f"\n{'=' * 50}")
-        print(f"Model: {self.model_preset}, Batch: {self.batch_size}")
+        print(f"Config: {self.config}")
         print(f"{'=' * 50}")
-        print(f"\nLatency Ranking:")
         for i, (chip, latency) in enumerate(comparison.latency_ranking):
             print(f"  {i+1}. {chip}: {latency:.2f} us")
 
-        print(f"\nThroughput Ranking:")
-        for i, (chip, tflops) in enumerate(comparison.throughput_ranking):
-            print(f"  {i+1}. {chip}: {tflops:.2f} TFLOPS")
-
         return comparison
-
-    def test_roofline_comparison(self):
-        """对比各芯片 Roofline 特性"""
-
-        profiles = from_preset(self.model_preset, batch=self.batch_size)
-
-        for chip in self.chips:
-            result = self.run_on_chip(profiles, chip)
-
-            compute_bound = result.summary.bottleneck.compute_bound_ops
-            memory_bound = result.summary.bottleneck.memory_bound_ops
-            total = compute_bound + memory_bound
-
-            print(f"\n{chip}:")
-            print(f"  Compute Bound: {compute_bound}/{total} ops")
-            print(f"  Memory Bound: {memory_bound}/{total} ops")
 ```
 
 ### 2.3 性能回归测试
@@ -677,28 +685,31 @@ class TestChipComparison(ChipTestSuite):
 """性能回归测试"""
 
 from aitest.performance import BaselineStore, assert_no_regression
-from aidevtools.analysis import from_preset, PaperAnalyzer
+from aidevtools.analysis import transformer_layer, PaperAnalyzer
 
 
 class TestPerformanceRegression:
     """性能回归测试"""
 
+    # 通用benchmark配置
+    BENCHMARK_CONFIG = {"batch": 4, "seq": 256, "hidden": 512, "num_heads": 8}
+
     def setup(self):
         self.baseline_store = BaselineStore("./perf_baselines")
         self.chip = "npu_910"
 
-    def test_llama_7b_no_regression(self):
-        """验证 LLaMA-7B 无性能回归"""
+    def test_transformer_no_regression(self):
+        """验证Transformer层无性能回归"""
 
         # 运行当前版本
-        profiles = from_preset("llama-7b", batch=1)
+        profiles = transformer_layer(**self.BENCHMARK_CONFIG)
         analyzer = PaperAnalyzer(chip=self.chip)
         analyzer.add_profiles(profiles)
         current_result = analyzer.analyze()
 
         # 加载基线
         baseline = self.baseline_store.load_baseline(
-            name="llama-7b",
+            name="transformer_medium",
             version="v1.0"
         )
 
@@ -724,17 +735,17 @@ class TestPerformanceRegression:
     def save_baseline(self, version: str):
         """保存当前结果为基线"""
 
-        profiles = from_preset("llama-7b", batch=1)
+        profiles = transformer_layer(**self.BENCHMARK_CONFIG)
         analyzer = PaperAnalyzer(chip=self.chip)
         analyzer.add_profiles(profiles)
         result = analyzer.analyze()
 
         self.baseline_store.save_baseline(
-            name="llama-7b",
+            name="transformer_medium",
             result=result,
             version=version
         )
-        print(f"Baseline saved: llama-7b @ {version}")
+        print(f"Baseline saved: transformer_medium @ {version}")
 ```
 
 ### 2.4 CI 配置示例
@@ -851,17 +862,18 @@ performance = [
 
 ## 1. 核心用例
 
-### UC-PERF-01: 模型性能基准测试
+### UC-PERF-01: 通用模型性能基准测试
 
 ```python
-# 用例: 测试 LLaMA-7B 在 NPU 910 上的性能
+# 用例: 测试通用Transformer层在 NPU 910 上的性能
 
-from aidevtools.analysis import from_preset, PaperAnalyzer
+from aidevtools.analysis import transformer_layer, PaperAnalyzer
 
-def test_llama_7b_benchmark():
-    """LLaMA-7B 性能基准测试"""
+def test_transformer_benchmark():
+    """通用Transformer性能基准测试"""
 
-    profiles = from_preset("llama-7b", batch=1)
+    # 中型配置: batch=4, seq=256, hidden=512
+    profiles = transformer_layer(batch=4, seq=256, hidden=512, num_heads=8)
 
     analyzer = PaperAnalyzer(chip="npu_910")
     analyzer.add_profiles(profiles)
@@ -871,8 +883,8 @@ def test_llama_7b_benchmark():
     analyzer.print_summary()
 
     # 验证指标
-    assert result.summary.totals.latency_us < 2000  # < 2ms
-    assert result.summary.throughput.achieved_tflops > 100  # > 100 TFLOPS
+    assert result.summary.totals.latency_us < 1000  # < 1ms
+    assert result.summary.throughput.achieved_tflops > 10  # > 10 TFLOPS
 ```
 
 ### UC-PERF-02: 芯片适配验证（可选，低优先级）
@@ -880,14 +892,15 @@ def test_llama_7b_benchmark():
 ```python
 # 用例: 验证算子在不同芯片上的性能表现 (可选功能)
 
-from aidevtools.analysis import from_preset, PaperAnalyzer, list_chips
+from aidevtools.analysis import transformer_layer, PaperAnalyzer
 
 def test_multi_chip_compatibility():
     """多芯片兼容性测试"""
 
-    profiles = from_preset("bert-base", batch=8)
+    # 通用中型配置
+    profiles = transformer_layer(batch=4, seq=256, hidden=512, num_heads=8)
 
-    for chip in ["npu_310", "npu_910", "gpu_a100"]:
+    for chip in ["npu_310", "npu_910"]:
         analyzer = PaperAnalyzer(chip=chip)
         analyzer.add_profiles(profiles)
         result = analyzer.analyze()
@@ -914,13 +927,13 @@ performance_gate:
     latency_regression: 10%      # 时延增加不超过10%
     throughput_regression: -5%   # 吞吐量下降不超过5%
 
-  models:
-    - name: "llama-7b"
+  benchmarks:
+    - name: "transformer_small"
+      config: {batch: 8, seq: 128, hidden: 256, num_heads: 4}
       chip: "npu_910"
-      batch: 1
-    - name: "bert-base"
+    - name: "transformer_medium"
+      config: {batch: 4, seq: 256, hidden: 512, num_heads: 8}
       chip: "npu_910"
-      batch: 8
 
   on_regression: fail  # fail | warn | ignore
 ```
@@ -932,7 +945,7 @@ performance_gate:
 | 时延测试 | MODEL-005-01 | PaperAnalyzer, LatencyResult | P0 |
 | 吞吐量测试 | MODEL-005-02 | AnalysisSummary.throughput | P0 |
 | 回归测试 | MODEL-005-06 | BaselineStore, comparison | P0 |
-| 模型基准 | MODEL-006 | from_preset(), model configs | P1 |
+| 通用Benchmark | MODEL-006 | transformer_layer(), 自定义配置 | P1 |
 | Roofline分析 | MODEL-005-04 | RooflinePass, bottleneck stats | P1 |
 | 芯片对比 | MODEL-005-06 | ChipSpec, load_chip_spec() | P2 (可选) |
 
@@ -947,8 +960,8 @@ performance_gate:
 | MODEL-005-02 | 吞吐量测试 | assert_throughput | AnalysisSummary |
 | MODEL-005-04 | GPU利用率测试 | Roofline分析 | RooflinePass |
 | MODEL-005-06 | 性能基准对比 | BaselineStore | export_xlsx |
-| MODEL-006 | 压力测试 | 批次扩展测试 | from_preset |
+| MODEL-006 | 压力测试 | 批次扩展测试 | transformer_layer() |
 
 ---
 
-*本文档为AI测试框架性能测试模块设计，通过集成 aidevtools.analysis 提供的 Cost Model 能力，实现算子级性能分析、芯片适配验证和性能回归测试。*
+*本文档为AI测试框架性能测试模块设计，通过集成 aidevtools.analysis 提供的 Cost Model 能力，使用通用 Transformer Benchmark 配置（small/medium/large）实现算子级性能分析和性能回归测试。*
