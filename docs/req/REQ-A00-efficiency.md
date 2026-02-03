@@ -51,8 +51,36 @@ parent: REQ-EFF
   "aitestframework.remoteSshHost": "dev@192.168.1.100",
   "aitestframework.remotePath": "/home/dev/project",
   "aitestframework.qualityCheck.enabled": true,
-  "aitestframework.qualityCheck.onSave": true
+  "aitestframework.qualityCheck.onSave": true,
+  "aitestframework.portForward": {
+    "report": 8080,
+    "debug": 5678,
+    "gdb": 1234
+  }
 }
+```
+
+### SSH端口转发配置
+
+由于远端服务器为Docker容器，不支持新增端口暴露，需配置SSH本地端口转发。
+
+```json
+// .vscode/settings.json (Remote-SSH)
+{
+  "remote.SSH.localServerDownload": "off",
+  "remote.SSH.useLocalServer": false,
+  "remote.SSH.configFile": "~/.ssh/config"
+}
+```
+
+```
+# ~/.ssh/config
+Host dev-server
+    HostName 192.168.1.100
+    User dev
+    LocalForward 8080 localhost:8080
+    LocalForward 5678 localhost:5678
+    LocalForward 1234 localhost:1234
 ```
 
 ### 验收标准

@@ -299,7 +299,7 @@ environments:
 本地/CI触发
     │
     ▼
-SSH连接远程服务器
+SSH连接远程服务器（含端口转发）
     │
     ▼
 rsync同步代码到work_dir
@@ -313,6 +313,34 @@ rsync回传结果文件
     ▼
 本地解析生成报告
 ```
+
+### SSH端口转发
+
+由于远端服务器为Docker容器，不支持新增端口暴露，需通过SSH本地端口转发访问服务。
+
+```bash
+# 端口转发配置
+# ~/.ssh/config
+Host dev-server
+    HostName 192.168.1.100
+    User dev
+    # 报告服务器端口转发
+    LocalForward 8080 localhost:8080
+    # 调试服务器端口转发
+    LocalForward 5678 localhost:5678
+    # GDB Server端口转发
+    LocalForward 1234 localhost:1234
+
+# 或通过命令行
+ssh -L 8080:localhost:8080 -L 5678:localhost:5678 dev@192.168.1.100
+```
+
+**端口用途**:
+| 本地端口 | 远程端口 | 用途 |
+|----------|----------|------|
+| 8080 | 8080 | 测试报告Web服务 |
+| 5678 | 5678 | Python调试器 |
+| 1234 | 1234 | GDB远程调试 |
 
 ### 验收标准
 
