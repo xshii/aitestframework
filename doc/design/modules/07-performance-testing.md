@@ -8,17 +8,17 @@
 | **模块名称** | 性能测试 |
 | **英文名称** | Performance Testing |
 | **分类** | 性能需求 |
-| **职责** | ESL/FPGA接口版本性能追踪、NPU性能分析、CPU PMU分析、性能版本对比、C语言维测桩 |
+| **职责** | 算子性能分析、Cost Model集成、性能回归测试、芯片适配验证 |
 | **关联需求** | MODEL-005, MODEL-006 |
+| **外部依赖** | aidevtools.analysis (Cost Model) |
 
 ### 模块定位
 
-性能测试模块专注于硬件验证场景下的性能分析与追踪，主要包括：
-- **ESL/FPGA接口版本追踪**：监控ESL模型和FPGA比特流接口变化导致的性能变更
-- **NPU性能分析**：NPU专用性能分析脚本，支持算子级别性能剖析
-- **CPU PMU分析**：基于硬件性能计数器(PMU)的CPU性能分析
-- **性能版本对比**：跨版本性能元数据管理与对比分析
-- **软件维测桩**：C语言性能维测桩设计，支持嵌入式系统性能采集
+性能测试模块作为AI测试框架的性能验证层，集成 `aidevtools.analysis` 提供的 Cost Model 能力，提供：
+- **算子级性能分析**：集成 PaperAnalyzer 进行时延、带宽、算力分析
+- **芯片适配验证**：验证算子在不同芯片规格下的性能表现
+- **性能回归测试**：跨版本性能对比与回归检测
+- **性能断言**：时延、吞吐量、利用率等指标的阈值断言
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -26,20 +26,21 @@
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                    Hardware Performance Stack                        │    │
+│  │                      Test Framework Layer                            │    │
 │  │  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐        │    │
-│  │  │    ESL    │  │   FPGA    │  │    NPU    │  │    CPU    │        │    │
-│  │  │ Interface │  │ Bitstream │  │  Profiler │  │    PMU    │        │    │
+│  │  │   Perf    │  │   Perf    │  │  Version  │  │   Perf    │        │    │
+│  │  │ TestCase  │  │ Assertion │  │  Compare  │  │  Report   │        │    │
 │  │  └───────────┘  └───────────┘  └───────────┘  └───────────┘        │    │
 │  └─────────────────────────────────────────────────────────────────────┘    │
 │                                    │                                        │
-│  ┌─────────────────────────────────┼─────────────────────────────────────┐  │
-│  │                                 ▼                                      │  │
-│  │  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐          │  │
-│  │  │  Version  │  │   Perf    │  │    C      │  │  Metadata │          │  │
-│  │  │  Tracker  │  │  Compare  │  │   Stub    │  │   Store   │          │  │
-│  │  └───────────┘  └───────────┘  └───────────┘  └───────────┘          │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
+│                                    ▼                                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                    aidevtools.analysis (Cost Model)                  │    │
+│  │  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐        │    │
+│  │  │  Paper    │  │   Chip    │  │   Pass    │  │   Model   │        │    │
+│  │  │ Analyzer  │  │   Spec    │  │   Chain   │  │  Presets  │        │    │
+│  │  └───────────┘  └───────────┘  └───────────┘  └───────────┘        │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -56,506 +57,282 @@
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                     PerformanceAnalyzer                              │    │
+│  │                      PerfTestRunner                                  │    │
 │  ├─────────────────────────────────────────────────────────────────────┤    │
-│  │  - version_tracker: VersionTracker                                  │    │
-│  │  - npu_profiler: NPUProfiler                                        │    │
-│  │  - pmu_analyzer: PMUAnalyzer                                        │    │
-│  │  - metadata_store: MetadataStore                                    │    │
+│  │  - analyzer: PaperAnalyzer        # from aidevtools.analysis        │    │
+│  │  - chip_spec: ChipSpec            # 芯片规格                         │    │
+│  │  - baseline_store: BaselineStore  # 基线存储                         │    │
+│  │  - config: PerfTestConfig                                           │    │
 │  ├─────────────────────────────────────────────────────────────────────┤    │
-│  │  + track_version_change(old, new) -> VersionDiff                    │    │
-│  │  + analyze_npu_performance(trace) -> NPUReport                      │    │
-│  │  + analyze_pmu_counters(data) -> PMUReport                          │    │
-│  │  + compare_versions(v1, v2) -> ComparisonReport                     │    │
+│  │  + run_latency_test(profiles) -> LatencyResult                      │    │
+│  │  + run_throughput_test(model, config) -> ThroughputResult           │    │
+│  │  + run_roofline_analysis(profiles) -> RooflineResult                │    │
+│  │  + compare_with_baseline(result, baseline) -> ComparisonResult      │    │
 │  └─────────────────────────────────────────────────────────────────────┘    │
+│                                    │                                        │
+│         ┌──────────────────────────┴───────────────────────────┐           │
+│         ▼                                                       ▼           │
+│  ┌──────────────────────────┐                ┌──────────────────────────┐   │
+│  │     PerfAssertion        │                │     BaselineStore        │   │
+│  ├──────────────────────────┤                ├──────────────────────────┤   │
+│  │ + assert_latency_us()    │                │ - storage_path: str      │   │
+│  │ + assert_throughput()    │                │ - baselines: Dict        │   │
+│  │ + assert_bandwidth()     │                ├──────────────────────────┤   │
+│  │ + assert_utilization()   │                │ + save_baseline()        │   │
+│  │ + assert_no_regression() │                │ + load_baseline()        │   │
+│  └──────────────────────────┘                │ + compare_versions()     │   │
+│                                              └──────────────────────────┘   │
 │                                                                             │
-│  ┌──────────────────────────┐      ┌──────────────────────────┐            │
-│  │     VersionTracker       │      │     InterfaceMonitor     │            │
-│  ├──────────────────────────┤      ├──────────────────────────┤            │
-│  │ - esl_versions: Dict     │      │ - interface_registry     │            │
-│  │ - fpga_versions: Dict    │      │ - change_listeners       │            │
-│  │ - change_history: List   │      │ - diff_engine            │            │
-│  ├──────────────────────────┤      ├──────────────────────────┤            │
-│  │ + register_esl(version)  │      │ + detect_changes()       │            │
-│  │ + register_fpga(version) │      │ + get_interface_diff()   │            │
-│  │ + get_version_diff()     │      │ + notify_listeners()     │            │
-│  │ + export_history()       │      │ + generate_report()      │            │
-│  └──────────────────────────┘      └──────────────────────────┘            │
-│                                                                             │
-│  ┌──────────────────────────┐      ┌──────────────────────────┐            │
-│  │      NPUProfiler         │      │      PMUAnalyzer         │            │
-│  ├──────────────────────────┤      ├──────────────────────────┤            │
-│  │ - npu_device: NPUDevice  │      │ - pmu_events: List       │            │
-│  │ - trace_buffer: Buffer   │      │ - counters: Dict         │            │
-│  │ - op_stats: Dict         │      │ - sampling_rate: int     │            │
-│  ├──────────────────────────┤      ├──────────────────────────┤            │
-│  │ + start_profiling()      │      │ + configure_events()     │            │
-│  │ + stop_profiling()       │      │ + start_counting()       │            │
-│  │ + get_op_breakdown()     │      │ + stop_counting()        │            │
-│  │ + get_memory_traffic()   │      │ + read_counters()        │            │
-│  │ + get_utilization()      │      │ + analyze_hotspots()     │            │
-│  │ + export_trace()         │      │ + export_report()        │            │
-│  └──────────────────────────┘      └──────────────────────────┘            │
-│                                                                             │
-│  ┌──────────────────────────┐      ┌──────────────────────────┐            │
-│  │     MetadataStore        │      │    InstrumentStub        │            │
-│  ├──────────────────────────┤      ├──────────────────────────┤            │
-│  │ - db_path: str           │      │ - stub_config: Config    │            │
-│  │ - schema: Schema         │      │ - output_format: Format  │            │
-│  │ - indexes: Dict          │      │ - buffer_size: int       │            │
-│  ├──────────────────────────┤      ├──────────────────────────┤            │
-│  │ + store_metadata()       │      │ + generate_stub()        │            │
-│  │ + query_by_version()     │      │ + insert_probes()        │            │
-│  │ + get_perf_history()     │      │ + collect_data()         │            │
-│  │ + export_comparison()    │      │ + export_results()       │            │
-│  └──────────────────────────┘      └──────────────────────────┘            │
+│  ┌──────────────────────────┐                ┌──────────────────────────┐   │
+│  │    ChipTestSuite         │                │   PerfReportGenerator    │   │
+│  ├──────────────────────────┤                ├──────────────────────────┤   │
+│  │ - chips: List[ChipSpec]  │                │ - results: List          │   │
+│  │ - profiles: List         │                │ - template: Template     │   │
+│  ├──────────────────────────┤                ├──────────────────────────┤   │
+│  │ + run_on_all_chips()     │                │ + generate_html()        │   │
+│  │ + compare_chips()        │                │ + generate_xlsx()        │   │
+│  │ + find_best_chip()       │                │ + generate_gantt()       │   │
+│  └──────────────────────────┘                └──────────────────────────┘   │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## 2. 核心数据结构
+## 2. 与 aidevtools.analysis 的集成关系
 
-### 2.1 ESL/FPGA版本追踪数据结构
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    Integration with aidevtools.analysis                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  aitestframework (性能测试模块)              aidevtools.analysis             │
+│  ┌──────────────────────────┐              ┌──────────────────────────┐     │
+│  │     PerfTestRunner       │   imports    │     PaperAnalyzer        │     │
+│  │                          │─────────────►│                          │     │
+│  │  - run_latency_test()    │              │  - add_profile()         │     │
+│  │  - run_roofline_test()   │              │  - analyze()             │     │
+│  └──────────────────────────┘              │  - get_summary()         │     │
+│                                            └──────────────────────────┘     │
+│  ┌──────────────────────────┐              ┌──────────────────────────┐     │
+│  │     ChipTestSuite        │   imports    │     ChipSpec             │     │
+│  │                          │─────────────►│     load_chip_spec()     │     │
+│  │  - test_on_npu_910()     │              │     list_chips()         │     │
+│  │  - test_on_gpu_a100()    │              └──────────────────────────┘     │
+│  └──────────────────────────┘                                               │
+│                                            ┌──────────────────────────┐     │
+│  ┌──────────────────────────┐   imports    │     Model Presets        │     │
+│  │     ModelPerfTest        │─────────────►│     from_preset()        │     │
+│  │                          │              │     transformer_layer()  │     │
+│  │  - test_llama_7b()       │              │     llama_layer()        │     │
+│  │  - test_bert_base()      │              └──────────────────────────┘     │
+│  └──────────────────────────┘                                               │
+│                                            ┌──────────────────────────┐     │
+│  ┌──────────────────────────┐   imports    │     Pass Chain           │     │
+│  │     BottleneckTest       │─────────────►│     RooflinePass         │     │
+│  │                          │              │     BandwidthPass        │     │
+│  │  - detect_bottleneck()   │              │     PrefetchPass         │     │
+│  │  - analyze_memory()      │              └──────────────────────────┘     │
+│  └──────────────────────────┘                                               │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## 3. 核心数据结构
 
 ```python
-@dataclass
-class ESLVersion:
-    """ESL模型版本信息"""
-    version_id: str              # 版本标识
-    model_name: str              # 模型名称
-    interface_hash: str          # 接口签名哈希
-    timestamp: datetime          # 时间戳
+from dataclasses import dataclass, field
+from typing import List, Dict, Optional
+from datetime import datetime
 
-    # 接口定义
-    input_ports: List[PortDef]   # 输入端口定义
-    output_ports: List[PortDef]  # 输出端口定义
-    config_params: Dict[str, Any] # 配置参数
-
-    # 性能基准
-    cycle_count: int             # 周期数
-    latency_ns: float            # 延迟(ns)
-    throughput_ops: float        # 吞吐量(ops/s)
+# 复用 aidevtools.analysis 的数据结构
+from aidevtools.analysis import (
+    LatencyResult,
+    LatencyBreakdown,
+    AnalysisSummary,
+    ChipSpec,
+    OpProfile,
+    GanttData,
+)
 
 
 @dataclass
-class FPGABitstream:
-    """FPGA比特流版本信息"""
-    version_id: str              # 版本标识
-    bitstream_hash: str          # 比特流哈希
-    device_family: str           # 设备系列
-    timestamp: datetime          # 时间戳
+class PerfTestConfig:
+    """性能测试配置"""
+    # 芯片配置
+    chip: str = "npu_910"
+    chips_to_compare: List[str] = field(default_factory=lambda: ["npu_910", "gpu_a100"])
 
-    # 资源使用
-    lut_usage: int               # LUT使用量
-    ff_usage: int                # 触发器使用量
-    bram_usage: int              # BRAM使用量
-    dsp_usage: int               # DSP使用量
+    # 测试配置
+    warmup_runs: int = 3
+    test_runs: int = 10
+    batch_sizes: List[int] = field(default_factory=lambda: [1, 4, 8, 16])
 
-    # 时序信息
-    clock_freq_mhz: float        # 时钟频率
-    timing_slack_ns: float       # 时序裕量
+    # 回归检测配置
+    regression_threshold_percent: float = 10.0
+    enable_baseline_compare: bool = True
 
-    # 接口定义
-    axi_interfaces: List[AXIInterface]  # AXI接口
+    # 报告配置
+    generate_gantt: bool = True
+    export_xlsx: bool = True
 
 
 @dataclass
-class VersionDiff:
-    """版本差异分析结果"""
-    old_version: str
-    new_version: str
+class PerfTestResult:
+    """性能测试结果"""
+    # 基本信息
+    test_name: str
+    chip_spec: ChipSpec
     timestamp: datetime
 
-    # 接口变更
-    added_ports: List[PortDef]
-    removed_ports: List[PortDef]
-    modified_ports: List[PortModification]
+    # 来自 aidevtools.analysis 的结果
+    latency_result: LatencyResult
+    summary: AnalysisSummary
 
-    # 性能变更
-    perf_changes: Dict[str, PerfChange]
+    # 测试框架层面的信息
+    test_config: PerfTestConfig
+    assertion_results: List['AssertionResult']
 
-    # 兼容性评估
-    is_backward_compatible: bool
-    breaking_changes: List[str]
-
-    # 影响分析
-    affected_testcases: List[str]
-    recommended_actions: List[str]
+    # 与基线对比
+    baseline_comparison: Optional['BaselineComparison'] = None
 
 
 @dataclass
-class PerfChange:
-    """性能变更详情"""
+class AssertionResult:
+    """断言结果"""
+    assertion_type: str       # "latency", "throughput", "bandwidth", "utilization"
     metric_name: str
-    old_value: float
-    new_value: float
-    change_percent: float
-    significance: str  # "improvement", "regression", "neutral"
-```
-
-### 2.2 NPU性能分析数据结构
-
-```python
-@dataclass
-class NPUProfileConfig:
-    """NPU性能分析配置"""
-    # 采集配置
-    trace_level: str = "operator"  # "operator", "kernel", "instruction"
-    sampling_enabled: bool = True
-    sampling_rate: int = 1000      # 采样频率(Hz)
-
-    # 内存追踪
-    memory_trace: bool = True
-    bandwidth_trace: bool = True
-
-    # 算子级配置
-    op_breakdown: bool = True
-    op_timeline: bool = True
-
-    # 输出配置
-    output_format: str = "json"
-    output_path: str = "./npu_trace"
+    expected_value: float
+    actual_value: float
+    threshold: float
+    passed: bool
+    message: str
 
 
 @dataclass
-class NPUOperatorStats:
-    """NPU算子统计"""
-    op_name: str                  # 算子名称
-    op_type: str                  # 算子类型
-    call_count: int               # 调用次数
-
-    # 时间统计
-    total_time_us: float          # 总耗时(us)
-    avg_time_us: float            # 平均耗时(us)
-    min_time_us: float            # 最小耗时(us)
-    max_time_us: float            # 最大耗时(us)
-
-    # 计算效率
-    compute_utilization: float    # 计算利用率
-    memory_utilization: float     # 内存利用率
-
-    # 数据移动
-    input_bytes: int              # 输入数据量
-    output_bytes: int             # 输出数据量
-    weight_bytes: int             # 权重数据量
-
-
-@dataclass
-class NPUProfileResult:
-    """NPU性能分析结果"""
-    session_id: str
-    timestamp: datetime
-    device_info: Dict[str, Any]
-
-    # 算子统计
-    operator_stats: List[NPUOperatorStats]
-
-    # 整体指标
-    total_time_ms: float
-    compute_time_ms: float
-    memory_time_ms: float
-    idle_time_ms: float
-
-    # 内存分析
-    peak_memory_mb: float
-    memory_bandwidth_gbps: float
-
-    # 利用率分析
-    overall_utilization: float
-    compute_bound_ops: List[str]
-    memory_bound_ops: List[str]
-
-    # 优化建议
-    optimization_hints: List[str]
-```
-
-### 2.3 CPU PMU分析数据结构
-
-```python
-@dataclass
-class PMUEventConfig:
-    """PMU事件配置"""
-    event_name: str               # 事件名称
-    event_code: int               # 事件代码
-    umask: int = 0                # 单元掩码
-    edge: bool = False            # 边沿触发
-    inv: bool = False             # 反转计数
-    cmask: int = 0                # 计数器掩码
-
-
-@dataclass
-class PMUCounters:
-    """PMU计数器数据"""
-    # CPU周期
-    cpu_cycles: int
-    instructions: int
-    ipc: float                    # 每周期指令数
-
-    # 缓存相关
-    l1d_cache_hits: int
-    l1d_cache_misses: int
-    l1i_cache_hits: int
-    l1i_cache_misses: int
-    l2_cache_hits: int
-    l2_cache_misses: int
-    l3_cache_hits: int
-    l3_cache_misses: int
-
-    # 分支预测
-    branch_instructions: int
-    branch_misses: int
-    branch_miss_rate: float
-
-    # 内存访问
-    memory_loads: int
-    memory_stores: int
-    memory_bandwidth_gbps: float
-
-    # TLB
-    dtlb_misses: int
-    itlb_misses: int
-
-
-@dataclass
-class PMUAnalysisResult:
-    """PMU分析结果"""
-    session_id: str
-    timestamp: datetime
-    duration_seconds: float
-
-    # 计数器数据
-    counters: PMUCounters
-
-    # 热点函数
-    hotspots: List[FunctionHotspot]
-
-    # 性能瓶颈
-    bottlenecks: List[PerformanceBottleneck]
-
-    # 优化建议
-    recommendations: List[str]
-
-
-@dataclass
-class FunctionHotspot:
-    """函数热点信息"""
-    function_name: str
-    module_name: str
-    address: int
-
-    # 采样数据
-    sample_count: int
-    percentage: float
-
-    # 性能指标
-    cycles_per_call: float
-    cache_miss_rate: float
-
-
-@dataclass
-class PerformanceBottleneck:
-    """性能瓶颈"""
-    bottleneck_type: str          # "cache", "branch", "memory", "compute"
-    severity: str                 # "low", "medium", "high"
-    description: str
-    affected_functions: List[str]
-    suggested_fix: str
-```
-
-### 2.4 性能元数据存储
-
-```python
-@dataclass
-class PerformanceMetadata:
-    """性能版本元数据"""
-    # 版本标识
-    version_id: str
-    build_id: str
-    commit_hash: str
-    timestamp: datetime
-
-    # 环境信息
-    hardware_config: HardwareConfig
-    software_config: SoftwareConfig
-
-    # ESL/FPGA信息
-    esl_version: Optional[ESLVersion]
-    fpga_bitstream: Optional[FPGABitstream]
-
-    # 性能数据
-    npu_metrics: Optional[NPUProfileResult]
-    pmu_metrics: Optional[PMUAnalysisResult]
-
-    # 自定义指标
-    custom_metrics: Dict[str, float]
-
-    # 标签
-    tags: List[str]
-    annotations: Dict[str, str]
-
-
-@dataclass
-class VersionComparison:
-    """版本对比结果"""
+class BaselineComparison:
+    """基线对比结果"""
     baseline_version: str
-    target_version: str
-    comparison_timestamp: datetime
+    current_version: str
 
-    # ESL/FPGA变更
-    interface_changes: VersionDiff
+    # 指标对比
+    latency_diff_percent: float
+    throughput_diff_percent: float
+    bandwidth_diff_percent: float
 
-    # 性能对比
-    perf_comparison: Dict[str, MetricComparison]
+    # 回归检测
+    has_regression: bool
+    regression_details: List[str]
 
-    # 回归分析
-    regressions: List[RegressionInfo]
-    improvements: List[ImprovementInfo]
-
-    # 总体评估
-    overall_status: str  # "pass", "warn", "fail"
-    summary: str
+    # 改进项
+    improvements: List[str]
 
 
 @dataclass
-class MetricComparison:
-    """指标对比"""
-    metric_name: str
-    baseline_value: float
-    target_value: float
-    absolute_diff: float
-    relative_diff_percent: float
-    threshold: Optional[float]
-    status: str  # "improved", "regressed", "unchanged"
+class ChipComparisonResult:
+    """芯片对比结果"""
+    model_name: str
+    batch_size: int
+
+    # 各芯片结果
+    chip_results: Dict[str, PerfTestResult]
+
+    # 对比分析
+    fastest_chip: str
+    latency_ranking: List[tuple]  # [(chip, latency_us), ...]
+    throughput_ranking: List[tuple]
+    efficiency_ranking: List[tuple]
 ```
 
-## 3. 核心接口定义
+## 4. 核心接口定义
 
 ```python
-class IVersionTracker(Protocol):
-    """版本追踪器接口"""
+from typing import Protocol, List
 
-    def register_esl_version(self, version: ESLVersion) -> None:
-        """注册ESL版本"""
-        ...
 
-    def register_fpga_version(self, bitstream: FPGABitstream) -> None:
-        """注册FPGA比特流版本"""
-        ...
+class IPerfTestRunner(Protocol):
+    """性能测试运行器接口"""
 
-    def get_version_diff(
+    def run_latency_test(
         self,
-        old_version: str,
-        new_version: str
-    ) -> VersionDiff:
-        """获取版本差异"""
+        profiles: List[OpProfile],
+        chip: str = "npu_910"
+    ) -> PerfTestResult:
+        """运行时延测试"""
         ...
 
-    def get_change_history(
+    def run_throughput_test(
         self,
-        start_date: datetime,
-        end_date: datetime
-    ) -> List[VersionDiff]:
-        """获取变更历史"""
+        model_preset: str,
+        batch_sizes: List[int],
+        chip: str = "npu_910"
+    ) -> List[PerfTestResult]:
+        """运行吞吐量测试"""
         ...
 
-
-class INPUProfiler(Protocol):
-    """NPU性能分析器接口"""
-
-    def configure(self, config: NPUProfileConfig) -> None:
-        """配置分析器"""
-        ...
-
-    def start_profiling(self) -> None:
-        """开始性能分析"""
-        ...
-
-    def stop_profiling(self) -> NPUProfileResult:
-        """停止分析并返回结果"""
-        ...
-
-    def get_operator_breakdown(self) -> List[NPUOperatorStats]:
-        """获取算子级分解"""
-        ...
-
-    def export_trace(self, path: str, format: str = "json") -> None:
-        """导出追踪数据"""
-        ...
-
-
-class IPMUAnalyzer(Protocol):
-    """PMU分析器接口"""
-
-    def configure_events(self, events: List[PMUEventConfig]) -> None:
-        """配置PMU事件"""
-        ...
-
-    def start_counting(self) -> None:
-        """开始计数"""
-        ...
-
-    def stop_counting(self) -> PMUCounters:
-        """停止计数"""
-        ...
-
-    def analyze(self, counters: PMUCounters) -> PMUAnalysisResult:
-        """分析PMU数据"""
-        ...
-
-    def identify_hotspots(self) -> List[FunctionHotspot]:
-        """识别热点"""
-        ...
-
-
-class IInstrumentStub(Protocol):
-    """维测桩接口"""
-
-    def generate_stub_code(
+    def run_roofline_analysis(
         self,
-        config: StubConfig
-    ) -> str:
-        """生成桩代码"""
+        profiles: List[OpProfile],
+        chip: str = "npu_910"
+    ) -> RooflineResult:
+        """运行 Roofline 分析"""
         ...
 
-    def insert_probes(
+
+class IPerfAssertion(Protocol):
+    """性能断言接口"""
+
+    def assert_latency_us(
         self,
-        source_file: str,
-        probe_points: List[ProbePoint]
-    ) -> str:
-        """插入探针"""
+        result: PerfTestResult,
+        max_latency_us: float
+    ) -> AssertionResult:
+        """断言时延不超过阈值"""
         ...
 
-    def collect_data(self) -> InstrumentData:
-        """收集数据"""
+    def assert_throughput_tflops(
+        self,
+        result: PerfTestResult,
+        min_tflops: float
+    ) -> AssertionResult:
+        """断言吞吐量不低于阈值"""
+        ...
+
+    def assert_no_regression(
+        self,
+        current: PerfTestResult,
+        baseline: PerfTestResult,
+        threshold_percent: float = 10.0
+    ) -> AssertionResult:
+        """断言无性能回归"""
         ...
 
 
-class IMetadataStore(Protocol):
-    """元数据存储接口"""
+class IBaselineStore(Protocol):
+    """基线存储接口"""
 
-    def store(self, metadata: PerformanceMetadata) -> str:
-        """存储元数据"""
+    def save_baseline(
+        self,
+        name: str,
+        result: PerfTestResult,
+        version: str
+    ) -> None:
+        """保存基线"""
         ...
 
-    def query_by_version(self, version_id: str) -> PerformanceMetadata:
-        """按版本查询"""
+    def load_baseline(
+        self,
+        name: str,
+        version: str = "latest"
+    ) -> PerfTestResult:
+        """加载基线"""
         ...
 
     def compare_versions(
         self,
-        baseline: str,
-        target: str
-    ) -> VersionComparison:
-        """版本对比"""
-        ...
-
-    def get_trend(
-        self,
-        metric: str,
-        start: datetime,
-        end: datetime
-    ) -> List[Tuple[datetime, float]]:
-        """获取趋势数据"""
+        name: str,
+        version_a: str,
+        version_b: str
+    ) -> BaselineComparison:
+        """对比版本"""
         ...
 ```
 
@@ -563,250 +340,163 @@ class IMetadataStore(Protocol):
 
 # 二、进程视图 (Process View)
 
-## 1. ESL/FPGA接口版本追踪流程
+## 1. 性能测试执行流程
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│               ESL/FPGA Interface Version Tracking Flow                       │
+│                   Performance Test Execution Flow                            │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐   │
-│  │  Parse  │───►│ Extract │───►│ Compare │───►│ Analyze │───►│ Report  │   │
-│  │ Version │    │Interface│    │  Diff   │    │ Impact  │    │ Change  │   │
+│  │ Prepare │───►│ Profile │───►│ Analyze │───►│ Assert  │───►│ Report  │   │
+│  │ Profiles│    │ Collect │    │(aidevtools)│  │ & Compare│   │ Generate│   │
 │  └─────────┘    └─────────┘    └─────────┘    └─────────┘    └─────────┘   │
 │                                                                             │
 │  详细流程:                                                                   │
 │                                                                             │
-│  1. Parse Version                                                           │
+│  1. Prepare Profiles                                                        │
 │     ┌─────────────────────────────────────────────────────────────────┐     │
-│     │  ESL Model File (.cpp/.h)  ──parse──► ESLVersion                │     │
-│     │  FPGA Bitstream (.bit)     ──parse──► FPGABitstream             │     │
-│     │  版本文件 (version.yaml)   ──parse──► VersionInfo               │     │
+│     │  # 方式1: 使用预定义模型                                         │     │
+│     │  from aidevtools.analysis import from_preset                    │     │
+│     │  profiles = from_preset("llama-7b", batch=4)                    │     │
+│     │                                                                  │     │
+│     │  # 方式2: 自定义模型                                             │     │
+│     │  from aidevtools.analysis import transformer_layer              │     │
+│     │  profiles = transformer_layer(batch=4, seq=512, hidden=768)     │     │
+│     │                                                                  │     │
+│     │  # 方式3: 从实际推理收集                                         │     │
+│     │  profiles = collect_profiles_from_inference(model, input)       │     │
 │     └─────────────────────────────────────────────────────────────────┘     │
 │                                                                             │
-│  2. Extract Interface                                                       │
+│  2. Run Analysis (via aidevtools.analysis.PaperAnalyzer)                    │
 │     ┌─────────────────────────────────────────────────────────────────┐     │
-│     │  - 解析端口定义 (input/output ports)                            │     │
-│     │  - 提取时序约束 (timing constraints)                            │     │
-│     │  - 获取配置参数 (configuration parameters)                      │     │
-│     │  - 计算接口签名 (interface signature hash)                      │     │
+│     │  from aidevtools.analysis import PaperAnalyzer, load_chip_spec  │     │
+│     │                                                                  │     │
+│     │  analyzer = PaperAnalyzer(chip="npu_910")                       │     │
+│     │  analyzer.add_profiles(profiles)                                │     │
+│     │  result = analyzer.analyze()                                    │     │
+│     │                                                                  │     │
+│     │  # result 包含:                                                  │     │
+│     │  # - breakdowns: 每个算子的时延分解                              │     │
+│     │  # - summary: 汇总指标 (总时延、瓶颈统计、吞吐量等)              │     │
+│     │  # - gantt_data: Gantt 图数据                                   │     │
 │     └─────────────────────────────────────────────────────────────────┘     │
 │                                                                             │
-│  3. Compare Diff                                                            │
+│  3. Assert & Compare                                                        │
 │     ┌─────────────────────────────────────────────────────────────────┐     │
-│     │  old_interface vs new_interface:                                │     │
-│     │  - 新增端口 (added ports)                                       │     │
-│     │  - 删除端口 (removed ports)                                     │     │
-│     │  - 修改端口 (modified ports: type/width/timing)                 │     │
-│     │  - 参数变更 (parameter changes)                                 │     │
+│     │  # 断言时延                                                      │     │
+│     │  assert_latency_us(result, max_us=1000)                         │     │
+│     │                                                                  │     │
+│     │  # 断言吞吐量                                                    │     │
+│     │  assert_throughput_tflops(result, min_tflops=100)               │     │
+│     │                                                                  │     │
+│     │  # 与基线对比                                                    │     │
+│     │  baseline = load_baseline("llama-7b", version="v1.0")           │     │
+│     │  comparison = compare_with_baseline(result, baseline)           │     │
+│     │  assert_no_regression(comparison, threshold=10%)                │     │
 │     └─────────────────────────────────────────────────────────────────┘     │
 │                                                                             │
-│  4. Analyze Impact                                                          │
+│  4. Generate Report                                                         │
 │     ┌─────────────────────────────────────────────────────────────────┐     │
-│     │  - 兼容性评估 (backward compatibility check)                    │     │
-│     │  - 性能影响分析 (performance impact analysis)                   │     │
-│     │  - 受影响测试用例识别 (affected testcase identification)        │     │
-│     │  - 迁移建议生成 (migration recommendation)                      │     │
+│     │  from aidevtools.analysis import export_xlsx                    │     │
+│     │  export_xlsx(result, "perf_report.xlsx")                        │     │
+│     │                                                                  │     │
+│     │  # 生成 Gantt 图                                                 │     │
+│     │  generate_gantt_chart(result.gantt_data, "gantt.html")          │     │
 │     └─────────────────────────────────────────────────────────────────┘     │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## 2. NPU性能分析流程
+## 2. 芯片对比测试流程
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    NPU Performance Profiling Flow                            │
+│                    Multi-Chip Comparison Test Flow                           │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│                       ┌─────────────────────┐                               │
-│                       │    NPU Profiler     │                               │
-│                       │     Controller      │                               │
-│                       └──────────┬──────────┘                               │
-│                                  │                                          │
-│         ┌────────────────────────┼────────────────────────┐                 │
-│         ▼                        ▼                        ▼                 │
-│  ┌─────────────┐         ┌─────────────┐         ┌─────────────┐           │
-│  │   Operator  │         │   Memory    │         │    Util     │           │
-│  │   Tracer    │         │   Tracker   │         │   Monitor   │           │
-│  └──────┬──────┘         └──────┬──────┘         └──────┬──────┘           │
-│         │                       │                       │                   │
-│         ▼                       ▼                       ▼                   │
-│  ┌─────────────┐         ┌─────────────┐         ┌─────────────┐           │
-│  │ Op Timeline │         │ Memory BW   │         │ Compute %   │           │
-│  │ Op Duration │         │ Peak Mem    │         │ Memory %    │           │
-│  │ Call Count  │         │ Data Move   │         │ Idle %      │           │
-│  └──────┬──────┘         └──────┬──────┘         └──────┬──────┘           │
-│         │                       │                       │                   │
-│         └────────────────────────┼────────────────────────┘                 │
-│                                  ▼                                          │
-│                       ┌─────────────────────┐                               │
-│                       │   Result Analyzer   │                               │
-│                       │   ┌─────────────┐   │                               │
-│                       │   │ Bottleneck  │   │                               │
-│                       │   │ Detection   │   │                               │
-│                       │   └─────────────┘   │                               │
-│                       │   ┌─────────────┐   │                               │
-│                       │   │Optimization │   │                               │
-│                       │   │   Hints     │   │                               │
-│                       │   └─────────────┘   │                               │
-│                       └─────────────────────┘                               │
-│                                                                             │
-│  分析脚本示例:                                                               │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │  # npu_profiler.py                                                  │    │
-│  │  profiler = NPUProfiler(device="npu0")                              │    │
-│  │  profiler.configure(trace_level="operator", memory_trace=True)      │    │
-│  │                                                                      │    │
-│  │  profiler.start_profiling()                                         │    │
-│  │  model.inference(input_data)                                        │    │
-│  │  result = profiler.stop_profiling()                                 │    │
-│  │                                                                      │    │
-│  │  # 分析结果                                                          │    │
-│  │  for op in result.operator_stats:                                   │    │
-│  │      print(f"{op.op_name}: {op.total_time_us}us, util={op.compute_utilization}")│
-│  │                                                                      │    │
-│  │  # 导出追踪                                                          │    │
-│  │  profiler.export_trace("./trace.json")                              │    │
-│  └─────────────────────────────────────────────────────────────────────┘    │
+│                         ┌─────────────────────┐                             │
+│                         │   Test Profiles     │                             │
+│                         │  (from_preset)      │                             │
+│                         └──────────┬──────────┘                             │
+│                                    │                                        │
+│              ┌─────────────────────┼─────────────────────┐                  │
+│              ▼                     ▼                     ▼                  │
+│       ┌─────────────┐       ┌─────────────┐       ┌─────────────┐          │
+│       │  NPU 310    │       │  NPU 910    │       │  GPU A100   │          │
+│       │ PaperAnalyzer│      │ PaperAnalyzer│      │ PaperAnalyzer│          │
+│       └──────┬──────┘       └──────┬──────┘       └──────┬──────┘          │
+│              │                     │                     │                  │
+│              ▼                     ▼                     ▼                  │
+│       ┌─────────────┐       ┌─────────────┐       ┌─────────────┐          │
+│       │LatencyResult│       │LatencyResult│       │LatencyResult│          │
+│       │  310: 5.2ms │       │  910: 1.1ms │       │ A100: 0.8ms │          │
+│       └──────┬──────┘       └──────┬──────┘       └──────┬──────┘          │
+│              │                     │                     │                  │
+│              └─────────────────────┼─────────────────────┘                  │
+│                                    ▼                                        │
+│                         ┌─────────────────────┐                             │
+│                         │  Comparison Report  │                             │
+│                         │                     │                             │
+│                         │  Ranking:           │                             │
+│                         │  1. A100 (0.8ms)    │                             │
+│                         │  2. 910  (1.1ms)    │                             │
+│                         │  3. 310  (5.2ms)    │                             │
+│                         │                     │                             │
+│                         │  Best for:          │                             │
+│                         │  - Latency: A100    │                             │
+│                         │  - Cost/Perf: 910   │                             │
+│                         └─────────────────────┘                             │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## 3. CPU PMU分析流程
+## 3. 性能回归检测流程
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                      CPU PMU Analysis Flow                                   │
+│                   Performance Regression Detection Flow                      │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                     PMU Event Configuration                          │    │
-│  │                                                                      │    │
-│  │   ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐  │    │
-│  │   │ Cycles  │  │  IPC    │  │  Cache  │  │ Branch  │  │ Memory  │  │    │
-│  │   │         │  │         │  │  Miss   │  │  Miss   │  │   BW    │  │    │
-│  │   └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘  │    │
-│  │        │            │            │            │            │        │    │
-│  │        └────────────┴────────────┼────────────┴────────────┘        │    │
-│  │                                  │                                   │    │
-│  └──────────────────────────────────┼───────────────────────────────────┘    │
-│                                     ▼                                        │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                     Data Collection                                  │    │
-│  │                                                                      │    │
-│  │    perf_event_open() ──► read_counters() ──► aggregate_samples()   │    │
-│  │                                                                      │    │
-│  │    支持模式:                                                         │    │
-│  │    - Counting Mode: 精确计数，低开销                                  │    │
-│  │    - Sampling Mode: 采样分析，识别热点                                │    │
-│  └──────────────────────────────────┬───────────────────────────────────┘    │
-│                                     ▼                                        │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                     Analysis & Report                                │    │
-│  │                                                                      │    │
-│  │  ┌───────────────────────────────────────────────────────────────┐  │    │
-│  │  │  热点分析:                                                     │  │    │
-│  │  │  - Top函数排名 (按cycle/sample)                                │  │    │
-│  │  │  - 调用路径分析                                                 │  │    │
-│  │  │  - 源码级热点定位                                               │  │    │
-│  │  └───────────────────────────────────────────────────────────────┘  │    │
-│  │                                                                      │    │
-│  │  ┌───────────────────────────────────────────────────────────────┐  │    │
-│  │  │  瓶颈识别:                                                     │  │    │
-│  │  │  - Cache瓶颈: L1/L2/L3 miss rate > threshold                   │  │    │
-│  │  │  - 分支瓶颈: branch miss rate > threshold                      │  │    │
-│  │  │  - 内存瓶颈: memory bandwidth saturation                       │  │    │
-│  │  │  - 前端瓶颈: instruction fetch stalls                          │  │    │
-│  │  └───────────────────────────────────────────────────────────────┘  │    │
-│  │                                                                      │    │
-│  └─────────────────────────────────────────────────────────────────────┘    │
-│                                                                             │
-│  PMU分析脚本示例:                                                            │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │  # pmu_analyzer.py                                                  │    │
-│  │  analyzer = PMUAnalyzer()                                           │    │
-│  │                                                                      │    │
-│  │  # 配置标准事件集                                                    │    │
-│  │  analyzer.configure_events([                                        │    │
-│  │      PMUEventConfig("cycles", 0x3C),                                │    │
-│  │      PMUEventConfig("instructions", 0xC0),                          │    │
-│  │      PMUEventConfig("l3_cache_misses", 0x2E, umask=0x41),           │    │
-│  │      PMUEventConfig("branch_misses", 0xC5),                         │    │
-│  │  ])                                                                  │    │
-│  │                                                                      │    │
-│  │  analyzer.start_counting()                                          │    │
-│  │  run_benchmark()                                                    │    │
-│  │  counters = analyzer.stop_counting()                                │    │
-│  │                                                                      │    │
-│  │  result = analyzer.analyze(counters)                                │    │
-│  │  print(f"IPC: {result.counters.ipc}")                               │    │
-│  │  print(f"L3 Miss Rate: {result.counters.l3_cache_misses/result.counters.memory_loads*100:.2f}%")│
-│  └─────────────────────────────────────────────────────────────────────┘    │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-## 4. 性能版本对比流程
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                  Performance Version Comparison Flow                         │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│   Baseline                                        Target                    │
-│   Version                                         Version                   │
-│      │                                               │                      │
-│      ▼                                               ▼                      │
+│   Baseline (v1.0)                              Current (v1.1)               │
+│      │                                              │                       │
+│      ▼                                              ▼                       │
 │  ┌─────────┐                                    ┌─────────┐                 │
-│  │Metadata │                                    │Metadata │                 │
-│  │  Store  │                                    │  Store  │                 │
+│  │ Stored  │                                    │  New    │                 │
+│  │ Result  │                                    │ Result  │                 │
 │  └────┬────┘                                    └────┬────┘                 │
 │       │                                              │                      │
 │       │         ┌─────────────────────────┐          │                      │
 │       └────────►│   Comparison Engine     │◄─────────┘                      │
 │                 │                         │                                 │
-│                 │  ┌─────────────────┐    │                                 │
-│                 │  │ Interface Diff  │    │                                 │
-│                 │  └─────────────────┘    │                                 │
-│                 │  ┌─────────────────┐    │                                 │
-│                 │  │  Metric Delta   │    │                                 │
-│                 │  └─────────────────┘    │                                 │
-│                 │  ┌─────────────────┐    │                                 │
-│                 │  │ Regression Det  │    │                                 │
-│                 │  └─────────────────┘    │                                 │
+│                 │  Metrics to Compare:    │                                 │
+│                 │  - total_latency_us     │                                 │
+│                 │  - achieved_tflops      │                                 │
+│                 │  - achieved_bandwidth   │                                 │
+│                 │  - per-op latency       │                                 │
 │                 └───────────┬─────────────┘                                 │
 │                             │                                               │
 │                             ▼                                               │
 │                 ┌─────────────────────────┐                                 │
-│                 │   Comparison Report     │                                 │
+│                 │   Regression Check      │                                 │
 │                 │                         │                                 │
-│                 │  - Interface Changes    │                                 │
-│                 │  - Performance Delta    │                                 │
-│                 │  - Regression List      │                                 │
-│                 │  - Trend Analysis       │                                 │
-│                 │  - Recommendations      │                                 │
+│                 │  if latency_diff > 10%: │                                 │
+│                 │      REGRESSION ⚠️       │                                 │
+│                 │  else:                  │                                 │
+│                 │      PASS ✓             │                                 │
+│                 └───────────┬─────────────┘                                 │
+│                             │                                               │
+│                             ▼                                               │
+│                 ┌─────────────────────────┐                                 │
+│                 │   Detailed Report       │                                 │
+│                 │                         │                                 │
+│                 │  Latency: 1.1ms → 1.3ms │                                 │
+│                 │  Change: +18.2% ⚠️       │                                 │
+│                 │                         │                                 │
+│                 │  Regressed Ops:         │                                 │
+│                 │  - attention: +25%      │                                 │
+│                 │  - layernorm: +15%      │                                 │
 │                 └─────────────────────────┘                                 │
-│                                                                             │
-│  元数据Schema:                                                               │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │  version_metadata:                                                  │    │
-│  │    version_id: string                                               │    │
-│  │    build_info:                                                      │    │
-│  │      commit: string                                                 │    │
-│  │      branch: string                                                 │    │
-│  │      timestamp: datetime                                            │    │
-│  │    esl_info:                                                        │    │
-│  │      model_version: string                                          │    │
-│  │      interface_hash: string                                         │    │
-│  │    fpga_info:                                                       │    │
-│  │      bitstream_version: string                                      │    │
-│  │      resource_usage: object                                         │    │
-│  │    performance:                                                     │    │
-│  │      npu_metrics: object                                            │    │
-│  │      pmu_metrics: object                                            │    │
-│  │      custom_metrics: object                                         │    │
-│  └─────────────────────────────────────────────────────────────────────┘    │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -820,562 +510,268 @@ class IMetadataStore(Protocol):
 ```
 src/aitest/performance/
 ├── __init__.py                 # 公共API导出
-├── analyzer.py                 # PerformanceAnalyzer 主类
+├── runner.py                   # PerfTestRunner 主类
 ├── config.py                   # 配置定义
 ├── results.py                  # 结果数据类
 │
-├── version/                    # 版本追踪
+├── integration/                # aidevtools 集成
 │   ├── __init__.py
-│   ├── tracker.py             # VersionTracker 版本追踪器
-│   ├── esl_parser.py          # ESL模型解析器
-│   ├── fpga_parser.py         # FPGA比特流解析器
-│   ├── diff_engine.py         # 差异分析引擎
-│   └── impact_analyzer.py     # 影响分析器
+│   ├── analyzer_wrapper.py    # PaperAnalyzer 封装
+│   ├── chip_adapter.py        # ChipSpec 适配
+│   └── profile_collector.py   # Profile 收集器
 │
-├── npu/                        # NPU性能分析
+├── assertions/                 # 性能断言
 │   ├── __init__.py
-│   ├── profiler.py            # NPU性能分析器
-│   ├── trace_collector.py     # 追踪数据收集
-│   ├── op_analyzer.py         # 算子分析
-│   ├── memory_analyzer.py     # 内存分析
-│   └── report_generator.py    # 报告生成
+│   ├── latency.py             # 时延断言
+│   ├── throughput.py          # 吞吐量断言
+│   ├── bandwidth.py           # 带宽断言
+│   ├── utilization.py         # 利用率断言
+│   └── regression.py          # 回归检测断言
 │
-├── pmu/                        # CPU PMU分析
+├── baseline/                   # 基线管理
 │   ├── __init__.py
-│   ├── analyzer.py            # PMU分析器
-│   ├── event_config.py        # 事件配置
-│   ├── counter_reader.py      # 计数器读取
-│   ├── hotspot_detector.py    # 热点检测
-│   └── bottleneck_analyzer.py # 瓶颈分析
+│   ├── store.py               # 基线存储
+│   ├── comparison.py          # 版本对比
+│   └── schema.py              # 存储模式
 │
-├── metadata/                   # 元数据管理
+├── reports/                    # 报告生成
 │   ├── __init__.py
-│   ├── store.py               # 元数据存储
-│   ├── schema.py              # 数据模式
-│   ├── query.py               # 查询接口
-│   └── comparison.py          # 版本对比
+│   ├── html_report.py         # HTML 报告
+│   ├── xlsx_report.py         # Excel 报告
+│   └── gantt_chart.py         # Gantt 图
 │
-├── stub/                       # C语言维测桩
-│   ├── __init__.py
-│   ├── generator.py           # 桩代码生成器
-│   ├── templates/             # 代码模板
-│   │   ├── probe_template.c
-│   │   ├── timer_template.c
-│   │   └── buffer_template.c
-│   ├── inserter.py            # 探针插入
-│   └── collector.py           # 数据收集
-│
-└── scripts/                    # 分析脚本
-    ├── npu_profile.py         # NPU性能分析脚本
-    ├── pmu_analyze.py         # PMU分析脚本
-    ├── version_compare.py     # 版本对比脚本
-    └── report_generate.py     # 报告生成脚本
+└── suites/                     # 测试套件
+    ├── __init__.py
+    ├── chip_comparison.py     # 芯片对比测试套
+    ├── model_benchmark.py     # 模型基准测试套
+    └── regression_suite.py    # 回归测试套
 ```
 
-## 2. C语言维测桩设计
+## 2. 代码示例
 
-### 2.1 维测桩架构
-
-```c
-/*
- * 性能维测桩设计
- * 用于嵌入式系统的轻量级性能采集
- */
-
-/* ============================================
- * 数据结构定义
- * ============================================ */
-
-/* 性能采样点 */
-typedef struct {
-    uint32_t probe_id;          /* 探针ID */
-    uint64_t timestamp;         /* 时间戳(cycles/ns) */
-    uint32_t event_type;        /* 事件类型 */
-    uint32_t data[4];           /* 自定义数据 */
-} perf_sample_t;
-
-/* 环形缓冲区 */
-typedef struct {
-    perf_sample_t *buffer;      /* 数据缓冲区 */
-    uint32_t size;              /* 缓冲区大小 */
-    uint32_t head;              /* 写入位置 */
-    uint32_t tail;              /* 读取位置 */
-    uint32_t overflow_count;    /* 溢出计数 */
-} perf_buffer_t;
-
-/* 性能统计 */
-typedef struct {
-    uint64_t total_time;        /* 总耗时 */
-    uint64_t min_time;          /* 最小耗时 */
-    uint64_t max_time;          /* 最大耗时 */
-    uint64_t call_count;        /* 调用次数 */
-} perf_stats_t;
-
-/* 探针配置 */
-typedef struct {
-    uint32_t probe_id;          /* 探针ID */
-    const char *name;           /* 探针名称 */
-    uint8_t enabled;            /* 是否启用 */
-    uint8_t level;              /* 采集级别 */
-    perf_stats_t stats;         /* 统计数据 */
-} probe_config_t;
-
-
-/* ============================================
- * 核心API
- * ============================================ */
-
-/* 初始化性能采集系统 */
-int perf_init(uint32_t buffer_size);
-
-/* 反初始化 */
-void perf_deinit(void);
-
-/* 启用/禁用采集 */
-void perf_enable(void);
-void perf_disable(void);
-
-/* 注册探针 */
-int perf_register_probe(uint32_t probe_id, const char *name);
-
-/* 记录事件 */
-static inline void perf_record(uint32_t probe_id, uint32_t event_type)
-{
-    if (!g_perf_enabled) return;
-
-    perf_sample_t sample = {
-        .probe_id = probe_id,
-        .timestamp = perf_get_timestamp(),
-        .event_type = event_type,
-    };
-
-    perf_buffer_write(&g_perf_buffer, &sample);
-}
-
-/* 函数入口/出口宏 */
-#define PERF_FUNC_ENTER(id) \
-    uint64_t __perf_enter_ts = perf_get_timestamp(); \
-    perf_record(id, PERF_EVENT_ENTER)
-
-#define PERF_FUNC_EXIT(id) \
-    do { \
-        perf_record(id, PERF_EVENT_EXIT); \
-        perf_update_stats(id, perf_get_timestamp() - __perf_enter_ts); \
-    } while(0)
-
-/* 区间测量宏 */
-#define PERF_BEGIN(id)  perf_record(id, PERF_EVENT_BEGIN)
-#define PERF_END(id)    perf_record(id, PERF_EVENT_END)
-
-/* 自定义数据记录 */
-#define PERF_DATA(id, d0, d1, d2, d3) \
-    perf_record_data(id, d0, d1, d2, d3)
-
-
-/* ============================================
- * 高精度时间戳
- * ============================================ */
-
-/* 平台相关的时间戳获取 */
-#if defined(__ARM_ARCH)
-/* ARM: 使用CNTVCT_EL0 */
-static inline uint64_t perf_get_timestamp(void)
-{
-    uint64_t ts;
-    __asm__ volatile("mrs %0, cntvct_el0" : "=r"(ts));
-    return ts;
-}
-#elif defined(__x86_64__)
-/* x86_64: 使用RDTSC */
-static inline uint64_t perf_get_timestamp(void)
-{
-    uint32_t lo, hi;
-    __asm__ volatile("rdtsc" : "=a"(lo), "=d"(hi));
-    return ((uint64_t)hi << 32) | lo;
-}
-#else
-/* 通用: 使用clock_gettime */
-static inline uint64_t perf_get_timestamp(void)
-{
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return ts.tv_sec * 1000000000ULL + ts.tv_nsec;
-}
-#endif
-
-
-/* ============================================
- * 数据导出
- * ============================================ */
-
-/* 导出格式 */
-typedef enum {
-    PERF_EXPORT_BINARY,         /* 二进制格式 */
-    PERF_EXPORT_CSV,            /* CSV格式 */
-    PERF_EXPORT_JSON,           /* JSON格式 */
-} perf_export_format_t;
-
-/* 导出数据 */
-int perf_export(const char *path, perf_export_format_t format);
-
-/* 获取统计信息 */
-int perf_get_stats(uint32_t probe_id, perf_stats_t *stats);
-
-/* 打印报告 */
-void perf_print_report(void);
-```
-
-### 2.2 维测桩使用示例
-
-```c
-/* 示例: 在NPU驱动中使用维测桩 */
-
-#include "perf_stub.h"
-
-/* 定义探针ID */
-enum {
-    PROBE_NPU_SUBMIT = 1,
-    PROBE_NPU_WAIT,
-    PROBE_NPU_DMA,
-    PROBE_NPU_COMPUTE,
-};
-
-/* 初始化 */
-void npu_driver_init(void)
-{
-    /* 初始化性能采集 */
-    perf_init(4096);  /* 4K采样点缓冲区 */
-
-    /* 注册探针 */
-    perf_register_probe(PROBE_NPU_SUBMIT, "npu_submit");
-    perf_register_probe(PROBE_NPU_WAIT, "npu_wait");
-    perf_register_probe(PROBE_NPU_DMA, "npu_dma");
-    perf_register_probe(PROBE_NPU_COMPUTE, "npu_compute");
-
-    perf_enable();
-}
-
-/* 任务提交函数 */
-int npu_submit_task(npu_task_t *task)
-{
-    PERF_FUNC_ENTER(PROBE_NPU_SUBMIT);
-
-    /* DMA传输 */
-    PERF_BEGIN(PROBE_NPU_DMA);
-    npu_dma_transfer(task->input, task->input_size);
-    PERF_END(PROBE_NPU_DMA);
-
-    /* 启动计算 */
-    PERF_BEGIN(PROBE_NPU_COMPUTE);
-    npu_start_compute(task);
-    PERF_END(PROBE_NPU_COMPUTE);
-
-    PERF_FUNC_EXIT(PROBE_NPU_SUBMIT);
-    return 0;
-}
-
-/* 等待完成 */
-int npu_wait_complete(npu_handle_t handle)
-{
-    PERF_FUNC_ENTER(PROBE_NPU_WAIT);
-
-    int ret = npu_poll_status(handle);
-
-    PERF_FUNC_EXIT(PROBE_NPU_WAIT);
-    return ret;
-}
-
-/* 导出性能数据 */
-void npu_export_perf_data(void)
-{
-    perf_export("/tmp/npu_perf.json", PERF_EXPORT_JSON);
-    perf_print_report();
-}
-```
-
-## 3. Python分析脚本示例
-
-### 3.1 NPU性能分析脚本
+### 2.1 基本性能测试
 
 ```python
-#!/usr/bin/env python3
-"""
-NPU性能分析脚本
-用于分析NPU性能数据并生成报告
-"""
+"""基本性能测试用例"""
 
-from aitest.performance.npu import NPUProfiler, NPUProfileConfig
-from aitest.performance.metadata import MetadataStore
+from aitest import performance_test
+from aitest.performance import PerfTestConfig, assert_latency_us, assert_throughput
 
-def analyze_npu_performance(model_path: str, input_data: dict) -> dict:
-    """分析NPU性能"""
-
-    # 配置分析器
-    config = NPUProfileConfig(
-        trace_level="operator",
-        memory_trace=True,
-        bandwidth_trace=True,
-        op_breakdown=True,
-        output_format="json"
-    )
-
-    profiler = NPUProfiler(device="npu0")
-    profiler.configure(config)
-
-    # 加载模型
-    model = load_model(model_path)
-
-    # 开始分析
-    profiler.start_profiling()
-
-    # 执行推理
-    output = model.inference(input_data)
-
-    # 停止分析
-    result = profiler.stop_profiling()
-
-    # 分析结果
-    print(f"总耗时: {result.total_time_ms:.2f}ms")
-    print(f"计算时间: {result.compute_time_ms:.2f}ms")
-    print(f"内存传输时间: {result.memory_time_ms:.2f}ms")
-    print(f"整体利用率: {result.overall_utilization:.1f}%")
-
-    print("\n算子耗时Top10:")
-    sorted_ops = sorted(result.operator_stats,
-                        key=lambda x: x.total_time_us,
-                        reverse=True)
-    for i, op in enumerate(sorted_ops[:10]):
-        print(f"  {i+1}. {op.op_name}: {op.total_time_us:.1f}us "
-              f"(util={op.compute_utilization:.1f}%)")
-
-    print("\n计算瓶颈算子:")
-    for op_name in result.compute_bound_ops:
-        print(f"  - {op_name}")
-
-    print("\n内存瓶颈算子:")
-    for op_name in result.memory_bound_ops:
-        print(f"  - {op_name}")
-
-    print("\n优化建议:")
-    for hint in result.optimization_hints:
-        print(f"  - {hint}")
-
-    # 导出追踪数据
-    profiler.export_trace("./npu_trace.json")
-
-    return result.to_dict()
+# 使用 aidevtools 的预定义模型
+from aidevtools.analysis import from_preset, PaperAnalyzer
 
 
-if __name__ == "__main__":
-    import sys
-    model_path = sys.argv[1] if len(sys.argv) > 1 else "model.bin"
-    analyze_npu_performance(model_path, {"input": load_test_data()})
+@performance_test(chip="npu_910")
+def test_llama_7b_latency():
+    """测试 LLaMA-7B 单层推理时延"""
+
+    # 获取模型 profiles
+    profiles = from_preset("llama-7b", batch=1)
+
+    # 使用 PaperAnalyzer 分析
+    analyzer = PaperAnalyzer(chip="npu_910")
+    analyzer.add_profiles(profiles)
+    result = analyzer.analyze()
+
+    # 断言时延
+    total_latency_us = result.summary.totals.latency_us
+    assert_latency_us(total_latency_us, max_us=2000)  # < 2ms
+
+    # 断言吞吐量
+    achieved_tflops = result.summary.throughput.achieved_tflops
+    assert_throughput(achieved_tflops, min_tflops=100)
+
+    return result
+
+
+@performance_test(chip="npu_910")
+def test_bert_base_batch_scaling():
+    """测试 BERT-Base 批次扩展性"""
+
+    from aidevtools.analysis import bert_layer
+
+    results = []
+    for batch_size in [1, 4, 8, 16, 32]:
+        profiles = bert_layer(batch=batch_size)
+
+        analyzer = PaperAnalyzer(chip="npu_910")
+        analyzer.add_profiles(profiles)
+        result = analyzer.analyze()
+
+        results.append({
+            "batch_size": batch_size,
+            "latency_us": result.summary.totals.latency_us,
+            "throughput_tflops": result.summary.throughput.achieved_tflops,
+        })
+
+    # 验证线性扩展性
+    # batch=32 的吞吐量应该接近 batch=1 的 32 倍
+    throughput_1 = results[0]["throughput_tflops"]
+    throughput_32 = results[4]["throughput_tflops"]
+    scaling_efficiency = throughput_32 / (throughput_1 * 32)
+
+    assert scaling_efficiency > 0.8, \
+        f"批次扩展效率过低: {scaling_efficiency:.2f}"
+
+    return results
 ```
 
-### 3.2 CPU PMU分析脚本
+### 2.2 芯片对比测试
 
 ```python
-#!/usr/bin/env python3
-"""
-CPU PMU分析脚本
-使用硬件性能计数器分析CPU性能
-"""
+"""芯片对比测试"""
 
-from aitest.performance.pmu import PMUAnalyzer, PMUEventConfig
-
-def analyze_cpu_performance(target_func, *args, **kwargs):
-    """使用PMU分析CPU性能"""
-
-    analyzer = PMUAnalyzer()
-
-    # 配置标准事件集
-    analyzer.configure_events([
-        # 基础事件
-        PMUEventConfig("cpu_cycles", event_code=0x3C),
-        PMUEventConfig("instructions", event_code=0xC0),
-
-        # 缓存事件
-        PMUEventConfig("l1d_cache_misses", event_code=0x51, umask=0x01),
-        PMUEventConfig("l2_cache_misses", event_code=0x51, umask=0x02),
-        PMUEventConfig("l3_cache_misses", event_code=0x2E, umask=0x41),
-
-        # 分支事件
-        PMUEventConfig("branch_instructions", event_code=0xC4),
-        PMUEventConfig("branch_misses", event_code=0xC5),
-
-        # 内存事件
-        PMUEventConfig("memory_loads", event_code=0xD0, umask=0x81),
-        PMUEventConfig("memory_stores", event_code=0xD0, umask=0x82),
-    ])
-
-    # 开始计数
-    analyzer.start_counting()
-
-    # 执行目标函数
-    result = target_func(*args, **kwargs)
-
-    # 停止计数
-    counters = analyzer.stop_counting()
-
-    # 分析结果
-    analysis = analyzer.analyze(counters)
-
-    # 打印报告
-    print("=" * 60)
-    print("CPU PMU 分析报告")
-    print("=" * 60)
-
-    print(f"\n基础指标:")
-    print(f"  CPU Cycles:     {counters.cpu_cycles:,}")
-    print(f"  Instructions:   {counters.instructions:,}")
-    print(f"  IPC:            {counters.ipc:.2f}")
-
-    print(f"\n缓存性能:")
-    l1_miss_rate = counters.l1d_cache_misses / max(counters.memory_loads, 1) * 100
-    l3_miss_rate = counters.l3_cache_misses / max(counters.memory_loads, 1) * 100
-    print(f"  L1D Miss Rate:  {l1_miss_rate:.2f}%")
-    print(f"  L3 Miss Rate:   {l3_miss_rate:.2f}%")
-
-    print(f"\n分支预测:")
-    branch_miss_rate = counters.branch_misses / max(counters.branch_instructions, 1) * 100
-    print(f"  Branch Miss Rate: {branch_miss_rate:.2f}%")
-
-    # 识别瓶颈
-    print(f"\n性能瓶颈:")
-    for bottleneck in analysis.bottlenecks:
-        print(f"  [{bottleneck.severity.upper()}] {bottleneck.bottleneck_type}: "
-              f"{bottleneck.description}")
-        print(f"    建议: {bottleneck.suggested_fix}")
-
-    # 热点函数
-    if analysis.hotspots:
-        print(f"\n热点函数 Top5:")
-        for i, hotspot in enumerate(analysis.hotspots[:5]):
-            print(f"  {i+1}. {hotspot.function_name} "
-                  f"({hotspot.percentage:.1f}%)")
-
-    print("=" * 60)
-
-    return analysis
+from aitest.performance import ChipTestSuite
+from aidevtools.analysis import from_preset, list_chips
 
 
-# 使用示例
-if __name__ == "__main__":
-    def benchmark_workload():
-        """示例工作负载"""
-        import numpy as np
-        a = np.random.rand(1000, 1000)
-        b = np.random.rand(1000, 1000)
-        for _ in range(10):
-            c = np.dot(a, b)
-        return c
+class TestChipComparison(ChipTestSuite):
+    """芯片对比测试套件"""
 
-    analyze_cpu_performance(benchmark_workload)
+    chips = ["npu_310", "npu_910", "gpu_a100"]
+    model_preset = "llama-7b"
+    batch_size = 4
+
+    def test_latency_comparison(self):
+        """对比各芯片时延"""
+
+        profiles = from_preset(self.model_preset, batch=self.batch_size)
+        results = self.run_on_all_chips(profiles)
+
+        # 生成对比报告
+        comparison = self.compare_chips(results)
+
+        print(f"\n{'=' * 50}")
+        print(f"Model: {self.model_preset}, Batch: {self.batch_size}")
+        print(f"{'=' * 50}")
+        print(f"\nLatency Ranking:")
+        for i, (chip, latency) in enumerate(comparison.latency_ranking):
+            print(f"  {i+1}. {chip}: {latency:.2f} us")
+
+        print(f"\nThroughput Ranking:")
+        for i, (chip, tflops) in enumerate(comparison.throughput_ranking):
+            print(f"  {i+1}. {chip}: {tflops:.2f} TFLOPS")
+
+        return comparison
+
+    def test_roofline_comparison(self):
+        """对比各芯片 Roofline 特性"""
+
+        profiles = from_preset(self.model_preset, batch=self.batch_size)
+
+        for chip in self.chips:
+            result = self.run_on_chip(profiles, chip)
+
+            compute_bound = result.summary.bottleneck.compute_bound_ops
+            memory_bound = result.summary.bottleneck.memory_bound_ops
+            total = compute_bound + memory_bound
+
+            print(f"\n{chip}:")
+            print(f"  Compute Bound: {compute_bound}/{total} ops")
+            print(f"  Memory Bound: {memory_bound}/{total} ops")
 ```
 
-### 3.3 版本对比脚本
+### 2.3 性能回归测试
 
 ```python
-#!/usr/bin/env python3
-"""
-性能版本对比脚本
-对比不同版本间的性能差异
-"""
+"""性能回归测试"""
 
-from aitest.performance.metadata import MetadataStore, VersionComparison
-from aitest.performance.version import VersionTracker
-
-def compare_versions(baseline_version: str, target_version: str):
-    """对比两个版本的性能"""
-
-    store = MetadataStore("./perf_metadata.db")
-    tracker = VersionTracker()
-
-    # 获取版本元数据
-    baseline = store.query_by_version(baseline_version)
-    target = store.query_by_version(target_version)
-
-    # 接口变更分析
-    interface_diff = tracker.get_version_diff(
-        baseline.esl_version,
-        target.esl_version
-    )
-
-    # 性能对比
-    comparison = store.compare_versions(baseline_version, target_version)
-
-    # 生成报告
-    print("=" * 70)
-    print(f"性能版本对比报告")
-    print(f"基线版本: {baseline_version}")
-    print(f"目标版本: {target_version}")
-    print("=" * 70)
-
-    # 接口变更
-    print("\n[接口变更]")
-    if interface_diff.is_backward_compatible:
-        print("  ✓ 接口向后兼容")
-    else:
-        print("  ✗ 接口不兼容!")
-        for change in interface_diff.breaking_changes:
-            print(f"    - {change}")
-
-    if interface_diff.added_ports:
-        print(f"  新增端口: {len(interface_diff.added_ports)}")
-    if interface_diff.removed_ports:
-        print(f"  删除端口: {len(interface_diff.removed_ports)}")
-    if interface_diff.modified_ports:
-        print(f"  修改端口: {len(interface_diff.modified_ports)}")
-
-    # 性能变化
-    print("\n[性能变化]")
-    for metric_name, metric_cmp in comparison.perf_comparison.items():
-        status_icon = {
-            "improved": "↑",
-            "regressed": "↓",
-            "unchanged": "→"
-        }.get(metric_cmp.status, "?")
-
-        print(f"  {metric_name}:")
-        print(f"    基线: {metric_cmp.baseline_value:.2f}")
-        print(f"    目标: {metric_cmp.target_value:.2f}")
-        print(f"    变化: {metric_cmp.relative_diff_percent:+.1f}% {status_icon}")
-
-    # 回归列表
-    if comparison.regressions:
-        print("\n[性能回归] ⚠️")
-        for reg in comparison.regressions:
-            print(f"  - {reg.metric}: {reg.change_percent:+.1f}% "
-                  f"(阈值: {reg.threshold}%)")
-
-    # 改进列表
-    if comparison.improvements:
-        print("\n[性能改进] ✓")
-        for imp in comparison.improvements:
-            print(f"  - {imp.metric}: {imp.change_percent:+.1f}%")
-
-    # 总体评估
-    print(f"\n[总体评估]")
-    status_text = {
-        "pass": "✓ 通过",
-        "warn": "⚠ 警告",
-        "fail": "✗ 失败"
-    }.get(comparison.overall_status, "未知")
-    print(f"  状态: {status_text}")
-    print(f"  说明: {comparison.summary}")
-
-    print("=" * 70)
-
-    return comparison
+from aitest.performance import BaselineStore, assert_no_regression
+from aidevtools.analysis import from_preset, PaperAnalyzer
 
 
-if __name__ == "__main__":
-    import sys
-    if len(sys.argv) != 3:
-        print("Usage: version_compare.py <baseline> <target>")
-        sys.exit(1)
+class TestPerformanceRegression:
+    """性能回归测试"""
 
-    compare_versions(sys.argv[1], sys.argv[2])
+    def setup(self):
+        self.baseline_store = BaselineStore("./perf_baselines")
+        self.chip = "npu_910"
+
+    def test_llama_7b_no_regression(self):
+        """验证 LLaMA-7B 无性能回归"""
+
+        # 运行当前版本
+        profiles = from_preset("llama-7b", batch=1)
+        analyzer = PaperAnalyzer(chip=self.chip)
+        analyzer.add_profiles(profiles)
+        current_result = analyzer.analyze()
+
+        # 加载基线
+        baseline = self.baseline_store.load_baseline(
+            name="llama-7b",
+            version="v1.0"
+        )
+
+        # 断言无回归
+        comparison = assert_no_regression(
+            current=current_result,
+            baseline=baseline,
+            threshold_percent=10.0
+        )
+
+        if comparison.has_regression:
+            print(f"\n⚠️ Performance Regression Detected!")
+            for detail in comparison.regression_details:
+                print(f"  - {detail}")
+            raise AssertionError("Performance regression detected")
+
+        # 如果有改进，打印出来
+        if comparison.improvements:
+            print(f"\n✓ Performance Improvements:")
+            for imp in comparison.improvements:
+                print(f"  - {imp}")
+
+    def save_baseline(self, version: str):
+        """保存当前结果为基线"""
+
+        profiles = from_preset("llama-7b", batch=1)
+        analyzer = PaperAnalyzer(chip=self.chip)
+        analyzer.add_profiles(profiles)
+        result = analyzer.analyze()
+
+        self.baseline_store.save_baseline(
+            name="llama-7b",
+            result=result,
+            version=version
+        )
+        print(f"Baseline saved: llama-7b @ {version}")
+```
+
+### 2.4 CI 配置示例
+
+```yaml
+# .github/workflows/perf-test.yml
+
+name: Performance Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  perf-test:
+    runs-on: [self-hosted, npu]
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Environment
+        run: |
+          pip install aidevtools aitestframework
+
+      - name: Run Performance Tests
+        run: |
+          pytest tests/performance/ -v \
+            --chip=npu_910 \
+            --baseline-compare \
+            --regression-threshold=10
+
+      - name: Upload Performance Report
+        uses: actions/upload-artifact@v3
+        with:
+          name: perf-report
+          path: reports/perf_report.xlsx
 ```
 
 ---
@@ -1390,96 +786,63 @@ if __name__ == "__main__":
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │                      Host Machine (x86/ARM)                            │  │
+│  │                      Test Execution Environment                        │  │
 │  │                                                                        │  │
 │  │   ┌───────────────────────────────────────────────────────────────┐   │  │
-│  │   │                   Performance Framework                        │   │  │
+│  │   │                    aitestframework                             │   │  │
 │  │   │                                                                │   │  │
 │  │   │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐            │   │  │
-│  │   │  │   Version   │  │    NPU      │  │    PMU      │            │   │  │
-│  │   │  │   Tracker   │  │  Profiler   │  │  Analyzer   │            │   │  │
-│  │   │  └─────────────┘  └─────────────┘  └─────────────┘            │   │  │
-│  │   │                                                                │   │  │
-│  │   │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐            │   │  │
-│  │   │  │  Metadata   │  │  Comparison │  │   Report    │            │   │  │
-│  │   │  │   Store     │  │   Engine    │  │  Generator  │            │   │  │
+│  │   │  │   PerfTest  │  │   Perf      │  │  Baseline   │            │   │  │
+│  │   │  │   Runner    │  │ Assertions  │  │   Store     │            │   │  │
 │  │   │  └─────────────┘  └─────────────┘  └─────────────┘            │   │  │
 │  │   └───────────────────────────────────────────────────────────────┘   │  │
 │  │                                    │                                   │  │
-│  │   ┌────────────────────────────────┼────────────────────────────────┐ │  │
-│  │   │                                ▼                                 │ │  │
-│  │   │  ┌───────────┐  ┌───────────────────────┐  ┌───────────┐       │ │  │
-│  │   │  │    ESL    │  │         NPU           │  │   FPGA    │       │ │  │
-│  │   │  │  Simulator│  │  ┌─────────────────┐  │  │   Board   │       │ │  │
-│  │   │  │           │  │  │ C Instrument    │  │  │           │       │ │  │
-│  │   │  │  (SystemC)│  │  │ Stub (embedded) │  │  │ (Xilinx/  │       │ │  │
-│  │   │  │           │  │  └─────────────────┘  │  │  Intel)   │       │ │  │
-│  │   │  └───────────┘  └───────────────────────┘  └───────────┘       │ │  │
-│  │   │                                                                  │ │  │
-│  │   │                    Hardware Targets                              │ │  │
-│  │   └──────────────────────────────────────────────────────────────────┘ │  │
-│  │                                                                        │  │
+│  │                                    ▼                                   │  │
 │  │   ┌───────────────────────────────────────────────────────────────┐   │  │
-│  │   │                   Storage & Database                           │   │  │
+│  │   │                    aidevtools.analysis                         │   │  │
 │  │   │                                                                │   │  │
 │  │   │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐            │   │  │
-│  │   │  │  Metadata   │  │   Trace     │  │   Report    │            │   │  │
-│  │   │  │   (SQLite)  │  │  (JSON/Bin) │  │  (HTML/PDF) │            │   │  │
+│  │   │  │   Paper     │  │   Chip      │  │   Model     │            │   │  │
+│  │   │  │  Analyzer   │  │   Specs     │  │  Presets    │            │   │  │
 │  │   │  └─────────────┘  └─────────────┘  └─────────────┘            │   │  │
+│  │   │                                                                │   │  │
+│  │   │  Supported Chips: npu_310, npu_910, gpu_a100                  │   │  │
 │  │   └───────────────────────────────────────────────────────────────┘   │  │
+│  │                                                                        │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                                                                             │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                         Storage                                        │  │
+│  │                                                                        │  │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                    │  │
+│  │  │  Baselines  │  │   Reports   │  │    Logs     │                    │  │
+│  │  │  (JSON/DB)  │  │ (XLSX/HTML) │  │             │                    │  │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘                    │  │
 │  └───────────────────────────────────────────────────────────────────────┘  │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## 2. 硬件与软件要求
-
-### 2.1 主机要求
-
-| 组件 | 要求 |
-|------|------|
-| CPU | x86_64 或 ARM64，支持PMU |
-| 内存 | 16GB+ (大型追踪需32GB+) |
-| 存储 | SSD，100GB+ |
-| OS | Linux 4.x+ (需要perf_event支持) |
-
-### 2.2 目标硬件
-
-| 硬件类型 | 支持型号 | 说明 |
-|----------|----------|------|
-| NPU | 自研NPU设备 | 需要驱动支持性能采集接口 |
-| FPGA | Xilinx Zynq/VCK, Intel Agilex | 需要Vivado/Quartus工具链 |
-| ESL | SystemC模型 | 需要SystemC 2.3+ |
-
-### 2.3 软件依赖
+## 2. 软件依赖
 
 ```yaml
-# 必需依赖
-python: ">=3.8"
-dependencies:
-  - numpy>=1.20
-  - pandas>=1.3
-  - sqlalchemy>=1.4
-  - pyyaml>=5.4
-  - jinja2>=3.0
+# pyproject.toml
 
-# 可选依赖
-optional:
-  npu_profiling:
-    - npu-driver>=1.0
-    - npu-tools>=1.0
+[project]
+name = "aitestframework"
+dependencies = [
+    "aidevtools>=0.1.0",  # Cost Model 依赖
+    "numpy>=1.20",
+    "pandas>=1.3",
+    "pytest>=7.0",
+]
 
-  pmu_analysis:
-    - linux-perf>=5.x
-    - pyperf>=2.0
-
-  esl_analysis:
-    - systemc>=2.3
-    - verilator>=4.0
-
-  fpga_analysis:
-    - vivado>=2021.x  # Xilinx
-    - quartus>=21.x   # Intel
+[project.optional-dependencies]
+performance = [
+    "aidevtools[analysis]",  # 性能分析模块
+    "matplotlib>=3.5",       # Gantt 图绘制
+    "openpyxl>=3.0",         # Excel 报告
+]
 ```
 
 ---
@@ -1488,171 +851,104 @@ optional:
 
 ## 1. 核心用例
 
-### UC-PERF-01: ESL接口版本变更追踪
+### UC-PERF-01: 模型性能基准测试
 
 ```python
-# 用例: 追踪ESL模型接口变化对性能的影响
+# 用例: 测试 LLaMA-7B 在 NPU 910 上的性能
 
-from aitest.performance import VersionTracker, PerformanceAnalyzer
+from aidevtools.analysis import from_preset, PaperAnalyzer
 
-def test_esl_interface_change():
-    """测试ESL接口变更对性能的影响"""
+def test_llama_7b_benchmark():
+    """LLaMA-7B 性能基准测试"""
 
-    tracker = VersionTracker()
-    analyzer = PerformanceAnalyzer()
+    profiles = from_preset("llama-7b", batch=1)
 
-    # 注册基线版本
-    baseline_esl = tracker.register_esl_version("esl_model_v1.0")
+    analyzer = PaperAnalyzer(chip="npu_910")
+    analyzer.add_profiles(profiles)
+    result = analyzer.analyze()
 
-    # 注册新版本
-    new_esl = tracker.register_esl_version("esl_model_v1.1")
+    # 打印摘要
+    analyzer.print_summary()
 
-    # 获取接口差异
-    diff = tracker.get_version_diff(baseline_esl, new_esl)
-
-    # 验证兼容性
-    assert diff.is_backward_compatible, \
-        f"接口不兼容: {diff.breaking_changes}"
-
-    # 运行性能测试
-    baseline_perf = analyzer.run_benchmark("esl_model_v1.0")
-    new_perf = analyzer.run_benchmark("esl_model_v1.1")
-
-    # 对比性能
-    comparison = analyzer.compare_versions(baseline_perf, new_perf)
-
-    # 验证无性能回归
-    for reg in comparison.regressions:
-        assert reg.change_percent < 10, \
-            f"性能回归: {reg.metric} 下降 {reg.change_percent}%"
+    # 验证指标
+    assert result.summary.totals.latency_us < 2000  # < 2ms
+    assert result.summary.throughput.achieved_tflops > 100  # > 100 TFLOPS
 ```
 
-### UC-PERF-02: NPU算子性能分析
+### UC-PERF-02: 芯片适配验证
 
 ```python
-# 用例: 分析NPU模型算子级性能
+# 用例: 验证算子在不同芯片上的性能表现
 
-from aitest.performance.npu import NPUProfiler, NPUProfileConfig
+from aidevtools.analysis import from_preset, PaperAnalyzer, list_chips
 
-def test_npu_operator_performance():
-    """测试NPU算子性能"""
+def test_multi_chip_compatibility():
+    """多芯片兼容性测试"""
 
-    profiler = NPUProfiler(device="npu0")
-    profiler.configure(NPUProfileConfig(
-        trace_level="operator",
-        op_breakdown=True
-    ))
+    profiles = from_preset("bert-base", batch=8)
 
-    # 执行带性能分析的推理
-    profiler.start_profiling()
-    model.inference(test_input)
-    result = profiler.stop_profiling()
+    for chip in ["npu_310", "npu_910", "gpu_a100"]:
+        analyzer = PaperAnalyzer(chip=chip)
+        analyzer.add_profiles(profiles)
+        result = analyzer.analyze()
 
-    # 验证整体利用率
-    assert result.overall_utilization > 70, \
-        f"NPU利用率过低: {result.overall_utilization}%"
+        print(f"\n{chip}:")
+        print(f"  Latency: {result.summary.totals.latency_us:.2f} us")
+        print(f"  TFLOPS: {result.summary.throughput.achieved_tflops:.2f}")
 
-    # 检查内存瓶颈算子
-    memory_bound_ratio = len(result.memory_bound_ops) / len(result.operator_stats)
-    assert memory_bound_ratio < 0.3, \
-        f"内存瓶颈算子过多: {memory_bound_ratio*100}%"
-
-    # 验证关键算子性能
-    conv_ops = [op for op in result.operator_stats if "conv" in op.op_type]
-    for op in conv_ops:
-        assert op.compute_utilization > 80, \
-            f"Conv算子利用率低: {op.op_name} = {op.compute_utilization}%"
+        # 基本可用性验证
+        assert result.summary.totals.latency_us > 0
+        assert result.summary.throughput.achieved_tflops > 0
 ```
 
-### UC-PERF-03: CPU PMU热点分析
-
-```python
-# 用例: 使用PMU分析CPU热点
-
-from aitest.performance.pmu import PMUAnalyzer
-
-def test_cpu_hotspot_analysis():
-    """CPU热点分析测试"""
-
-    analyzer = PMUAnalyzer()
-    analyzer.configure_standard_events()
-
-    # 执行被测代码
-    analyzer.start_counting()
-    run_cpu_intensive_task()
-    counters = analyzer.stop_counting()
-
-    result = analyzer.analyze(counters)
-
-    # 验证IPC
-    assert result.counters.ipc > 1.5, \
-        f"IPC过低: {result.counters.ipc}"
-
-    # 验证缓存效率
-    l3_miss_rate = result.counters.l3_cache_misses / result.counters.memory_loads
-    assert l3_miss_rate < 0.05, \
-        f"L3缓存命中率过低: {(1-l3_miss_rate)*100}%"
-
-    # 检查严重瓶颈
-    severe_bottlenecks = [b for b in result.bottlenecks if b.severity == "high"]
-    assert len(severe_bottlenecks) == 0, \
-        f"存在严重性能瓶颈: {[b.description for b in severe_bottlenecks]}"
-```
-
-### UC-PERF-04: 跨版本性能对比
+### UC-PERF-03: 性能回归检测
 
 ```yaml
-# CI配置: 版本性能对比
+# CI 配置: 性能回归门禁
 
 performance_gate:
-  # 基线配置
-  baseline_version: "${BASELINE_VERSION}"
-  target_version: "${BUILD_VERSION}"
+  enabled: true
+  baseline_version: "v1.0.0"
 
-  # 回归阈值
   thresholds:
-    npu_latency_p99: 10%     # 延迟增加不超过10%
-    npu_throughput: -5%       # 吞吐量下降不超过5%
-    cpu_ipc: -10%             # IPC下降不超过10%
-    memory_bandwidth: -5%     # 带宽下降不超过5%
+    latency_regression: 10%      # 时延增加不超过10%
+    throughput_regression: -5%   # 吞吐量下降不超过5%
 
-  # 接口兼容性
-  interface_check:
-    require_backward_compatible: true
-    allow_new_ports: true
-    forbid_port_removal: true
+  models:
+    - name: "llama-7b"
+      chip: "npu_910"
+      batch: 1
+    - name: "bert-base"
+      chip: "npu_910"
+      batch: 8
 
-  # 报告配置
-  report:
-    format: html
-    output: ./perf_comparison_report.html
-    include_trend: true
+  on_regression: fail  # fail | warn | ignore
 ```
 
 ## 2. 场景验证矩阵
 
-| 场景 | 覆盖需求 | 验证指标 |
-|------|----------|----------|
-| ESL版本追踪 | MODEL-005 | 接口兼容性、性能变化 |
-| FPGA版本追踪 | MODEL-005 | 资源使用、时序变化 |
-| NPU性能分析 | MODEL-005-01 | 算子耗时、利用率 |
-| PMU分析 | MODEL-005-02 | IPC、缓存命中率、分支预测 |
-| 版本对比 | MODEL-005-04 | 性能回归检测 |
-| C维测桩 | MODEL-006 | 嵌入式性能采集 |
+| 场景 | 覆盖需求 | 使用的 aidevtools 组件 |
+|------|----------|------------------------|
+| 时延测试 | MODEL-005-01 | PaperAnalyzer, LatencyResult |
+| 吞吐量测试 | MODEL-005-02 | AnalysisSummary.throughput |
+| 芯片对比 | MODEL-005-06 | ChipSpec, load_chip_spec() |
+| Roofline分析 | MODEL-005-04 | RooflinePass, bottleneck stats |
+| 回归测试 | MODEL-005-06 | BaselineStore, comparison |
+| 模型基准 | MODEL-006 | from_preset(), model configs |
 
 ---
 
 ## 需求追溯
 
-| 需求ID | 需求名称 | 模块功能 |
-|--------|----------|----------|
-| MODEL-005 | 推理性能测试 | VersionTracker, NPUProfiler, PMUAnalyzer |
-| MODEL-005-01 | 推理延迟测量 | NPU算子级性能分析 |
-| MODEL-005-02 | 吞吐量测试 | PMU计数器分析 |
-| MODEL-005-03 | 资源使用测量 | 内存带宽、利用率监控 |
-| MODEL-005-04 | 性能基线对比 | MetadataStore, VersionComparison |
-| MODEL-006 | 压力测试 | C语言维测桩 |
+| 需求ID | 需求名称 | 模块功能 | aidevtools 集成点 |
+|--------|----------|----------|-------------------|
+| MODEL-005 | 推理性能测试 | PerfTestRunner | PaperAnalyzer |
+| MODEL-005-01 | 推理延迟测试 | assert_latency_us | LatencyResult |
+| MODEL-005-02 | 吞吐量测试 | assert_throughput | AnalysisSummary |
+| MODEL-005-04 | GPU利用率测试 | Roofline分析 | RooflinePass |
+| MODEL-005-06 | 性能基准对比 | BaselineStore | export_xlsx |
+| MODEL-006 | 压力测试 | 批次扩展测试 | from_preset |
 
 ---
 
-*本文档为AI测试框架性能测试模块设计，专注于硬件验证场景下的ESL/FPGA版本追踪、NPU性能分析、CPU PMU分析和C语言维测桩设计。*
+*本文档为AI测试框架性能测试模块设计，通过集成 aidevtools.analysis 提供的 Cost Model 能力，实现算子级性能分析、芯片适配验证和性能回归测试。*
