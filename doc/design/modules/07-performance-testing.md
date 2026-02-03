@@ -8,7 +8,7 @@
 | **模块名称** | 性能测试 |
 | **英文名称** | Performance Testing |
 | **分类** | 性能需求 |
-| **职责** | 算子性能分析、Cost Model集成、性能回归测试、芯片适配验证 |
+| **职责** | 算子性能分析、Cost Model集成、性能回归测试 |
 | **关联需求** | MODEL-005, MODEL-006 |
 | **外部依赖** | aidevtools.analysis (Cost Model) |
 
@@ -16,9 +16,9 @@
 
 性能测试模块作为AI测试框架的性能验证层，集成 `aidevtools.analysis` 提供的 Cost Model 能力，提供：
 - **算子级性能分析**：集成 PaperAnalyzer 进行时延、带宽、算力分析
-- **芯片适配验证**：验证算子在不同芯片规格下的性能表现
 - **性能回归测试**：跨版本性能对比与回归检测
 - **性能断言**：时延、吞吐量、利用率等指标的阈值断言
+- **芯片对比测试**（可选，低优先级）：多芯片性能对比
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -84,7 +84,7 @@
 │                                              └──────────────────────────┘   │
 │                                                                             │
 │  ┌──────────────────────────┐                ┌──────────────────────────┐   │
-│  │    ChipTestSuite         │                │   PerfReportGenerator    │   │
+│  │  ChipTestSuite (可选)    │                │   PerfReportGenerator    │   │
 │  ├──────────────────────────┤                ├──────────────────────────┤   │
 │  │ - chips: List[ChipSpec]  │                │ - results: List          │   │
 │  │ - profiles: List         │                │ - template: Template     │   │
@@ -408,11 +408,11 @@ class IBaselineStore(Protocol):
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## 2. 芯片对比测试流程
+## 2. 芯片对比测试流程（可选，低优先级）
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    Multi-Chip Comparison Test Flow                           │
+│              Multi-Chip Comparison Test Flow (Optional)                      │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │                         ┌─────────────────────┐                             │
@@ -542,9 +542,9 @@ src/aitest/performance/
 │
 └── suites/                     # 测试套件
     ├── __init__.py
-    ├── chip_comparison.py     # 芯片对比测试套
     ├── model_benchmark.py     # 模型基准测试套
-    └── regression_suite.py    # 回归测试套
+    ├── regression_suite.py    # 回归测试套
+    └── chip_comparison.py     # 芯片对比测试套 (可选，低优先级)
 ```
 
 ## 2. 代码示例
@@ -616,10 +616,10 @@ def test_bert_base_batch_scaling():
     return results
 ```
 
-### 2.2 芯片对比测试
+### 2.2 芯片对比测试（可选，低优先级）
 
 ```python
-"""芯片对比测试"""
+"""芯片对比测试 - 可选功能，低优先级"""
 
 from aitest.performance import ChipTestSuite
 from aidevtools.analysis import from_preset, list_chips
@@ -875,10 +875,10 @@ def test_llama_7b_benchmark():
     assert result.summary.throughput.achieved_tflops > 100  # > 100 TFLOPS
 ```
 
-### UC-PERF-02: 芯片适配验证
+### UC-PERF-02: 芯片适配验证（可选，低优先级）
 
 ```python
-# 用例: 验证算子在不同芯片上的性能表现
+# 用例: 验证算子在不同芯片上的性能表现 (可选功能)
 
 from aidevtools.analysis import from_preset, PaperAnalyzer, list_chips
 
@@ -927,14 +927,14 @@ performance_gate:
 
 ## 2. 场景验证矩阵
 
-| 场景 | 覆盖需求 | 使用的 aidevtools 组件 |
-|------|----------|------------------------|
-| 时延测试 | MODEL-005-01 | PaperAnalyzer, LatencyResult |
-| 吞吐量测试 | MODEL-005-02 | AnalysisSummary.throughput |
-| 芯片对比 | MODEL-005-06 | ChipSpec, load_chip_spec() |
-| Roofline分析 | MODEL-005-04 | RooflinePass, bottleneck stats |
-| 回归测试 | MODEL-005-06 | BaselineStore, comparison |
-| 模型基准 | MODEL-006 | from_preset(), model configs |
+| 场景 | 覆盖需求 | 使用的 aidevtools 组件 | 优先级 |
+|------|----------|------------------------|--------|
+| 时延测试 | MODEL-005-01 | PaperAnalyzer, LatencyResult | P0 |
+| 吞吐量测试 | MODEL-005-02 | AnalysisSummary.throughput | P0 |
+| 回归测试 | MODEL-005-06 | BaselineStore, comparison | P0 |
+| 模型基准 | MODEL-006 | from_preset(), model configs | P1 |
+| Roofline分析 | MODEL-005-04 | RooflinePass, bottleneck stats | P1 |
+| 芯片对比 | MODEL-005-06 | ChipSpec, load_chip_spec() | P2 (可选) |
 
 ---
 
