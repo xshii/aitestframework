@@ -1,11 +1,11 @@
-# REQ-100 测试框架需求
+# REQ-FWK 测试框架需求
 
 ---
-id: REQ-100
+id: REQ-FWK
 title: C测试框架需求
 priority: P0
 status: draft
-parent: REQ-000
+parent: REQ-SYS
 ---
 
 ## 概述
@@ -14,14 +14,14 @@ parent: REQ-000
 
 ---
 
-## REQ-101 测试用例注册
+## REQ-FWK-001 测试用例注册
 
 ---
-id: REQ-101
+id: REQ-FWK-001
 title: 测试用例自动注册
 priority: P0
 status: draft
-parent: REQ-100
+parent: REQ-FWK
 ---
 
 ### 描述
@@ -59,14 +59,14 @@ TEST_CASE_EX(suite_name, test_name,
 
 ---
 
-## REQ-102 断言宏
+## REQ-FWK-002 断言宏
 
 ---
-id: REQ-102
+id: REQ-FWK-002
 title: 断言宏集合
 priority: P0
 status: draft
-parent: REQ-100
+parent: REQ-FWK
 ---
 
 ### 描述
@@ -113,14 +113,14 @@ TEST_ASSERT_NOT_NULL(ptr)
 
 ---
 
-## REQ-103 测试结果类型
+## REQ-FWK-003 测试结果类型
 
 ---
-id: REQ-103
+id: REQ-FWK-003
 title: 测试结果类型
 priority: P0
 status: draft
-parent: REQ-100
+parent: REQ-FWK
 ---
 
 ### 描述
@@ -130,13 +130,14 @@ parent: REQ-100
 ### 接口设计
 
 ```c
-typedef enum {
+typedef enum TestResultEnum {
     TEST_PASS    = 0,   /* 通过 */
     TEST_FAIL    = 1,   /* 失败 */
     TEST_SKIP    = 2,   /* 跳过 */
     TEST_TIMEOUT = 3,   /* 超时 */
     TEST_ERROR   = 4,   /* 错误（框架异常） */
-} test_result_t;
+} TestResultEnum;
+typedef UINT8 TEST_RESULT_ENUM_UINT8;
 ```
 
 ### 验收标准
@@ -148,17 +149,17 @@ typedef enum {
 
 ---
 
-## REQ-104 测试运行器
+## REQ-FWK-004 测试运行器
 
 ---
-id: REQ-104
+id: REQ-FWK-004
 title: 测试运行器
 priority: P0
 status: draft
-parent: REQ-100
+parent: REQ-FWK
 depends:
-  - REQ-101
-  - REQ-103
+  - REQ-FWK-001
+  - REQ-FWK-003
 ---
 
 ### 描述
@@ -176,15 +177,15 @@ depends:
 ### 接口设计
 
 ```c
-typedef struct test_runner_config {
-    const char *filter;       /* 名称过滤 (支持通配符) */
-    const char *tags;         /* 标签过滤 */
-    const char *suite;        /* 套件过滤 */
-    uint32_t default_timeout; /* 默认超时(ms) */
-    int verbose;              /* 详细输出 */
-} test_runner_config_t;
+typedef struct TestRunnerConfigStru {
+    const CHAR *filter;       /* 名称过滤 (支持通配符) */
+    const CHAR *tags;         /* 标签过滤 */
+    const CHAR *suite;        /* 套件过滤 */
+    UINT32 defaultTimeout;    /* 默认超时(ms) */
+    INT32 verbose;            /* 详细输出 */
+} TestRunnerConfigStru;
 
-int test_runner_run(const test_runner_config_t *config);
+SEC_DDR_TEXT ERRNO_T TEST_RunnerRun(const TestRunnerConfigStru *config);
 ```
 
 ### 验收标准
@@ -196,16 +197,16 @@ int test_runner_run(const test_runner_config_t *config);
 
 ---
 
-## REQ-105 测试输出格式
+## REQ-FWK-005 测试输出格式
 
 ---
-id: REQ-105
+id: REQ-FWK-005
 title: 测试输出格式
 priority: P0
 status: draft
-parent: REQ-100
+parent: REQ-FWK
 depends:
-  - REQ-104
+  - REQ-FWK-004
 ---
 
 ### 描述
@@ -245,14 +246,14 @@ Summary: 45 passed, 2 failed, 3 skipped (1.23s)
 
 ---
 
-## REQ-106 Setup/Teardown
+## REQ-FWK-006 Setup/Teardown
 
 ---
-id: REQ-106
+id: REQ-FWK-006
 title: Setup和Teardown支持
 priority: P1
 status: draft
-parent: REQ-100
+parent: REQ-FWK
 ---
 
 ### 描述
@@ -279,14 +280,14 @@ TEST_TEARDOWN(suite_name) { /* 每个用例后 */ }
 
 ---
 
-## REQ-107 日志接口
+## REQ-FWK-007 日志接口
 
 ---
-id: REQ-107
+id: REQ-FWK-007
 title: 测试日志接口
 priority: P1
 status: draft
-parent: REQ-100
+parent: REQ-FWK
 ---
 
 ### 描述
@@ -314,40 +315,84 @@ TEST_LOG_IF(condition, level, fmt, ...)
 
 ---
 
-## REQ-108 参数化测试
+## REQ-FWK-008 参数化测试
 
 ---
-id: REQ-108
+id: REQ-FWK-008
 title: 参数化测试支持
 priority: P0
 status: draft
-parent: REQ-100
+parent: REQ-FWK
 ---
 
 ### 描述
 
 同一测试逻辑，使用不同参数多次运行。
 
+### 参数类型定义
+
+```c
+/* 定义参数结构体 */
+typedef struct MatmulParamStru {
+    INT32 M;
+    INT32 N;
+    INT32 K;
+} MatmulParamStru;
+
+/* 参数类型注册宏 */
+PARAM_TYPE_DEFINE(MatmulParamStru,
+    PARAM_FIELD(INT32, M),
+    PARAM_FIELD(INT32, N),
+    PARAM_FIELD(INT32, K)
+);
+```
+
 ### 接口设计
 
 ```c
-/* 内联参数 */
-TEST_CASE_PARAM(suite, name, param_type,
-    {2, 2, 2},
-    {4, 4, 4},
-    {128, 256, 512}
+/* 方式1：内联参数列表 */
+TEST_CASE_PARAM(matmul, shapes, MatmulParamStru,
+    {.M = 2,   .N = 2,   .K = 2},
+    {.M = 4,   .N = 4,   .K = 4},
+    {.M = 128, .N = 256, .K = 512}
 )
 {
-    int M = param.a, N = param.b, K = param.c;
+    INT32 M = param.M;
+    INT32 N = param.N;
+    INT32 K = param.K;
     /* 测试代码 */
     return TEST_PASS;
 }
 
-/* 参数生成函数 */
-TEST_CASE_PARAM_GEN(suite, name, param_type, generator_func)
+/* 方式2：参数生成函数 */
+SEC_DDR_DATA MatmulParamStru g_matmulParamList[] = {{2, 2, 2}, {4, 4, 4}, {128, 256, 512}};
+
+SEC_DDR_TEXT ERRNO_T GenMatmulParams(MatmulParamStru **params, INT32 *count)
 {
-    /* 测试代码 */
+    RET_IF_PTR_INVALID(params, ERR_FWK_0001);
+    RET_IF_PTR_INVALID(count, ERR_FWK_0002);
+    *params = g_matmulParamList;
+    *count = 3;
+    return ERR_OK;
 }
+
+TEST_CASE_PARAM_GEN(matmul, dynamic_shapes, MatmulParamStru, GenMatmulParams)
+{
+    /* param 由生成函数提供 */
+    return TEST_PASS;
+}
+```
+
+### 参数生成函数接口
+
+```c
+/**
+ * @brief 参数生成函数原型
+ * @param[out] params  参数数组指针（由函数分配或指向全局数组）
+ * @param[out] count   参数数量
+ * @return ERR_OK成功，其他失败
+ */
+typedef ERRNO_T (*ParamGeneratorFunc)(VOID **params, INT32 *count);
 ```
 
 ### 验收标准
@@ -356,17 +401,18 @@ TEST_CASE_PARAM_GEN(suite, name, param_type, generator_func)
 2. 用例名自动包含参数信息：`suite.name[0]`, `suite.name[1]`
 3. 单组参数失败不影响其他组
 4. 支持参数生成函数（动态参数）
+5. 参数类型需通过 PARAM_TYPE_DEFINE 注册
 
 ---
 
-## REQ-109 数据驱动测试
+## REQ-FWK-009 数据驱动测试
 
 ---
-id: REQ-109
+id: REQ-FWK-009
 title: 数据驱动测试
 priority: P0
 status: draft
-parent: REQ-100
+parent: REQ-FWK
 ---
 
 ### 描述
@@ -401,112 +447,201 @@ cases:
     tolerance: 1e-4
 ```
 
+### 实现机制
+
+**编译时处理**（保持C代码无外部依赖）：
+
+```
+YAML数据文件 → Python预处理脚本 → 生成C数组头文件 → C测试引用
+```
+
+```bash
+# 构建时自动执行
+python tools/data/yaml_to_c.py tests/data/matmul_cases.yaml \
+    --output build/generated/matmul_cases.h
+```
+
+生成的头文件：
+```c
+/* build/generated/matmul_cases.h (自动生成，勿手动修改) */
+static const matmul_testcase_t matmul_cases[] = {
+    {.name="small_2x2", .M=2, .N=2, .K=2, .tolerance=1e-5,
+     .input_A="inputs/matmul/small_A.bin",
+     .input_B="inputs/matmul/small_B.bin",
+     .golden="golden/matmul/small_C.bin"},
+    {.name="large_1024", .M=1024, .N=1024, .K=1024, .tolerance=1e-4,
+     .input_A="inputs/matmul/large_A.bin",
+     .input_B="inputs/matmul/large_B.bin",
+     .golden="golden/matmul/large_C.bin"},
+};
+static const int matmul_cases_count = 2;
+```
+
 ### 接口设计
 
 ```c
-TEST_CASE_DATA(suite, name, "path/to/cases.yaml")
+/* 引用生成的数据 */
+#include "build/generated/matmul_cases.h"
+
+TEST_CASE_DATA(matmul, from_yaml, matmul_cases, matmul_cases_count)
 {
-    /* data->params, data->inputs, data->golden 自动加载 */
-    npu_matmul(data->inputs.A, data->inputs.B, output, &data->params);
-    TEST_ASSERT_TENSOR_NEAR(data->golden, output, count, data->tolerance);
+    /* data 指向当前测试数据项 */
+    load_binary(data->input_A, A_buf);
+    load_binary(data->input_B, B_buf);
+    load_binary(data->golden, golden_buf);
+
+    npu_matmul(A_buf, B_buf, output, data->M, data->N, data->K);
+    TEST_ASSERT_TENSOR_NEAR(golden_buf, output, count, data->tolerance);
     return TEST_PASS;
 }
 ```
 
 ### 验收标准
 
-1. 支持YAML/JSON格式数据文件
-2. 自动加载输入和golden数据
-3. 每条数据作为独立用例
-4. 数据文件变更无需重新编译
+1. YAML/JSON 由Python脚本在**编译时**转换为C头文件
+2. C测试代码保持**无外部依赖**
+3. 二进制数据（input/golden）在**运行时**加载
+4. 每条数据作为独立用例
+5. 修改YAML后需重新构建（make会自动检测依赖）
 
 ---
 
-## REQ-110 Mock框架
+## REQ-FWK-010 Mock框架
 
 ---
-id: REQ-110
+id: REQ-FWK-010
 title: Mock框架
 priority: P1
 status: draft
-parent: REQ-100
+parent: REQ-FWK
 ---
 
 ### 描述
 
 模拟被测对象的外部依赖，用于单元测试隔离。
 
+### 实现机制
+
+采用**函数指针替换**方式（兼容性最好）：
+
+```c
+/* 原理：被测代码通过函数指针调用，测试时替换指针 */
+
+/* 1. 被测代码定义函数指针（在HAL层） */
+typedef uint32_t (*hal_reg_read_fn)(uint32_t addr);
+extern hal_reg_read_fn g_hal_reg_read;  /* 全局函数指针 */
+
+/* 2. 真实实现 */
+uint32_t real_hal_reg_read(uint32_t addr) { /* 真实硬件访问 */ }
+
+/* 3. Mock实现 */
+uint32_t mock_hal_reg_read(uint32_t addr) { /* 模拟行为 */ }
+
+/* 4. 测试时替换 */
+g_hal_reg_read = mock_hal_reg_read;  /* 切换到Mock */
+g_hal_reg_read = real_hal_reg_read;  /* 恢复真实 */
+```
+
+**备选方案**（需链接器支持）：
+- `--wrap` 链接器选项：`gcc -Wl,--wrap=hal_reg_read`
+- 适用于无法修改被测代码的情况
+
 ### 接口设计
 
 ```c
 /* 定义Mock函数 */
-MOCK_FUNC(hal_reg_read, uint32_t, (uint32_t addr))
+MOCK_DEFINE(hal_reg_read, uint32_t, (uint32_t addr))
 {
-    MOCK_RECORD_CALL(addr);  /* 记录调用 */
-    if (addr == REG_STATUS) return mock_status_value;
-    return 0;
+    MOCK_RECORD_CALL(addr);  /* 记录调用参数 */
+    if (addr == REG_STATUS) return mock_ctx.status_value;
+    return MOCK_RETURN_VALUE(hal_reg_read);  /* 返回预设值 */
 }
 
 /* 使用Mock */
 TEST_CASE(driver, init_sequence)
 {
+    /* 启用Mock并设置返回值 */
     MOCK_ENABLE(hal_reg_read);
-    MOCK_SET_RETURN(hal_reg_read, 0x1234);  /* 设置返回值 */
+    MOCK_SET_RETURN(hal_reg_read, 0x1234);
 
+    /* 调用被测代码 */
     npu_init();
 
-    MOCK_VERIFY_CALLED(hal_reg_read, 3);     /* 验证调用次数 */
-    MOCK_VERIFY_CALLED_WITH(hal_reg_read, REG_STATUS);
+    /* 验证Mock调用情况 */
+    MOCK_VERIFY_CALL_COUNT(hal_reg_read, 3);
+    MOCK_VERIFY_CALLED_WITH(hal_reg_read, 0, REG_STATUS);  /* 第0次调用参数 */
 
+    /* 恢复（自动在用例结束时执行） */
     MOCK_DISABLE(hal_reg_read);
     return TEST_PASS;
 }
 ```
 
+### Mock上下文结构
+
+```c
+typedef struct MockContextStru {
+    INT32 callCount;                     /* 调用次数 */
+    VOID *callArgs[MAX_MOCK_CALLS];      /* 调用参数记录 */
+    VOID *returnValues[MAX_MOCK_CALLS];  /* 返回值序列 */
+    INT32 returnIndex;                   /* 当前返回值索引 */
+} MockContextStru;
+```
+
 ### 验收标准
 
-1. 支持替换任意函数
-2. 支持记录调用参数
-3. 支持验证调用次数和顺序
-4. 支持设置返回值序列
-5. Mock作用域隔离（用例间不干扰）
+1. 通过函数指针替换实现Mock（无需特殊链接器）
+2. 支持记录调用参数（最多记录 MAX_MOCK_CALLS=100 次）
+3. 支持验证调用次数和参数
+4. 支持设置返回值序列（多次调用返回不同值）
+5. Mock作用域隔离（每个用例独立的mock_context）
+6. 用例结束自动恢复原函数
 
 ---
 
-## REQ-111 约束随机测试
+## REQ-FWK-011 约束随机测试
 
 ---
-id: REQ-111
+id: REQ-FWK-011
 title: 约束随机测试
-priority: P1
+priority: P2
 status: draft
-parent: REQ-100
+parent: REQ-FWK
 ---
 
 ### 描述
 
-自动生成满足约束的随机测试输入（借鉴UVM）。
+自动生成满足约束的随机测试输入。
+
+**注意**：完整的constraint solver（如UVM）实现复杂，本框架采用**简化方案**：
+- 支持基本随机（范围、枚举）
+- 约束通过**拒绝采样**实现（生成后检查，不满足则重新生成）
+- 不实现复杂的SAT求解器
 
 ### 接口设计
 
 ```c
-/* 定义约束 */
-RANDOM_CONSTRAINT(matmul_constraint)
-{
-    RAND_RANGE(M, 1, 2048);
-    RAND_RANGE(N, 1, 2048);
-    RAND_RANGE(K, 1, 2048);
-    RAND_ENUM(dtype, DTYPE_FP32, DTYPE_FP16, DTYPE_INT8);
+/* 定义随机参数结构 */
+typedef struct {
+    RAND_INT(M, 1, 2048);           /* M: 1~2048随机整数 */
+    RAND_INT(N, 1, 2048);           /* N: 1~2048随机整数 */
+    RAND_INT(K, 1, 2048);           /* K: 1~2048随机整数 */
+    RAND_ENUM(dtype, 3, DTYPE_FP32, DTYPE_FP16, DTYPE_INT8);  /* 枚举 */
+} matmul_rand_t;
 
-    /* 约束条件 */
-    CONSTRAINT(M * K <= 1024 * 1024);  /* 限制输入大小 */
-    CONSTRAINT(dtype == DTYPE_INT8 ? K % 4 == 0 : 1);  /* INT8需对齐 */
+/* 约束检查函数（拒绝采样） */
+static int matmul_constraint_check(const matmul_rand_t *r) {
+    if (r->M * r->K > 1024 * 1024) return 0;  /* 不满足，拒绝 */
+    if (r->dtype == DTYPE_INT8 && r->K % 4 != 0) return 0;  /* INT8需对齐 */
+    return 1;  /* 满足约束 */
 }
 
 /* 随机测试 */
-TEST_CASE_RANDOM(matmul, random_shapes, matmul_constraint, 100)
+TEST_CASE_RANDOM(matmul, random_shapes, matmul_rand_t, matmul_constraint_check, 100)
 {
-    /* 运行100次，每次随机参数 */
+    /* 运行100次，每次随机参数（满足约束） */
+    TEST_LOG_INFO("Testing M=%d, N=%d, K=%d, dtype=%d", rand.M, rand.N, rand.K, rand.dtype);
+
     float *A = alloc_random_tensor(rand.M, rand.K, rand.dtype);
     float *B = alloc_random_tensor(rand.K, rand.N, rand.dtype);
     /* ... */
@@ -514,23 +649,47 @@ TEST_CASE_RANDOM(matmul, random_shapes, matmul_constraint, 100)
 }
 ```
 
+### 随机数生成
+
+```c
+/* 设置seed（便于复现） */
+SEC_DDR_TEXT VOID TEST_RandomSeed(UINT32 seed);
+
+/* 获取当前seed（失败时记录） */
+SEC_DDR_TEXT UINT32 TEST_RandomGetSeed(VOID);
+
+/* 随机生成宏（内部使用） */
+#define RAND_INT(name, min, max)    INT32 name
+#define RAND_ENUM(name, count, ...) INT32 name
+```
+
+### 失败时输出
+
+```
+[FAIL] matmul.random_shapes[42]
+  Seed: 0x12345678  <-- 使用此seed可复现
+  Parameters: M=1024, N=512, K=2048, dtype=FP16
+  Error: cosine_sim 0.985 < 0.999
+```
+
 ### 验收标准
 
-1. 支持范围、枚举、权重分布
-2. 支持约束条件（constraint solver）
+1. 支持范围随机（RAND_INT）和枚举随机（RAND_ENUM）
+2. 约束通过**拒绝采样**实现（最多重试1000次）
 3. 可复现：相同seed产生相同序列
-4. 失败时记录seed，便于复现
+4. 失败时自动记录seed
+5. 支持命令行指定seed：`--seed 0x12345678`
 
 ---
 
-## REQ-112 性能基准测试
+## REQ-FWK-012 性能基准测试
 
 ---
-id: REQ-112
+id: REQ-FWK-012
 title: 性能基准测试
 priority: P1
 status: draft
-parent: REQ-100
+parent: REQ-FWK
 ---
 
 ### 描述
@@ -585,14 +744,14 @@ BENCHMARK(matmul, perf_1024x1024)
 
 ---
 
-## REQ-113 覆盖率收集
+## REQ-FWK-013 覆盖率收集
 
 ---
-id: REQ-113
+id: REQ-FWK-013
 title: 功能覆盖率
 priority: P2
 status: draft
-parent: REQ-100
+parent: REQ-FWK
 ---
 
 ### 描述
@@ -640,14 +799,14 @@ TEST_CASE(matmul, various_sizes)
 
 ---
 
-## REQ-114 Fixture管理
+## REQ-FWK-014 Fixture管理
 
 ---
-id: REQ-114
+id: REQ-FWK-014
 title: Fixture环境管理
 priority: P1
 status: draft
-parent: REQ-100
+parent: REQ-FWK
 ---
 
 ### 描述
@@ -697,14 +856,14 @@ FIXTURE_COMPOSE(full_env, npu_initialized, memory_pool, logging);
 
 ---
 
-## REQ-115 调试支持
+## REQ-FWK-015 调试支持
 
 ---
-id: REQ-115
+id: REQ-FWK-015
 title: 失败调试支持
 priority: P2
 status: draft
-parent: REQ-100
+parent: REQ-FWK
 ---
 
 ### 描述
@@ -739,14 +898,14 @@ TEST_ASSERT_TENSOR_NEAR_VERBOSE(expected, actual, count, eps);
 
 ---
 
-## REQ-116 测试分片
+## REQ-FWK-016 测试分片
 
 ---
-id: REQ-116
+id: REQ-FWK-016
 title: 测试分片执行
 priority: P2
 status: draft
-parent: REQ-100
+parent: REQ-FWK
 ---
 
 ### 描述

@@ -1,214 +1,130 @@
-# REQ-300 依赖管理需求
+# REQ-DEP 依赖管理需求
 
 ---
-id: REQ-300
+id: REQ-DEP
 title: 依赖管理需求
 priority: P1
 status: draft
-parent: REQ-000
+parent: REQ-SYS
 ---
 
 ## 概述
 
-管理外部工具链（仿真器、编译器、ESL模型等）的版本和配套关系。
+管理外部工具链（仿真器、编译器、ESL模型等）的版本依赖。
+
+**设计原则：**
+- 只需配置一整套依赖版本
+- 每次刷新时重新生成依赖关系表
+- 保持简单，不做复杂的版本兼容性计算
 
 ---
 
-## REQ-301 依赖清单
+## REQ-DEP-001 依赖配置
 
 ---
-id: REQ-301
-title: 依赖清单定义
+id: REQ-DEP-001
+title: 依赖配置
 priority: P0
 status: draft
-parent: REQ-300
+parent: REQ-DEP
 ---
 
 ### 描述
 
-定义所有外部依赖组件及其版本。
+定义当前使用的一整套依赖版本。
 
-### 清单格式
-
-```yaml
-# deps/manifests/simulator.yaml
-name: simulator
-description: "NPU功能仿真器"
-
-versions:
-  "1.0.0":
-    url: "https://release.example.com/sim/npu-sim-1.0.0.tar.gz"
-    sha256: "abc123..."
-    release_date: "2025-06-01"
-    min_os: "ubuntu20.04"
-
-  "2.0.0":
-    url: "https://release.example.com/sim/npu-sim-2.0.0.tar.gz"
-    sha256: "def456..."
-    release_date: "2026-01-01"
-    min_os: "ubuntu22.04"
-    requires:
-      compiler: ">=2.0.0"
-```
-
-### 验收标准
-
-1. 每个组件独立清单文件
-2. 包含下载URL和SHA256校验
-3. 支持版本间依赖声明
-4. 支持平台要求声明
-
----
-
-## REQ-302 配套关系矩阵
-
----
-id: REQ-302
-title: 版本配套关系
-priority: P0
-status: draft
-parent: REQ-300
----
-
-### 描述
-
-定义组件间的版本配套关系。
-
-### 配套矩阵
+### 配置格式
 
 ```yaml
-# deps/compatibility/matrix.yaml
-compatibility_groups:
-  gen1:  # 第一代配套
-    simulator: ["1.0.x", "1.1.x"]
-    compiler: ["1.x"]
-    os_sdk: ["1.x"]
+# deps/config.yaml
+version: "1.0"
+generated_at: "2026-02-03T10:00:00Z"
 
-  gen2:  # 第二代配套
-    simulator: ["2.x"]
-    compiler: ["2.x"]
-    os_sdk: ["2.x"]
-
-rules:
-  - name: "sim2需要compiler2"
-    when:
-      simulator: ">=2.0.0"
-    requires:
-      compiler: ">=2.0.0"
-
-  - name: "compiler2需要os_sdk2"
-    when:
-      compiler: ">=2.0.0"
-    requires:
-      os_sdk: ">=2.0.0"
-```
-
-### 验收标准
-
-1. 支持配套组定义
-2. 支持版本约束规则
-3. 安装时自动检查兼容性
-4. 不兼容时给出明确提示
-
----
-
-## REQ-303 版本Profile
-
----
-id: REQ-303
-title: 预定义版本组合
-priority: P1
-status: draft
-parent: REQ-300
----
-
-### 描述
-
-预定义经过验证的版本组合。
-
-### Profile定义
-
-```yaml
-# deps/profiles/stable.yaml
-name: stable
-description: "生产环境推荐"
-date: "2026-01-15"
-
-components:
-  simulator: "1.1.0"
-  compiler: "1.5.0"
-  os_sdk: "1.2.0"
-
-validation:
-  sanity: PASS
-  nightly: PASS
-  full: PASS
-```
-
-### 验收标准
-
-1. 提供stable/latest/版本号等profile
-2. 记录profile验证状态
-3. 一键安装整个profile
-4. 支持自定义profile
-
----
-
-## REQ-304 锁定文件
-
----
-id: REQ-304
-title: 版本锁定
-priority: P1
-status: draft
-parent: REQ-300
----
-
-### 描述
-
-锁定实际安装的版本，确保可复现。
-
-### 锁定文件
-
-```yaml
-# deps/lock/deps.lock.yaml
-generated_at: "2026-02-02T10:30:00Z"
-profile: stable
-
-resolved:
+dependencies:
   simulator:
-    version: "1.1.0"
-    sha256: "def456..."
-    install_path: "build/toolchain/simulator"
+    version: "2.0.0"
+    url: "https://release.example.com/sim/npu-sim-2.0.0.tar.gz"
+    sha256: "abc123..."
 
   compiler:
+    version: "2.1.0"
+    url: "https://release.example.com/compiler/npu-cc-2.1.0.tar.gz"
+    sha256: "def456..."
+
+  esl_model:
     version: "1.5.0"
-    sha256: "..."
-    install_path: "build/toolchain/compiler"
+    url: "https://release.example.com/esl/npu-esl-1.5.0.tar.gz"
+    sha256: "ghi789..."
 ```
 
 ### 验收标准
 
-1. 安装后自动生成锁定文件
-2. 锁定文件纳入版本控制
-3. 支持从锁定文件精确恢复
-4. 检测锁定文件与实际不一致
+1. 单一配置文件定义所有依赖
+2. 包含下载URL和SHA256校验
+3. 配置文件纳入版本控制
 
 ---
 
-## REQ-305 依赖管理命令
+## REQ-DEP-002 依赖刷新
 
 ---
-id: REQ-305
+id: REQ-DEP-002
+title: 依赖关系刷新
+priority: P0
+status: draft
+parent: REQ-DEP
+---
+
+### 描述
+
+刷新依赖配置时重新生成依赖关系表。
+
+### 刷新流程
+
+```
+1. 编辑 deps/config.yaml 更新版本
+2. 执行 deps refresh 命令
+3. 生成新的依赖关系表 deps/resolved.yaml
+4. 下载并校验新版本
+```
+
+### 生成的关系表
+
+```yaml
+# deps/resolved.yaml (自动生成)
+resolved_at: "2026-02-03T10:30:00Z"
+source: "deps/config.yaml"
+
+components:
+  simulator:
+    version: "2.0.0"
+    sha256: "abc123..."
+    install_path: "build/toolchain/simulator"
+    status: installed
+
+  compiler:
+    version: "2.1.0"
+    sha256: "def456..."
+    install_path: "build/toolchain/compiler"
+    status: installed
+```
+
+### 验收标准
+
+1. 刷新时重新生成完整关系表
+2. 关系表记录安装状态
+3. 支持增量更新（只下载变更的组件）
+
+---
+
+## REQ-DEP-003 命令行接口
+
+---
+id: REQ-DEP-003
 title: 命令行接口
 priority: P0
 status: draft
-parent: REQ-300
-depends:
-  - REQ-301
-  - REQ-302
-  - REQ-303
-  - REQ-304
+parent: REQ-DEP
 ---
 
 ### 描述
@@ -218,52 +134,20 @@ depends:
 ### 命令设计
 
 ```bash
-# 安装
-deps install                     # 安装锁定版本
-deps install --profile stable    # 安装指定profile
-deps install simulator==2.0.0    # 安装指定版本
-
-# 检查
-deps check                       # 检查兼容性
-deps outdated                    # 检查过期版本
+# 刷新并安装
+deps refresh              # 刷新依赖关系表
+deps install              # 安装所有依赖
 
 # 查询
-deps list                        # 列出已安装
-deps list --available            # 列出可用版本
-deps info simulator              # 组件详情
+deps list                 # 列出已安装
+deps status               # 检查安装状态
 
-# 更新
-deps update                      # 更新锁定文件
-deps upgrade simulator           # 升级组件
+# 清理
+deps clean                # 清理安装目录
 ```
 
 ### 验收标准
 
 1. 安装带进度显示
-2. 安装失败可回滚
+2. SHA256校验失败则终止
 3. 支持离线安装（本地缓存）
-4. 支持代理设置
-
----
-
-## REQ-306 下载与校验
-
----
-id: REQ-306
-title: 安全下载
-priority: P0
-status: draft
-parent: REQ-300
----
-
-### 描述
-
-安全下载和校验工具链。
-
-### 验收标准
-
-1. HTTPS下载
-2. SHA256校验，不匹配则失败
-3. 下载失败自动重试
-4. 支持断点续传
-5. 本地缓存避免重复下载

@@ -1,7 +1,7 @@
-# REQ-000 系统级需求
+# REQ-SYS 系统级需求
 
 ---
-id: REQ-000
+id: REQ-SYS
 title: 系统级需求
 priority: P0
 status: draft
@@ -13,14 +13,14 @@ AI芯片应用侧验证框架的系统级需求，定义项目边界、总体目
 
 ---
 
-## REQ-001 项目定位
+## REQ-SYS-001 项目定位
 
 ---
-id: REQ-001
+id: REQ-SYS-001
 title: 验证框架定位
 priority: P0
 status: draft
-parent: REQ-000
+parent: REQ-SYS
 ---
 
 ### 描述
@@ -34,22 +34,56 @@ parent: REQ-000
 | 本仓库 | 测试框架、参考模型、用例管理、结果管理、CI/CD | HAL实现、Driver实现、算子实现 |
 | 外部 | 被测代码、工具链二进制 | - |
 
+### 被测代码接口规范
+
+被测代码需要实现以下接口才能被本框架测试：
+
+```c
+/* 被测代码必须提供的头文件 */
+#include "npu_hal.h"      /* HAL层接口 */
+#include "npu_driver.h"   /* 驱动层接口 */
+#include "npu_ops.h"      /* 算子接口 */
+```
+
+### 配置文件示例
+
+```yaml
+# configs/target.yaml - 指定被测代码
+target:
+  # 被测代码路径
+  source_path: "/path/to/npu-sdk/src"
+  include_path: "/path/to/npu-sdk/include"
+  library_path: "/path/to/npu-sdk/lib"
+
+  # 被测库
+  libraries:
+    - libnpu_hal.a
+    - libnpu_driver.a
+
+  # 接口头文件
+  headers:
+    hal: "npu_hal.h"
+    driver: "npu_driver.h"
+    ops: "npu_ops.h"
+```
+
 ### 验收标准
 
 1. 框架代码与被测代码完全解耦
-2. 通过配置指定被测代码路径/接口
+2. 通过 `configs/target.yaml` 指定被测代码路径和接口
 3. 框架可独立编译和运行（使用桩/Mock）
+4. 被测代码只需实现规定的接口即可接入测试
 
 ---
 
-## REQ-002 语言约束
+## REQ-SYS-002 语言约束
 
 ---
-id: REQ-002
+id: REQ-SYS-002
 title: 编程语言约束
 priority: P0
 status: draft
-parent: REQ-000
+parent: REQ-SYS
 ---
 
 ### 描述
@@ -68,14 +102,14 @@ parent: REQ-000
 
 ---
 
-## REQ-003 跨平台验证
+## REQ-SYS-003 跨平台验证
 
 ---
-id: REQ-003
+id: REQ-SYS-003
 title: 跨平台验证支持
 priority: P0
 status: draft
-parent: REQ-000
+parent: REQ-SYS
 ---
 
 ### 描述
@@ -93,6 +127,31 @@ parent: REQ-000
 | FPGA | FPGA原型 | 原型验证 | 慢 |
 | Chip | 真实芯片 | 硅后验证 | 慢 |
 
+### LinuxUT vs LinuxST 区别
+
+| 特性 | LinuxUT (单元测试) | LinuxST (系统测试) |
+|------|-------------------|-------------------|
+| **测试粒度** | 单个函数/模块 | 多模块集成 |
+| **外部依赖** | 全部Mock | 部分Stub + 部分真实 |
+| **HAL层** | 纯内存模拟，无IO | 可有文件IO、网络 |
+| **被测代码** | 隔离测试单个组件 | 测试组件间交互 |
+| **数据规模** | 小规模 (<1KB) | 中等规模 (<1MB) |
+| **典型用例** | 函数逻辑、边界条件 | API流程、错误处理 |
+
+### Mock vs Stub 定义
+
+```
+Mock（模拟）:
+- 完全在内存中模拟，无真实行为
+- 可验证调用次数、参数
+- 示例：mock_reg_read() 直接返回预设值
+
+Stub（桩）:
+- 简化实现，有基本行为逻辑
+- 不验证调用，只提供功能
+- 示例：stub_dma_transfer() 实际拷贝内存
+```
+
 ### 验收标准
 
 1. 测试用例代码不包含平台特定逻辑
@@ -101,16 +160,16 @@ parent: REQ-000
 
 ---
 
-## REQ-004 验证流水线
+## REQ-SYS-004 验证流水线
 
 ---
-id: REQ-004
+id: REQ-SYS-004
 title: 验证流水线阶段
 priority: P0
 status: draft
-parent: REQ-000
+parent: REQ-SYS
 depends:
-  - REQ-003
+  - REQ-SYS-003
 ---
 
 ### 描述
@@ -139,37 +198,87 @@ depends:
 
 ---
 
-## REQ-005 可扩展性
+## REQ-SYS-005 可扩展性
 
 ---
-id: REQ-005
+id: REQ-SYS-005
 title: 框架可扩展性
 priority: P1
 status: draft
-parent: REQ-000
+parent: REQ-SYS
 ---
 
 ### 描述
 
 框架应易于扩展。
 
+### 平台适配层接口
+
+添加新平台需要实现以下函数：
+
+```c
+/* platform/<platform_name>/<platform>_adapter.c */
+
+/* 必须实现 */
+int platform_init(void);              /* 平台初始化 */
+int platform_deinit(void);            /* 平台清理 */
+int platform_run_test(test_case_t *tc); /* 执行单个测试 */
+
+/* 可选实现 */
+int platform_setup(void);             /* 测试前准备 */
+int platform_teardown(void);          /* 测试后清理 */
+void platform_log(int level, const char *fmt, ...); /* 日志输出 */
+uint64_t platform_get_time_us(void);  /* 获取时间戳 */
+```
+
+### 参考模型标准接口
+
+添加新算子参考模型需要实现：
+
+```c
+/* Python参考模型 (pymodel/ops/<op_name>.py) */
+def forward(inputs: List[np.ndarray], params: dict) -> List[np.ndarray]:
+    """算子前向计算"""
+    pass
+
+def generate_testcase(config: dict) -> Tuple[List[np.ndarray], List[np.ndarray]]:
+    """生成测试用例 (inputs, expected_outputs)"""
+    pass
+
+/* C参考模型 (src/model/ref_<op_name>.c) */
+int ref_<op_name>_f32(const float *input, float *output, const <op>_params_t *params);
+int ref_<op_name>_f16(const uint16_t *input, uint16_t *output, const <op>_params_t *params);
+```
+
+### 报告生成接口
+
+添加新报告格式需要实现：
+
+```python
+# tools/report/<format>_report.py
+class <Format>ReportGenerator:
+    def generate(self, results: dict, output_path: str) -> None:
+        """生成报告文件"""
+        pass
+```
+
 ### 验收标准
 
 1. 添加新测试用例：只需新增.c文件，无需修改框架
-2. 添加新平台：实现平台适配层接口即可
-3. 添加新算子参考模型：实现标准接口即可
-4. 添加新报告格式：实现报告生成接口即可
+2. 添加新平台：实现上述平台适配层接口（3个必须 + 4个可选）
+3. 添加新算子参考模型：实现 forward() 和 generate_testcase()
+4. 添加新报告格式：继承 ReportGenerator 基类
 
 ---
 
-## REQ-006 文档要求
+## REQ-SYS-006 文档要求
 
 ---
-id: REQ-006
+id: REQ-SYS-006
 title: 文档要求
 priority: P1
 status: draft
-parent: REQ-000
+parent: REQ-SYS
 ---
 
 ### 描述
@@ -186,14 +295,14 @@ parent: REQ-000
 
 ---
 
-## REQ-007 代码质量要求
+## REQ-SYS-007 代码质量要求
 
 ---
-id: REQ-007
+id: REQ-SYS-007
 title: 代码质量要求
 priority: P0
 status: draft
-parent: REQ-000
+parent: REQ-SYS
 ---
 
 ### 描述
@@ -227,14 +336,14 @@ parent: REQ-000
 
 ---
 
-## REQ-008 测试覆盖率要求
+## REQ-SYS-008 测试覆盖率要求
 
 ---
-id: REQ-008
+id: REQ-SYS-008
 title: 测试覆盖率要求
 priority: P0
 status: draft
-parent: REQ-000
+parent: REQ-SYS
 ---
 
 ### 描述
@@ -248,6 +357,30 @@ parent: REQ-000
 | Python核心代码 | >= 80% | >= 70% | pytest-cov |
 | Python工具代码 | >= 60% | >= 50% | pytest-cov |
 | C测试框架 | >= 70% | >= 60% | gcov/lcov |
+
+### 代码分类定义
+
+```
+Python核心代码（80%覆盖率要求）:
+├── pymodel/ops/          # 参考模型算子
+├── pymodel/quantize/     # 量化工具
+├── pymodel/layers/       # 复合层
+├── tools/runner/         # 测试运行器核心
+└── deps/scripts/         # 依赖管理核心
+
+Python工具代码（60%覆盖率要求）:
+├── tools/report/         # 报告生成
+├── tools/testmgmt/       # 用例管理Web
+├── tools/archive/        # 归档工具
+├── tools/data/           # 数据工具
+├── cicd/                 # CI/CD脚本
+└── scripts/              # 辅助脚本
+
+C测试框架代码（70%覆盖率要求）:
+├── src/framework/        # 测试框架核心
+├── src/model/            # C参考模型
+└── src/common/           # 通用工具
+```
 
 ### 覆盖率排除
 

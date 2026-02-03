@@ -1,13 +1,13 @@
-# REQ-400 用例管理需求
+# REQ-TMT 用例管理需求
 
 ---
-id: REQ-400
+id: REQ-TMT
 title: 用例管理需求
 priority: P0
 status: draft
-parent: REQ-000
+parent: REQ-SYS
 depends:
-  - REQ-100
+  - REQ-FWK
 ---
 
 ## 概述
@@ -16,14 +16,14 @@ depends:
 
 ---
 
-## REQ-401 用例组织结构
+## REQ-TMT-001 用例组织结构
 
 ---
-id: REQ-401
+id: REQ-TMT-001
 title: 用例目录结构
 priority: P0
 status: draft
-parent: REQ-400
+parent: REQ-TMT
 ---
 
 ### 描述
@@ -71,14 +71,14 @@ tests/
 
 ---
 
-## REQ-402 平台映射
+## REQ-TMT-002 平台映射
 
 ---
-id: REQ-402
+id: REQ-TMT-002
 title: 用例平台映射
 priority: P0
 status: draft
-parent: REQ-400
+parent: REQ-TMT
 ---
 
 ### 描述
@@ -122,23 +122,52 @@ stages:
       - "e2e/*"
 ```
 
+### 配置优先级
+
+当同一用例出现在多处配置时，按以下优先级（高→低）：
+
+```
+1. 代码内定义 (.platforms = "chip")     ← 最高
+2. testcases 精确匹配 ("test_power.c")
+3. testcases 通配符 ("performance/*")
+4. stages 配置
+5. default_platforms                     ← 最低
+```
+
+**示例**：
+```yaml
+default_platforms: [linux_ut, simulator, chip]
+
+testcases:
+  "performance/*":
+    platforms: [esl, fpga, chip]  # 覆盖default
+
+stages:
+  linux_ut:
+    includes: ["unit/*"]  # 不影响testcases配置
+```
+
+用例 `performance/test_latency.c`：
+- 最终平台 = `[esl, fpga, chip]`（testcases覆盖default）
+
 ### 验收标准
 
-1. 支持通配符匹配
+1. 支持通配符匹配（`*`匹配任意字符，`**`匹配多级目录）
 2. 支持include和exclude
 3. 运行时自动跳过不适用平台
 4. 跳过时显示原因
+5. 配置冲突时按优先级解决
 
 ---
 
-## REQ-403 用例标签
+## REQ-TMT-003 用例标签
 
 ---
-id: REQ-403
+id: REQ-TMT-003
 title: 用例标签系统
 priority: P0
 status: draft
-parent: REQ-400
+parent: REQ-TMT
 ---
 
 ### 描述
@@ -197,14 +226,14 @@ testcase_tags:
 
 ---
 
-## REQ-404 测试执行配置
+## REQ-TMT-004 测试执行配置
 
 ---
-id: REQ-404
+id: REQ-TMT-004
 title: 执行配置
 priority: P1
 status: draft
-parent: REQ-400
+parent: REQ-TMT
 ---
 
 ### 描述
@@ -272,14 +301,14 @@ testcase_configs:
 
 ---
 
-## REQ-405 测试列表
+## REQ-TMT-005 测试列表
 
 ---
-id: REQ-405
+id: REQ-TMT-005
 title: 测试列表定义
 priority: P0
 status: draft
-parent: REQ-400
+parent: REQ-TMT
 ---
 
 ### 描述
@@ -335,14 +364,14 @@ exclude:
 
 ---
 
-## REQ-406 用例元数据
+## REQ-TMT-006 用例元数据
 
 ---
-id: REQ-406
+id: REQ-TMT-006
 title: 用例元数据管理
 priority: P2
 status: draft
-parent: REQ-400
+parent: REQ-TMT
 ---
 
 ### 描述
@@ -371,14 +400,14 @@ TEST_CASE_EX(matmul, basic,
 
 ---
 
-## REQ-407 用例发现
+## REQ-TMT-007 用例发现
 
 ---
-id: REQ-407
+id: REQ-TMT-007
 title: 自动用例发现
 priority: P0
 status: draft
-parent: REQ-400
+parent: REQ-TMT
 ---
 
 ### 描述

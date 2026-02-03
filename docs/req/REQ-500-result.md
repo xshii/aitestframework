@@ -1,14 +1,14 @@
-# REQ-500 结果管理需求
+# REQ-RST 结果管理需求
 
 ---
-id: REQ-500
+id: REQ-RST
 title: 结果管理需求
 priority: P1
 status: draft
-parent: REQ-000
+parent: REQ-SYS
 depends:
-  - REQ-100
-  - REQ-400
+  - REQ-FWK
+  - REQ-TMT
 ---
 
 ## 概述
@@ -17,14 +17,14 @@ depends:
 
 ---
 
-## REQ-501 结果收集
+## REQ-RST-001 结果收集
 
 ---
-id: REQ-501
+id: REQ-RST-001
 title: 测试结果收集
 priority: P0
 status: draft
-parent: REQ-500
+parent: REQ-RST
 ---
 
 ### 描述
@@ -84,14 +84,14 @@ parent: REQ-500
 
 ---
 
-## REQ-502 结果存储
+## REQ-RST-002 结果存储
 
 ---
-id: REQ-502
+id: REQ-RST-002
 title: 结果持久化存储
 priority: P0
 status: draft
-parent: REQ-500
+parent: REQ-RST
 ---
 
 ### 描述
@@ -152,14 +152,14 @@ CREATE TABLE test_results (
 
 ---
 
-## REQ-503 结果归档
+## REQ-RST-003 结果归档
 
 ---
-id: REQ-503
+id: REQ-RST-003
 title: 历史结果归档
 priority: P1
 status: draft
-parent: REQ-500
+parent: REQ-RST
 ---
 
 ### 描述
@@ -197,14 +197,14 @@ archive:
 
 ---
 
-## REQ-504 报告生成
+## REQ-RST-004 报告生成
 
 ---
-id: REQ-504
+id: REQ-RST-004
 title: 测试报告生成
 priority: P0
 status: draft
-parent: REQ-500
+parent: REQ-RST
 ---
 
 ### 描述
@@ -252,14 +252,14 @@ parent: REQ-500
 
 ---
 
-## REQ-505 趋势分析
+## REQ-RST-005 趋势分析
 
 ---
-id: REQ-505
+id: REQ-RST-005
 title: 结果趋势分析
 priority: P1
 status: draft
-parent: REQ-500
+parent: REQ-RST
 ---
 
 ### 描述
@@ -310,14 +310,14 @@ flaky_tests = analyzer.detect_flaky_tests(
 
 ---
 
-## REQ-506 结果对比
+## REQ-RST-006 结果对比
 
 ---
-id: REQ-506
+id: REQ-RST-006
 title: 结果差异对比
 priority: P1
 status: draft
-parent: REQ-500
+parent: REQ-RST
 ---
 
 ### 描述
@@ -361,14 +361,14 @@ Removed Tests (0):
 
 ---
 
-## REQ-507 通知告警
+## REQ-RST-007 通知告警
 
 ---
-id: REQ-507
+id: REQ-RST-007
 title: 结果通知
 priority: P2
 status: draft
-parent: REQ-500
+parent: REQ-RST
 ---
 
 ### 描述

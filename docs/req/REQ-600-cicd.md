@@ -1,16 +1,16 @@
-# REQ-600 CI/CD需求
+# REQ-CIC CI/CD需求
 
 ---
-id: REQ-600
+id: REQ-CIC
 title: CI/CD需求
 priority: P1
 status: draft
-parent: REQ-000
+parent: REQ-SYS
 depends:
-  - REQ-100
-  - REQ-300
-  - REQ-400
-  - REQ-500
+  - REQ-FWK
+  - REQ-DEP
+  - REQ-TMT
+  - REQ-RST
 ---
 
 ## 概述
@@ -19,14 +19,14 @@ depends:
 
 ---
 
-## REQ-601 流水线阶段
+## REQ-CIC-001 流水线阶段
 
 ---
-id: REQ-601
+id: REQ-CIC-001
 title: 验证流水线阶段
 priority: P0
 status: draft
-parent: REQ-600
+parent: REQ-CIC
 ---
 
 ### 描述
@@ -67,14 +67,14 @@ parent: REQ-600
 
 ---
 
-## REQ-602 触发策略
+## REQ-CIC-002 触发策略
 
 ---
-id: REQ-602
+id: REQ-CIC-002
 title: 流水线触发策略
 priority: P0
 status: draft
-parent: REQ-600
+parent: REQ-CIC
 ---
 
 ### 描述
@@ -123,14 +123,14 @@ triggers:
 
 ---
 
-## REQ-603 作业定义
+## REQ-CIC-003 作业定义
 
 ---
-id: REQ-603
+id: REQ-CIC-003
 title: CI作业定义
 priority: P0
 status: draft
-parent: REQ-600
+parent: REQ-CIC
 ---
 
 ### 描述
@@ -195,14 +195,14 @@ steps:
 
 ---
 
-## REQ-604 并行执行
+## REQ-CIC-004 并行执行
 
 ---
-id: REQ-604
+id: REQ-CIC-004
 title: 并行测试执行
 priority: P1
 status: draft
-parent: REQ-600
+parent: REQ-CIC
 ---
 
 ### 描述
@@ -244,14 +244,14 @@ stages:
 
 ---
 
-## REQ-605 环境管理
+## REQ-CIC-005 环境管理
 
 ---
-id: REQ-605
+id: REQ-CIC-005
 title: 执行环境管理
 priority: P1
 status: draft
-parent: REQ-600
+parent: REQ-CIC
 ---
 
 ### 描述
@@ -263,44 +263,74 @@ parent: REQ-600
 ```yaml
 # cicd/environments.yaml
 environments:
-  linux-host:
-    type: docker
-    image: "npu-test:ubuntu22.04"
+  # 固定远程服务器（禁止使用Docker/虚拟机）
+  build-server:
+    type: remote
+    host: "dev@192.168.1.100"
+    ssh_key: "${CI_SSH_KEY}"
+    work_dir: "/home/dev/ci-workspace"
     resources:
-      cpu: 4
-      memory: 8G
+      cpu: 8
+      memory: 32G
 
-  simulator-node:
-    type: bare-metal
+  simulator-server:
+    type: remote
+    host: "sim@192.168.1.101"
+    ssh_key: "${CI_SSH_KEY}"
+    work_dir: "/opt/npu-sim/workspace"
     labels: [simulator, license]
     resources:
       cpu: 16
       memory: 64G
 
-  fpga-node:
-    type: bare-metal
+  fpga-server:
+    type: remote
+    host: "fpga@192.168.1.102"
+    ssh_key: "${CI_SSH_KEY}"
+    work_dir: "/opt/fpga/workspace"
     labels: [fpga, hardware]
     resources:
       fpga_board: "xilinx_u250"
 ```
 
+### 远程执行流程
+
+```
+本地/CI触发
+    │
+    ▼
+SSH连接远程服务器
+    │
+    ▼
+rsync同步代码到work_dir
+    │
+    ▼
+远程执行编译/测试
+    │
+    ▼
+rsync回传结果文件
+    │
+    ▼
+本地解析生成报告
+```
+
 ### 验收标准
 
-1. 支持Docker容器
-2. 支持裸机节点
-3. 支持资源标签调度
-4. 环境可复用和缓存
+1. 通过SSH连接远程服务器执行
+2. 支持多台服务器标签调度
+3. 工作目录自动清理和复用
+4. 支持断点续传和失败重连
 
 ---
 
-## REQ-606 CI平台集成
+## REQ-CIC-006 CI平台集成
 
 ---
-id: REQ-606
+id: REQ-CIC-006
 title: CI平台集成
 priority: P0
 status: draft
-parent: REQ-600
+parent: REQ-CIC
 ---
 
 ### 描述
@@ -309,55 +339,83 @@ parent: REQ-600
 
 ### 支持平台
 
-**Jenkins**:
+**Jenkins (远程服务器执行)**:
 ```groovy
 // cicd/jenkins/Jenkinsfile
 pipeline {
-    agent any
+    agent { label 'ci-controller' }
+    environment {
+        REMOTE_HOST = 'dev@192.168.1.100'
+        REMOTE_DIR = '/home/dev/ci-workspace/${BUILD_NUMBER}'
+    }
     stages {
+        stage('Sync') {
+            steps {
+                sh 'rsync -avz --delete ./ ${REMOTE_HOST}:${REMOTE_DIR}/'
+            }
+        }
         stage('Build') {
-            steps { sh 'make PLATFORM=simulator' }
+            steps {
+                sh 'ssh ${REMOTE_HOST} "cd ${REMOTE_DIR} && make PLATFORM=simulator"'
+            }
         }
         stage('Test') {
-            steps { sh './test_runner --list nightly' }
+            steps {
+                sh 'ssh ${REMOTE_HOST} "cd ${REMOTE_DIR} && ./test_runner --list nightly"'
+            }
+        }
+        stage('Collect') {
+            steps {
+                sh 'rsync -avz ${REMOTE_HOST}:${REMOTE_DIR}/results/ ./results/'
+            }
         }
     }
     post {
         always { junit 'results/*.xml' }
+        cleanup {
+            sh 'ssh ${REMOTE_HOST} "rm -rf ${REMOTE_DIR}"'
+        }
     }
 }
 ```
 
-**GitLab CI**:
+**GitLab CI (远程服务器执行)**:
 ```yaml
 # cicd/gitlab/.gitlab-ci.yml
-stages: [build, test, report]
+stages: [sync, build, test, collect, cleanup]
+
+variables:
+  REMOTE_HOST: "dev@192.168.1.100"
+  REMOTE_DIR: "/home/dev/ci-workspace/${CI_PIPELINE_ID}"
+
+sync:
+  stage: sync
+  script:
+    - rsync -avz --delete ./ ${REMOTE_HOST}:${REMOTE_DIR}/
 
 build:
   stage: build
-  script: make PLATFORM=simulator
+  script:
+    - ssh ${REMOTE_HOST} "cd ${REMOTE_DIR} && make PLATFORM=simulator"
 
 test:
   stage: test
-  script: ./test_runner --list nightly --output junit
+  script:
+    - ssh ${REMOTE_HOST} "cd ${REMOTE_DIR} && ./test_runner --list nightly --output junit"
+
+collect:
+  stage: collect
+  script:
+    - rsync -avz ${REMOTE_HOST}:${REMOTE_DIR}/results/ ./results/
   artifacts:
     reports:
-      junit: results.xml
-```
+      junit: results/results.xml
 
-**GitHub Actions**:
-```yaml
-# cicd/github/workflows/nightly.yml
-name: Nightly
-on:
-  schedule:
-    - cron: '0 0 * * *'
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: make && ./test_runner --list nightly
+cleanup:
+  stage: cleanup
+  when: always
+  script:
+    - ssh ${REMOTE_HOST} "rm -rf ${REMOTE_DIR}"
 ```
 
 ### 验收标准
@@ -368,14 +426,14 @@ jobs:
 
 ---
 
-## REQ-607 失败处理
+## REQ-CIC-007 失败处理
 
 ---
-id: REQ-607
+id: REQ-CIC-007
 title: 失败处理策略
 priority: P1
 status: draft
-parent: REQ-600
+parent: REQ-CIC
 ---
 
 ### 描述
@@ -423,14 +481,14 @@ failure_handling:
 
 ---
 
-## REQ-608 报告集成
+## REQ-CIC-008 报告集成
 
 ---
-id: REQ-608
+id: REQ-CIC-008
 title: CI报告集成
 priority: P1
 status: draft
-parent: REQ-600
+parent: REQ-CIC
 ---
 
 ### 描述
