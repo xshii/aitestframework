@@ -279,9 +279,490 @@ aitest/assertion/
 │   ├── isclose.py       # IsClose 断言
 │   ├── thresholds.py    # 阈值配置
 │   └── report.py        # 比对报告生成
+│
+├── soft/                # 软断言支持
+│   ├── __init__.py
+│   ├── context.py       # SoftAssertContext
+│   └── collector.py     # 失败收集器
 ```
 
-### 2.2 实现示例
+### 2.2 软断言支持 (Soft Assertions)
+
+软断言允许在单个测试用例内收集多个断言失败，而不是在第一个失败时立即停止。这对于批量验证算子精度特别有用。
+
+#### 2.2.1 设计思路
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        Soft Assertion Architecture                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   正常断言 (Hard Assert)              软断言 (Soft Assert)                   │
+│   ┌─────────────────────┐            ┌─────────────────────┐               │
+│   │  assert A           │            │  soft.check(A)      │               │
+│   │  ↓ (通过)           │            │  ↓ (通过/记录)      │               │
+│   │  assert B           │            │  soft.check(B)      │               │
+│   │  ↓ (失败 → 停止!)   │            │  ↓ (失败 → 记录)    │               │
+│   │  assert C (不执行)  │            │  soft.check(C)      │               │
+│   └─────────────────────┘            │  ↓ (继续执行)       │               │
+│                                      │  soft.check(D)      │               │
+│                                      │  ↓                  │               │
+│                                      │  退出时汇总所有失败 │               │
+│                                      └─────────────────────┘               │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 2.2.2 SoftAssertContext 实现
+
+```python
+# assertion/soft/context.py
+
+"""
+软断言上下文
+
+用法:
+    with SoftAssertContext() as soft:
+        soft.check(a == b, "a should equal b")
+        soft.check_close(x, y, atol=1e-5, name="tensor_x")
+        soft.check_all_close(output, golden, atol=1e-4)
+    # 退出时抛出包含所有失败的异常
+"""
+
+from typing import Any, List, Optional
+from dataclasses import dataclass, field
+import numpy as np
+
+
+@dataclass
+class AssertionFailure:
+    """断言失败记录"""
+    message: str
+    location: str = ""
+    actual: Any = None
+    expected: Any = None
+    details: dict = field(default_factory=dict)
+
+
+class SoftAssertionError(AssertionError):
+    """软断言错误 - 包含多个失败"""
+
+    def __init__(self, failures: List[AssertionFailure]):
+        self.failures = failures
+        messages = [f.message for f in failures]
+        super().__init__(
+            f"{len(failures)} assertion(s) failed:\n" +
+            "\n".join(f"  - {m}" for m in messages)
+        )
+
+    def __len__(self) -> int:
+        return len(self.failures)
+
+    def summary(self) -> str:
+        """生成失败汇总"""
+        lines = [f"Total failures: {len(self.failures)}"]
+        for i, f in enumerate(self.failures, 1):
+            lines.append(f"  {i}. {f.message}")
+        return "\n".join(lines)
+
+
+class SoftAssertContext:
+    """软断言上下文管理器"""
+
+    def __init__(self, raise_on_exit: bool = True):
+        """
+        Args:
+            raise_on_exit: 退出时是否抛出异常 (默认 True)
+        """
+        self.failures: List[AssertionFailure] = []
+        self.raise_on_exit = raise_on_exit
+        self._pass_count = 0
+
+    def __enter__(self) -> 'SoftAssertContext':
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+        # 如果有其他异常，不处理
+        if exc_type is not None:
+            return False
+
+        # 如果有失败且需要抛出
+        if self.raise_on_exit and self.failures:
+            raise SoftAssertionError(self.failures)
+        return False
+
+    # ========== 基础检查 ==========
+
+    def check(self, condition: bool, message: str) -> bool:
+        """基础条件检查"""
+        if condition:
+            self._pass_count += 1
+            return True
+        self.failures.append(AssertionFailure(message=message))
+        return False
+
+    def check_equal(self, actual: Any, expected: Any, name: str = "") -> bool:
+        """相等检查"""
+        if actual == expected:
+            self._pass_count += 1
+            return True
+        prefix = f"[{name}] " if name else ""
+        self.failures.append(AssertionFailure(
+            message=f"{prefix}Expected {expected}, got {actual}",
+            actual=actual,
+            expected=expected,
+        ))
+        return False
+
+    # ========== 数值检查 ==========
+
+    def check_close(
+        self,
+        actual: float,
+        expected: float,
+        atol: float = 1e-8,
+        rtol: float = 1e-5,
+        name: str = ""
+    ) -> bool:
+        """近似相等检查"""
+        diff = abs(actual - expected)
+        threshold = atol + rtol * abs(expected)
+        if diff <= threshold:
+            self._pass_count += 1
+            return True
+        prefix = f"[{name}] " if name else ""
+        self.failures.append(AssertionFailure(
+            message=f"{prefix}Expected ~{expected}, got {actual}, diff={diff:.2e}",
+            actual=actual,
+            expected=expected,
+            details={"diff": diff, "threshold": threshold},
+        ))
+        return False
+
+    def check_in_range(
+        self,
+        value: float,
+        min_val: float,
+        max_val: float,
+        name: str = ""
+    ) -> bool:
+        """范围检查"""
+        if min_val <= value <= max_val:
+            self._pass_count += 1
+            return True
+        prefix = f"[{name}] " if name else ""
+        self.failures.append(AssertionFailure(
+            message=f"{prefix}Expected in [{min_val}, {max_val}], got {value}",
+            actual=value,
+        ))
+        return False
+
+    # ========== 数组检查 ==========
+
+    def check_all_close(
+        self,
+        actual: np.ndarray,
+        expected: np.ndarray,
+        atol: float = 1e-8,
+        rtol: float = 1e-5,
+        name: str = ""
+    ) -> bool:
+        """数组近似相等检查"""
+        if np.allclose(actual, expected, atol=atol, rtol=rtol):
+            self._pass_count += 1
+            return True
+
+        diff = np.abs(actual - expected)
+        max_diff = float(diff.max())
+        max_idx = np.unravel_index(diff.argmax(), diff.shape)
+
+        prefix = f"[{name}] " if name else ""
+        self.failures.append(AssertionFailure(
+            message=f"{prefix}Arrays not close, max_diff={max_diff:.2e} at {max_idx}",
+            details={
+                "max_diff": max_diff,
+                "max_idx": max_idx,
+                "mean_diff": float(diff.mean()),
+            },
+        ))
+        return False
+
+    def check_shape(
+        self,
+        tensor: np.ndarray,
+        expected_shape: List[int],
+        name: str = ""
+    ) -> bool:
+        """形状检查"""
+        actual_shape = list(tensor.shape)
+        if actual_shape == expected_shape:
+            self._pass_count += 1
+            return True
+        prefix = f"[{name}] " if name else ""
+        self.failures.append(AssertionFailure(
+            message=f"{prefix}Shape mismatch: {actual_shape} != {expected_shape}",
+            actual=actual_shape,
+            expected=expected_shape,
+        ))
+        return False
+
+    def check_no_nan(self, tensor: np.ndarray, name: str = "") -> bool:
+        """NaN 检查"""
+        nan_count = np.isnan(tensor).sum()
+        if nan_count == 0:
+            self._pass_count += 1
+            return True
+        prefix = f"[{name}] " if name else ""
+        self.failures.append(AssertionFailure(
+            message=f"{prefix}Found {nan_count} NaN values",
+            details={"nan_count": int(nan_count)},
+        ))
+        return False
+
+    def check_no_inf(self, tensor: np.ndarray, name: str = "") -> bool:
+        """Inf 检查"""
+        inf_count = np.isinf(tensor).sum()
+        if inf_count == 0:
+            self._pass_count += 1
+            return True
+        prefix = f"[{name}] " if name else ""
+        self.failures.append(AssertionFailure(
+            message=f"{prefix}Found {inf_count} Inf values",
+            details={"inf_count": int(inf_count)},
+        ))
+        return False
+
+    # ========== 算子精度检查 (aidevtools 集成) ==========
+
+    def check_isclose(
+        self,
+        result: np.ndarray,
+        golden: np.ndarray,
+        atol: float = 1e-5,
+        rtol: float = 1e-3,
+        max_exceed_ratio: float = 0.0,
+        name: str = ""
+    ) -> bool:
+        """IsClose 精度检查 (集成 aidevtools)"""
+        from aidevtools.tools.compare import compare_isclose
+
+        comparison = compare_isclose(
+            golden=golden,
+            result=result,
+            atol=atol,
+            rtol=rtol,
+            max_exceed_ratio=max_exceed_ratio,
+        )
+
+        if comparison.passed:
+            self._pass_count += 1
+            return True
+
+        prefix = f"[{name}] " if name else ""
+        self.failures.append(AssertionFailure(
+            message=(
+                f"{prefix}IsClose failed: exceed_ratio={comparison.exceed_ratio:.4%} "
+                f"(max: {max_exceed_ratio:.4%}), max_abs={comparison.max_abs_error:.2e}"
+            ),
+            details={
+                "exceed_ratio": comparison.exceed_ratio,
+                "exceed_count": comparison.exceed_count,
+                "max_abs_error": comparison.max_abs_error,
+            },
+        ))
+        return False
+
+    def check_3col(
+        self,
+        op_name: str,
+        op_id: int,
+        result: np.ndarray,
+        golden_pure: np.ndarray,
+        golden_qnt: np.ndarray,
+        thresholds = None,
+    ) -> bool:
+        """三列比对检查 (集成 aidevtools)"""
+        from aidevtools.tools.compare import compare_3col, CompareThresholds
+
+        thresholds = thresholds or CompareThresholds()
+        comparison = compare_3col(
+            op_name=op_name,
+            op_id=op_id,
+            result=result,
+            golden_pure=golden_pure,
+            golden_qnt=golden_qnt,
+            thresholds=thresholds,
+        )
+
+        if comparison.status != "FAIL":
+            self._pass_count += 1
+            return True
+
+        self.failures.append(AssertionFailure(
+            message=(
+                f"[{op_name}_{op_id}] 3-col compare FAIL: "
+                f"qsnr={comparison.fuzzy_qnt.qsnr:.1f}dB"
+            ),
+            details={
+                "status": comparison.status,
+                "exact_mismatch": comparison.exact.mismatch_count,
+                "fuzzy_pure_qsnr": comparison.fuzzy_pure.qsnr,
+                "fuzzy_qnt_qsnr": comparison.fuzzy_qnt.qsnr,
+            },
+        ))
+        return False
+
+    # ========== 统计属性 ==========
+
+    @property
+    def pass_count(self) -> int:
+        """通过数量"""
+        return self._pass_count
+
+    @property
+    def fail_count(self) -> int:
+        """失败数量"""
+        return len(self.failures)
+
+    @property
+    def total_count(self) -> int:
+        """总数量"""
+        return self._pass_count + len(self.failures)
+
+    def has_failures(self) -> bool:
+        """是否有失败"""
+        return len(self.failures) > 0
+
+    def get_failures(self) -> List[AssertionFailure]:
+        """获取所有失败"""
+        return self.failures
+
+    def get_failure_messages(self) -> List[str]:
+        """获取所有失败消息"""
+        return [f.message for f in self.failures]
+
+    def summary(self) -> str:
+        """生成汇总报告"""
+        return (
+            f"Soft Assert Summary: {self._pass_count} passed, "
+            f"{len(self.failures)} failed"
+        )
+```
+
+#### 2.2.3 使用示例
+
+```python
+"""软断言使用示例"""
+
+from aitest.assertion.soft import SoftAssertContext
+import numpy as np
+
+
+# ============================================
+# 示例1: 批量算子精度验证
+# ============================================
+
+def test_all_operators():
+    """验证所有算子精度 - 收集所有失败"""
+
+    ops = ["matmul_0", "layernorm_0", "softmax_0", "add_0"]
+
+    with SoftAssertContext() as soft:
+        for op_name in ops:
+            dut = np.load(f"outputs/{op_name}_dut.npy")
+            golden = np.load(f"outputs/{op_name}_golden.npy")
+
+            soft.check_all_close(
+                dut, golden,
+                atol=1e-5, rtol=1e-3,
+                name=op_name
+            )
+
+    # 退出时，如果有失败会汇总报告
+
+
+# ============================================
+# 示例2: 多指标验证
+# ============================================
+
+def test_model_metrics(result, golden):
+    """验证多个指标 - 不因单个失败而停止"""
+
+    with SoftAssertContext() as soft:
+        # 形状检查
+        soft.check_shape(result, list(golden.shape), "output")
+
+        # NaN/Inf 检查
+        soft.check_no_nan(result, "output")
+        soft.check_no_inf(result, "output")
+
+        # 精度检查
+        soft.check_all_close(result, golden, atol=1e-4, name="precision")
+
+        # 范围检查
+        soft.check_in_range(result.max(), 0, 1, "max_value")
+
+        print(soft.summary())  # "Soft Assert Summary: 4 passed, 1 failed"
+
+
+# ============================================
+# 示例3: 与三列比对集成
+# ============================================
+
+def test_transformer_with_3col():
+    """Transformer 层三列比对 - 软断言"""
+
+    from aidevtools.tools.compare import CompareThresholds
+
+    thresholds = CompareThresholds(
+        fuzzy_atol=1e-5,
+        fuzzy_rtol=1e-3,
+        fuzzy_min_qsnr=30.0,
+    )
+
+    ops = [
+        ("MatMul", 0), ("MatMul", 1),
+        ("LayerNorm", 0), ("Add", 0),
+    ]
+
+    with SoftAssertContext() as soft:
+        for op_name, op_id in ops:
+            dut = np.load(f"outputs/{op_name}_{op_id}_dut.npy")
+            pure = np.load(f"outputs/{op_name}_{op_id}_pure.npy")
+            qnt = np.load(f"outputs/{op_name}_{op_id}_qnt.npy")
+
+            soft.check_3col(
+                op_name=op_name,
+                op_id=op_id,
+                result=dut,
+                golden_pure=pure,
+                golden_qnt=qnt,
+                thresholds=thresholds,
+            )
+
+
+# ============================================
+# 示例4: 不抛出异常模式 (手动处理)
+# ============================================
+
+def test_with_manual_handling():
+    """手动处理失败 (不抛出异常)"""
+
+    with SoftAssertContext(raise_on_exit=False) as soft:
+        soft.check(True, "Always pass")
+        soft.check(False, "Will fail but continue")
+        soft.check(True, "Another pass")
+
+    # 手动检查结果
+    if soft.has_failures():
+        print(f"Found {soft.fail_count} failures:")
+        for msg in soft.get_failure_messages():
+            print(f"  - {msg}")
+    else:
+        print("All checks passed!")
+```
+
+### 2.3 实现示例
 
 ```python
 # assertion/builder.py
