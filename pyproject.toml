@@ -1,0 +1,72 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "aitestframework"
+version = "0.1.0"
+description = "AI模型测试框架，集成aidevtools算子验证工具"
+requires-python = ">=3.9"
+dependencies = [
+    "prettycli @ file:libs/prettycli",
+    "numpy>=1.21,<2.0",
+    "pyyaml>=6.0",
+    "jinja2>=3.0",
+    "torch>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "ruff>=0.1.0",
+    "pylint>=3.0.0",
+]
+xlsx = [
+    "openpyxl>=3.0.0",
+]
+cpp = [
+    "pybind11>=2.10.0",
+]
+toolchain = [
+    "httpx>=0.24.0",
+]
+all = [
+    "aitestframework[xlsx,cpp,toolchain]",
+]
+
+[project.scripts]
+aitest = "aitestframework.cli:main"
+aidev = "aidevtools.cli:main"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["aitestframework", "aidevtools", "backends"]
+
+[tool.pylint.messages_control]
+disable = [
+    "import-outside-toplevel",
+    "abstract-method",
+]
+
+[tool.pylint.basic]
+good-names = ["i", "j", "k", "n", "m", "x", "y", "z", "M", "K", "N", "H", "W", "C", "B", "T", "S", "Q", "V", "L", "kH", "kW", "_", "__version__"]
+const-rgx = "(_?[A-Z][A-Z0-9_]*|_?[a-z][a-z0-9_]*)$"
+function-rgx = "[a-z_][a-z0-9_]{0,50}$"
+variable-rgx = "([a-z_][a-z0-9_]{0,50}|[A-Z][A-Z0-9]?(_[a-z]+)?)$"
+class-rgx = "([A-Z_][a-zA-Z0-9]*|[a-z_][a-z0-9_]*)$"
+
+[tool.pylint.design]
+max-args = 7
+max-positional-arguments = 7
+max-locals = 20
+max-attributes = 12
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v"

@@ -1,32 +1,34 @@
 # AI测试框架 - 需求总览索引
 # AI Test Framework - Requirements Index
-# 版本: 1.0.0
+# 版本: 1.1.0
 # 创建时间: 2026-02-02
-# 说明: 本文档为AI测试框架的需求总览，汇总所有模块的需求分类
+# 更新时间: 2026-02-04
+# 说明: 集成aidevtools，移除LLM专项测试，聚焦业务模型和算子验证
 
 project:
   name: AI Test Framework
   name_cn: AI测试框架
-  description: 一个专为AI/ML模型测试设计的自动化测试框架
-  version: 1.0.0
+  description: 一个专为业务模型/小模型测试设计的自动化测试框架，集成aidevtools算子验证工具
+  version: 1.1.0
   created_at: 2026-02-02
+  updated_at: 2026-02-04
 
 # ============================================
 # 需求统计摘要
 # ============================================
 summary:
-  total_modules: 7
-  total_requirements: 67
-  total_sub_requirements: 246
+  total_modules: 8  # 新增ADT模块
+  total_requirements: 68  # 移除MODEL-009(1个)，新增ADT(7个)
+  total_sub_requirements: 236  # 调整后
 
   priority_breakdown:
-    P0: 27    # 必须实现
-    P1: 30    # 重要功能
-    P2: 9     # 可选增强
+    P0: 28    # 核心功能
+    P1: 32    # 重要功能
+    P2: 7     # 可选增强
     P3: 1     # 未来规划
 
   status_breakdown:
-    pending: 246
+    pending: 236
     in_progress: 0
     completed: 0
 
@@ -56,18 +58,18 @@ modules:
     name: AI模型测试
     name_en: AI Model Testing
     file: 02-ai-model-testing.yaml
-    description: 针对AI/ML模型的专项测试能力
-    requirements_count: 9
-    sub_requirements_count: 42
+    description: 针对业务模型和小模型的专项测试能力，集成aidevtools
+    requirements_count: 8  # 移除了MODEL-009
+    sub_requirements_count: 34
     key_features:
-      - 多框架模型加载
-      - 推理正确性测试
-      - 模型精度测试
+      - 模型加载(PyTorch/ONNX)
+      - 推理正确性测试(四状态比对)
+      - 模型精度测试(QSNR/cosine)
       - 推理性能测试
       - 压力测试
       - 鲁棒性测试
-      - 一致性测试
-      - LLM专项测试
+      - 一致性测试(量化)
+      - Golden自检
 
   - id: DATA
     name: 数据管理
@@ -160,6 +162,22 @@ modules:
       - 配置系统扩展
       - 扩展开发文档
 
+  - id: ADT
+    name: aidevtools集成
+    name_en: aidevtools Integration
+    file: 08-aidevtools-integration.yaml
+    description: 集成aidevtools工具集，提供算子级Golden生成、精度比对、量化格式支持
+    requirements_count: 7
+    sub_requirements_count: 26
+    key_features:
+      - CompareEngine集成(四状态比对)
+      - ops算子Golden生成
+      - 量化格式支持(BFP/GFloat)
+      - 数据生成集成
+      - xlsx工作流集成
+      - 比对报告集成
+      - 四状态断言
+
 # ============================================
 # 优先级说明
 # ============================================
@@ -204,21 +222,52 @@ status_definitions:
 roadmap:
   phase_1:
     name: MVP版本
-    description: 最小可行产品，实现核心功能
+    description: 最小可行产品，实现核心功能，集成aidevtools
     target_priorities: [P0]
-    estimated_requirements: 27
+    estimated_requirements: 28
+    key_deliverables:
+      - aidevtools集成(四状态比对)
+      - 测试用例发现与执行
+      - 基础报告生成
+      - CLI工具
 
   phase_2:
     name: 功能完善
     description: 补充重要功能，提升易用性
     target_priorities: [P1]
-    estimated_requirements: 30
+    estimated_requirements: 32
+    key_deliverables:
+      - 并行执行
+      - 完整报告系统
+      - CI/CD集成
+      - 插件系统
 
   phase_3:
     name: 增强扩展
     description: 添加增强功能，扩展生态
     target_priorities: [P2, P3]
-    estimated_requirements: 10
+    estimated_requirements: 8
+    key_deliverables:
+      - 分布式执行
+      - 云平台集成
+      - REST API
+
+# ============================================
+# 变更历史
+# ============================================
+changelog:
+  - version: "1.1.0"
+    date: "2026-02-04"
+    changes:
+      - 移除MODEL-009 LLM专项测试
+      - 新增ADT模块(aidevtools集成)
+      - 调整MODEL模块，聚焦业务模型和算子验证
+      - 更新优先级分布
+
+  - version: "1.0.0"
+    date: "2026-02-02"
+    changes:
+      - 初始版本
 
 # ============================================
 # 文件列表
@@ -232,3 +281,4 @@ files:
   - 05-report-generation.yaml      # 报告生成需求
   - 06-integration-deployment.yaml # 集成与部署需求
   - 07-extensibility.yaml          # 扩展性需求
+  - 08-aidevtools-integration.yaml # aidevtools集成需求(新增)
