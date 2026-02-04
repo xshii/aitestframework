@@ -26,8 +26,17 @@ if [[ ! -d "${MODULE_ROOT}" ]]; then
     exit 0
 fi
 
+# 切换到项目根目录
+cd "${PROJECT_ROOT}"
+
+# 激活虚拟环境（如果存在）
+if [[ -f ".venv/bin/activate" ]]; then
+    source .venv/bin/activate
+    echo "使用虚拟环境: .venv"
+fi
+
 # 设置环境
-export PYTHONPATH="${PROJECT_ROOT}:${PROJECT_ROOT}/libs:${PYTHONPATH}"
+export PYTHONPATH="${PROJECT_ROOT}:${PROJECT_ROOT}/libs:${PYTHONPATH:-}"
 
 run_lint() {
     echo -e "${YELLOW}[lint] 代码检查${NC}"
@@ -44,20 +53,13 @@ run_lint() {
 run_test() {
     echo -e "${YELLOW}[test] 运行测试${NC}"
 
-    cd "${PROJECT_ROOT}"
-
     local test_dir="${MODULE_ROOT}/tests"
     if [[ ! -d "${test_dir}" ]]; then
         echo -e "${YELLOW}测试目录不存在，跳过${NC}"
         return 0
     fi
 
-    # 激活虚拟环境
-    if [[ -f ".venv/bin/activate" ]]; then
-        source .venv/bin/activate
-    fi
-
-    pytest "${test_dir}" \
+    python3 -m pytest "${test_dir}" \
         -v --tb=short \
         --junitxml="test-results/${MODULE_NAME}-tests.xml" \
         || return $?

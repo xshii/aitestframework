@@ -19,8 +19,17 @@ MODULE_NAME="aidevtools"
 
 echo -e "${CYAN}========== ${MODULE_NAME} CI ==========${NC}"
 
+# 切换到项目根目录
+cd "${PROJECT_ROOT}"
+
+# 激活虚拟环境（如果存在）
+if [[ -f ".venv/bin/activate" ]]; then
+    source .venv/bin/activate
+    echo "使用虚拟环境: .venv"
+fi
+
 # 设置环境
-export PYTHONPATH="${PROJECT_ROOT}:${PROJECT_ROOT}/libs:${PYTHONPATH}"
+export PYTHONPATH="${PROJECT_ROOT}:${PROJECT_ROOT}/libs:${PYTHONPATH:-}"
 
 build_cpu_golden() {
     echo -e "${YELLOW}[build] 编译 cpu_golden${NC}"
@@ -63,20 +72,13 @@ run_lint() {
 run_test() {
     echo -e "${YELLOW}[test] 运行测试${NC}"
 
-    cd "${PROJECT_ROOT}"
-
     local test_dir="${MODULE_ROOT}/tests"
     if [[ ! -d "${test_dir}" ]]; then
         echo -e "${RED}测试目录不存在: ${test_dir}${NC}"
         return 1
     fi
 
-    # 激活虚拟环境
-    if [[ -f ".venv/bin/activate" ]]; then
-        source .venv/bin/activate
-    fi
-
-    pytest "${test_dir}" \
+    python3 -m pytest "${test_dir}" \
         -v --tb=short \
         --junitxml="test-results/${MODULE_NAME}-tests.xml" \
         || return $?
