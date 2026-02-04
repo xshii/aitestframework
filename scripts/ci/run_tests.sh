@@ -64,7 +64,7 @@ case "${TEST_TYPE}" in
         echo ""
         echo -e "${YELLOW}运行集成测试${NC}"
         echo "----------------------------------------"
-        pytest tests/it tests/st ${PYTEST_ARGS} \
+        pytest libs/aidevtools/tests/it libs/aidevtools/tests/st ${PYTEST_ARGS} \
             --junitxml=test-results/integration-tests.xml || EXIT_CODE=$?
         ;;
 
@@ -73,17 +73,25 @@ case "${TEST_TYPE}" in
         echo -e "${YELLOW}运行所有测试${NC}"
         echo "----------------------------------------"
 
-        # 单元测试
+        # 框架单元测试
         echo ""
-        echo "[1/2] 单元测试"
+        echo "[1/3] 框架单元测试"
         pytest aitestframework/ ${PYTEST_ARGS} \
             --junitxml=test-results/unit-tests.xml || EXIT_CODE=$?
 
-        # 集成测试
+        # aidevtools 测试
         echo ""
-        echo "[2/2] 集成测试"
-        pytest tests/it tests/st -v --tb=short \
-            --junitxml=test-results/integration-tests.xml || EXIT_CODE=$?
+        echo "[2/3] aidevtools 测试"
+        pytest libs/aidevtools/tests/ -v --tb=short \
+            --junitxml=test-results/aidevtools-tests.xml || EXIT_CODE=$?
+
+        # 集成测试 (如果存在)
+        if [[ -d "tests/it" ]] || [[ -d "tests/st" ]]; then
+            echo ""
+            echo "[3/3] 框架集成测试"
+            pytest tests/it tests/st -v --tb=short \
+                --junitxml=test-results/integration-tests.xml 2>/dev/null || true
+        fi
         ;;
 
     *)

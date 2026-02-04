@@ -63,12 +63,26 @@ pipeline {
                     echo "提交: ${GIT_COMMIT:-unknown}"
                 '''
 
-                // 创建虚拟环境
+                // 创建虚拟环境并安装依赖
                 sh '''
                     ${PYTHON} -m venv .venv
                     . .venv/bin/activate
                     pip install --upgrade pip
                     pip install -r requirements/dev.txt
+                '''
+
+                // 编译 cpu_golden (可选，需要 cmake)
+                sh '''
+                    if command -v cmake &> /dev/null; then
+                        echo "编译 cpu_golden..."
+                        cd libs/aidevtools/golden/cpp
+                        if [[ -f "build.sh" ]]; then
+                            chmod +x build.sh
+                            ./build.sh || echo "cpu_golden 编译失败，跳过相关测试"
+                        fi
+                    else
+                        echo "cmake 未安装，跳过 cpu_golden 编译"
+                    fi
                 '''
             }
         }
