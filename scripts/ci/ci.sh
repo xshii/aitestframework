@@ -25,9 +25,9 @@ NC='\033[0m'
 show_help() {
     echo "AI Test Framework CI 工具"
     echo ""
-    echo "用法: $0 [command]"
+    echo "用法: $0 [command] [module]"
     echo ""
-    echo "命令:"
+    echo "全局命令:"
     echo "  lint      运行代码检查 (ruff, pylint)"
     echo "  test      运行所有测试"
     echo "  coverage  运行测试并生成覆盖率报告"
@@ -36,11 +36,18 @@ show_help() {
     echo "  setup     安装CI依赖"
     echo "  help      显示此帮助"
     echo ""
+    echo "模块命令:"
+    echo "  module <name> [action]   运行指定模块的CI"
+    echo "  modules                  列出所有模块"
+    echo ""
+    echo "可用模块: aidevtools, prettycli"
+    echo ""
     echo "示例:"
-    echo "  $0 lint           # 检查代码风格"
-    echo "  $0 test           # 运行测试"
-    echo "  $0 gate           # 检查质量门禁"
-    echo "  $0 all            # 完整CI流程"
+    echo "  $0 lint                    # 全局代码检查"
+    echo "  $0 test                    # 运行所有测试"
+    echo "  $0 module aidevtools       # aidevtools 完整CI"
+    echo "  $0 module aidevtools test  # aidevtools 仅测试"
+    echo "  $0 modules                 # 列出所有模块"
 }
 
 setup() {
@@ -83,6 +90,32 @@ run_coverage() {
 run_gate() {
     echo -e "${CYAN}========== 质量门禁 ==========${NC}"
     bash "${SCRIPT_DIR}/quality_gate.sh"
+}
+
+list_modules() {
+    echo -e "${CYAN}========== 可用模块 ==========${NC}"
+    for script in "${SCRIPT_DIR}"/modules/*.sh; do
+        if [[ -f "$script" ]]; then
+            local name=$(basename "$script" .sh)
+            echo "  - ${name}"
+        fi
+    done
+}
+
+run_module() {
+    local module_name="$1"
+    local action="${2:-all}"
+
+    local script="${SCRIPT_DIR}/modules/${module_name}.sh"
+    if [[ ! -f "$script" ]]; then
+        echo -e "${RED}模块不存在: ${module_name}${NC}"
+        echo "可用模块:"
+        list_modules
+        return 1
+    fi
+
+    chmod +x "$script"
+    bash "$script" "$action"
 }
 
 run_all() {
@@ -156,6 +189,13 @@ case "${1:-help}" in
         ;;
     setup)
         setup
+        ;;
+    module)
+        shift
+        run_module "$@"
+        ;;
+    modules)
+        list_modules
         ;;
     help|--help|-h)
         show_help
