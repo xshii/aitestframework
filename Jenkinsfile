@@ -72,7 +72,7 @@ pipeline {
 
                 script {
                     if (params.USE_CONDA) {
-                        // 使用 Conda 环境
+                        // 使用 Conda 环境（持久化，复用已安装依赖）
                         sh '''
                             echo "使用 Conda 环境..."
 
@@ -83,20 +83,43 @@ pipeline {
                             if ! conda env list | grep -q "^${CONDA_ENV} "; then
                                 echo "创建 Conda 环境: ${CONDA_ENV}"
                                 conda create -n ${CONDA_ENV} python=3.11 cmake -y
+                                NEED_INSTALL=1
                             fi
 
                             conda activate ${CONDA_ENV}
-                            pip install --upgrade pip
-                            pip install -r requirements/dev.txt
+
+                            # 检查依赖是否需要更新（基于 requirements 文件哈希）
+                            REQ_HASH=$(cat requirements/*.txt | md5sum | cut -d' ' -f1)
+                            CACHE_FILE="${CONDA_PREFIX}/.req_hash"
+
+                            if [[ ! -f "${CACHE_FILE}" ]] || [[ "$(cat ${CACHE_FILE})" != "${REQ_HASH}" ]]; then
+                                echo "依赖有变化，重新安装..."
+                                pip install --upgrade pip
+                                pip install -r requirements/dev.txt
+                                echo "${REQ_HASH}" > "${CACHE_FILE}"
+                            else
+                                echo "依赖无变化，跳过安装"
+                            fi
+                        '''
+
+                        // 生成激活脚本供后续 stage 使用
+                        sh '''
+                            echo 'eval "$(conda shell.bash hook)" && conda activate ${CONDA_ENV}' > .ci_activate.sh
                         '''
                     } else {
                         // 使用 venv
                         sh '''
                             echo "使用 venv 环境..."
-                            ${PYTHON} -m venv .venv
-                            . .venv/bin/activate
+                            if [[ ! -d ".venv" ]]; then
+                                ${PYTHON} -m venv .venv
+                            fi
+                            . .ci_activate.sh
                             pip install --upgrade pip
                             pip install -r requirements/dev.txt
+                        '''
+
+                        sh '''
+                            echo '. .ci_activate.sh' > .ci_activate.sh
                         '''
                     }
                 }
@@ -126,7 +149,7 @@ pipeline {
                     steps {
                         echo "========== Pylint 代码检查 =========="
                         sh '''
-                            . .venv/bin/activate
+                            . .ci_activate.sh
                             pylint aitestframework --output-format=parseable \
                                 --reports=y \
                                 --exit-zero \
@@ -154,7 +177,7 @@ pipeline {
                     steps {
                         echo "========== Ruff 快速检查 =========="
                         sh '''
-                            . .venv/bin/activate
+                            . .ci_activate.sh
                             ruff check aitestframework libs/aidevtools \
                                 --output-format=json \
                                 --exit-zero \
@@ -174,7 +197,7 @@ pipeline {
             steps {
                 echo "========== 单元测试 =========="
                 sh '''
-                    . .venv/bin/activate
+                    . .ci_activate.sh
                     pytest aitestframework/ \
                         --junitxml=test-results/unit-tests.xml \
                         --cov=aitestframework \
@@ -208,7 +231,7 @@ pipeline {
             steps {
                 echo "========== 集成测试 =========="
                 sh '''
-                    . .venv/bin/activate
+                    . .ci_activate.sh
                     pytest tests/it tests/st \
                         --junitxml=test-results/integration-tests.xml \
                         -v || true
