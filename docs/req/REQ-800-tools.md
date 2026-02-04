@@ -15,6 +15,10 @@ depends:
 
 Python实现的辅助工具集，包括测试运行器、数据生成、报告生成、用例管理Web界面等。
 
+**Python环境要求：**
+- Python版本：>= 3.8（与REQ-SYS-002保持一致）
+- 依赖管理：使用requirements.txt和pyproject.toml
+
 ```
 tools/
 ├── runner/           # 测试运行器
@@ -22,6 +26,13 @@ tools/
 ├── report/           # 报告生成工具
 ├── testmgmt/         # 用例管理Web
 └── archive/          # 结果归档工具
+
+# requirements.txt 示例
+python_requires>=3.8
+numpy>=1.20.0
+pyyaml>=6.0
+jinja2>=3.0
+flask>=2.0  # 仅testmgmt需要
 ```
 
 ---
@@ -196,7 +207,7 @@ python -m tools.data.yaml_to_c testdata/cases/matmul.yaml \
 1. 支持各算子的数据生成
 2. 支持批量生成配置
 3. 支持随机参数生成
-4. 输出符合Golden数据格式规范（REQ-MDL-004）
+4. 输出符合Golden数据格式规范（REQ-MDL-001）
 5. 支持YAML转C头文件
 
 ---

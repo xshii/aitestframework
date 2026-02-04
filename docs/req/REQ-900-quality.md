@@ -3,7 +3,7 @@
 ---
 id: REQ-QCK
 title: 代码质量需求
-priority: P0
+priority: P1
 status: draft
 parent: REQ-SYS
 ---
@@ -24,7 +24,7 @@ parent: REQ-SYS
 ---
 id: REQ-QCK-001
 title: 类型命名检查
-priority: P0
+priority: P1
 status: draft
 parent: REQ-QCK
 ---
@@ -55,7 +55,7 @@ parent: REQ-QCK
 ---
 id: REQ-QCK-002
 title: 命名规范检查
-priority: P0
+priority: P1
 status: draft
 parent: REQ-QCK
 ---
@@ -87,7 +87,7 @@ parent: REQ-QCK
 ---
 id: REQ-QCK-003
 title: 内存段标记检查
-priority: P0
+priority: P1
 status: draft
 parent: REQ-QCK
 ---
@@ -118,7 +118,7 @@ parent: REQ-QCK
 ---
 id: REQ-QCK-004
 title: 安全函数检查
-priority: P0
+priority: P1
 status: draft
 parent: REQ-QCK
 ---
@@ -150,7 +150,7 @@ parent: REQ-QCK
 ---
 id: REQ-QCK-005
 title: 错误码检查
-priority: P0
+priority: P1
 status: draft
 parent: REQ-QCK
 ---
@@ -181,7 +181,7 @@ parent: REQ-QCK
 ---
 id: REQ-QCK-006
 title: 判断宏使用检查
-priority: P1
+priority: P2
 status: draft
 parent: REQ-QCK
 ---
@@ -211,7 +211,7 @@ parent: REQ-QCK
 ---
 id: REQ-QCK-007
 title: 静态分析工具集成
-priority: P0
+priority: P1
 status: draft
 parent: REQ-QCK
 ---
@@ -251,7 +251,7 @@ tools:
 ---
 id: REQ-QCK-008
 title: 增量检查
-priority: P1
+priority: P2
 status: draft
 parent: REQ-QCK
 ---
@@ -289,7 +289,7 @@ quality check --report html
 ---
 id: REQ-QCK-009
 title: 规则配置
-priority: P1
+priority: P2
 status: draft
 parent: REQ-QCK
 ---
@@ -330,3 +330,100 @@ includes:
 1. 支持规则级别的开关控制
 2. 支持文件/目录排除
 3. 支持严重级别调整
+
+---
+
+## REQ-QCK-010 内存安全检测
+
+---
+id: REQ-QCK-010
+title: 内存安全检测
+priority: P2
+status: draft
+parent: REQ-QCK
+---
+
+### 描述
+
+集成内存安全检测工具，检测内存泄漏、越界访问等问题。
+
+### 检测工具
+
+| 工具 | 用途 | 平台 |
+|------|------|------|
+| AddressSanitizer (ASan) | 内存越界、UAF | LinuxUT/ST |
+| LeakSanitizer (LSan) | 内存泄漏 | LinuxUT/ST |
+| Valgrind | 内存错误全面检测 | LinuxUT/ST |
+| MemorySanitizer (MSan) | 未初始化内存 | LinuxUT/ST |
+
+### 编译选项
+
+```makefile
+# Makefile
+ifeq ($(SANITIZER),asan)
+    CFLAGS += -fsanitize=address -fno-omit-frame-pointer
+    LDFLAGS += -fsanitize=address
+endif
+
+ifeq ($(SANITIZER),lsan)
+    CFLAGS += -fsanitize=leak
+    LDFLAGS += -fsanitize=leak
+endif
+
+ifeq ($(SANITIZER),msan)
+    CFLAGS += -fsanitize=memory -fno-omit-frame-pointer
+    LDFLAGS += -fsanitize=memory
+endif
+```
+
+### 命令行使用
+
+```bash
+# ASan编译运行
+make PLATFORM=linux_ut SANITIZER=asan
+./build/bin/linux_ut/test_runner
+
+# Valgrind运行（无需重新编译）
+valgrind --leak-check=full --error-exitcode=1 ./test_runner
+
+# CI配置
+./test_runner --sanitizer-report report.txt
+```
+
+### 验收标准
+
+1. CI流水线包含ASan检测阶段
+2. 内存泄漏导致测试失败
+3. 错误信息包含调用栈
+4. 支持抑制已知问题（suppressions文件）
+
+---
+
+## REQ-QCK-011 代码复杂度检查
+
+---
+id: REQ-QCK-011
+title: 代码复杂度检查
+priority: P2
+status: draft
+parent: REQ-QCK
+---
+
+### 描述
+
+检查代码复杂度指标，防止过于复杂的代码。
+
+### 检查指标
+
+| 指标 | 阈值 | 说明 |
+|------|------|------|
+| 圈复杂度 | <= 15 | 单函数圈复杂度 |
+| 函数行数 | <= 100 | 单函数代码行数 |
+| 文件行数 | <= 1000 | 单文件代码行数 |
+| 嵌套深度 | <= 4 | 最大嵌套层数 |
+
+### 验收标准
+
+1. 超过阈值报WARNING
+2. 严重超标（2倍）报ERROR
+3. 支持配置例外

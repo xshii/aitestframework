@@ -3,37 +3,98 @@
 ## 一、项目定位
 
 ### 核心需求
+
 - **应用侧验证**：验证AI加速器的软件/驱动层
-- **验证代码用C**：手写测试框架，纯C实现
-- **工具链二进制下载**：仿真器、编译器、OS平台软件通过URL下载
-- **辅助工具用Python**：CI/CD、网页监控、报告生成等
+- **验证代码用C**：纯C99实现，零外部依赖
+- **工具链二进制下载**：仿真器、编译器、OS平台软件通过httpx下载
+- **辅助工具用Python**：CI/CD、报告生成、数据工具（最小依赖）
 - **跨平台复用**：同一套测试代码在不同平台运行
 
-### 工具链获取方式
+### 架构边界
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    外部工具（二进制下载）                     │
+│                    本仓库：验证框架                          │
 ├─────────────────────────────────────────────────────────────┤
-│  仿真器 (Simulator)    → curl下载二进制                      │
-│  编译器 (Compiler)     → curl下载二进制                      │
-│  OS平台软件            → curl下载二进制                      │
-│  FPGA工具链            → curl下载二进制                      │
+│  测试框架 (C)      - 断言宏、测试注册、运行器、报告输出       │
+│  参考模型          - Golden数据管理、结果比较工具            │
+│  平台适配层        - HAL接口、各平台适配桩/Mock              │
+│  依赖管理          - 工具链版本管理、配套关系检查            │
+│  用例管理          - 用例组织、筛选、配置、标签、平台映射     │
+│  结果管理          - 收集、归档、报告、趋势分析              │
+│  CI/CD            - 流水线定义、触发策略、通知              │
+│  辅助工具          - Python工具、Web界面、数据生成          │
 └─────────────────────────────────────────────────────────────┘
-                              ↓
+                              ↓ 测试
 ┌─────────────────────────────────────────────────────────────┐
-│                    本仓库代码                                │
+│                    外部：被测对象                            │
 ├─────────────────────────────────────────────────────────────┤
-│  验证代码 (C语言)      → 测试框架、测试用例、参考模型、HAL    │
-│  辅助工具 (Python)     → CI/CD、监控、报告、数据生成          │
-│  配置文件              → 工具下载地址、平台配置、测试列表      │
+│  HAL层 / Driver层 / 算子实现（被测）                        │
+└─────────────────────────────────────────────────────────────┘
+                              ↓ 依赖
+┌─────────────────────────────────────────────────────────────┐
+│                    外部：工具链（httpx下载）                  │
+├─────────────────────────────────────────────────────────────┤
+│  仿真器 / 编译器 / ESL模型 / FPGA工具                        │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 二、核心架构
+## 二、DDD架构设计
 
-### 2.1 验证流水线阶段
+本框架采用领域驱动设计（DDD），划分为核心域、支撑域、通用域三个层次。
+
+### 2.1 限界上下文
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         验证框架 - 限界上下文图                           │
+├─────────────────────────────────────────────────────────────────────────┤
+│   ╔══════════════════════════════════════════════════════════════════╗  │
+│   ║                    核心域 (Core Domain)                           ║  │
+│   ║   ┌─────────────┐    ┌─────────────┐    ┌─────────────┐         ║  │
+│   ║   │  测试执行    │    │  平台适配    │    │  参考数据    │         ║  │
+│   ║   │  (FWK)      │◄──►│  (PLT)      │    │  (MDL)      │         ║  │
+│   ║   │ 聚合:TestCase│    │ 聚合:Platform│    │ 聚合:Dataset │         ║  │
+│   ║   └──────┬──────┘    └─────────────┘    └──────┬──────┘         ║  │
+│   ╚══════════╪══════════════════════════════════════╪════════════════╝  │
+│              │           领域事件                    │                   │
+│              ▼                                       ▼                   │
+│   ╔══════════════════════════════════════════════════════════════════╗  │
+│   ║                   支撑域 (Supporting Domain)                      ║  │
+│   ║   ┌─────────────┐                    ┌─────────────┐             ║  │
+│   ║   │  用例管理    │   订阅事件         │  结果管理    │             ║  │
+│   ║   │  (TMT)      │◄──────────────────►│  (RST)      │             ║  │
+│   ║   │ 聚合:TestSuite│                   │ 聚合:Execution│            ║  │
+│   ║   └─────────────┘                    └─────────────┘             ║  │
+│   ╚══════════════════════════════════════════════════════════════════╝  │
+│   ╔══════════════════════════════════════════════════════════════════╗  │
+│   ║                   通用域 (Generic Domain) - 可替换                ║  │
+│   ║   ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐            ║  │
+│   ║   │   DEP   │  │   QCK   │  │   CIC   │  │   DVT   │            ║  │
+│   ║   │ 依赖管理 │  │ 代码质量 │  │  CI/CD  │  │ 开发工具 │            ║  │
+│   ║   └─────────┘  └─────────┘  └─────────┘  └─────────┘            ║  │
+│   ╚══════════════════════════════════════════════════════════════════╝  │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### 2.2 模块概览
+
+| 域 | 缩写 | 模块名 | 描述 | 需求文档 |
+|----|------|--------|------|----------|
+| 基础 | SYS | System | 系统级需求、总体约束、事件定义 | REQ-000-system.md |
+| **核心域** | FWK | Framework | C测试框架核心（聚合：TestCase） | REQ-100-framework.md |
+| **核心域** | PLT | Platform | 平台适配层（聚合：Platform） | REQ-700-platform.md |
+| **核心域** | MDL | Model | Golden数据与比较（聚合：Dataset） | REQ-200-model.md |
+| **支撑域** | TMT | TestMgmt | 用例管理（聚合：TestSuite） | REQ-400-testmgmt.md |
+| **支撑域** | RST | Result | 结果管理（聚合：Execution） | REQ-500-result.md |
+| **通用域** | DEP | Deps | 依赖管理（独立） | REQ-300-deps.md |
+| **通用域** | QCK | Quality | 代码质量检查（独立） | REQ-900-quality.md |
+| **通用域** | CIC | CICD | 流水线（事件订阅者） | REQ-600-cicd.md |
+| **通用域** | DVT | DevTool | 开发工具 | REQ-B00-devtool.md |
+
+### 2.3 验证流水线
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -43,13 +104,8 @@
 │  单元测试   │  系统测试    │             │             │                 │
 ├─────────────┴─────────────┼─────────────┼─────────────┼─────────────────┤
 │     Host Linux环境        │  Simulator  │  ESL Model  │  FPGA/Chip      │
-│     快速迭代开发          │  功能正确性  │  性能建模   │  真实硬件        │
 └───────────────────────────┴─────────────┴─────────────┴─────────────────┘
-         ↓                        ↓              ↓              ↓
-    代码逻辑验证              算子功能验证    性能指标验证    硬件实测验证
 ```
-
-### 2.2 各阶段定位
 
 | 阶段 | 环境 | 目标 | 速度 | 精度 |
 |------|------|------|------|------|
@@ -59,24 +115,17 @@
 | **性能ESL** | ESL Model | 性能/时序/带宽 | 中 | 周期级 |
 | **原型/EDA** | FPGA/Chip | 真实硬件验证 | 慢 | 硬件级 |
 
-### 2.3 分层架构
+### 2.4 分层架构
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│              Python辅助层 (CI/CD, 监控, 报告)                │
+│              Python辅助层 (CI/CD, 报告, 数据生成)             │
 ├──────────────────────────┬──────────────────────────────────┤
 │   Python参考模型         │        C测试用例                  │
-│   (numpy, 非torch)       │   UT/ST/功能/性能测试             │
-│   matmul/conv/act/quant  │                                  │
+│   (numpy)                │   UT/ST/功能/性能测试             │
 ├──────────────────────────┴──────────────────────────────────┤
 │                  Test Framework (C测试框架)                  │
 │    断言宏 | 测试注册 | 结果统计 | 日志输出 | 超时控制          │
-├─────────────────────────────────────────────────────────────┤
-│           Reference Model (C参考模型，可选用于嵌入式)         │
-│          矩阵运算 | 卷积 | 激活函数 | 量化模型                 │
-├─────────────────────────────────────────────────────────────┤
-│                  Driver Layer (C驱动层)                      │
-│          算子接口 | 内存分配 | 任务提交 | 状态查询              │
 ├─────────────────────────────────────────────────────────────┤
 │                  HAL Layer (C硬件抽象层)                     │
 │        reg_read/write | dma_transfer | irq_wait | mem_map   │
@@ -84,593 +133,199 @@
 │  LinuxUT   │  LinuxST   │ Simulator  │    ESL     │FPGA/Chip│
 │  Mock HAL  │  Mock HAL  │  Sim HAL   │  ESL HAL   │ HW HAL  │
 └────────────┴────────────┴────────────┴────────────┴─────────┘
-                              ↓
-              外部二进制工具 (通过URL下载)
-         Simulator | Compiler | ESL Model | FPGA Tools
-```
-
-### 2.4 参考模型双实现策略
-
-```
-参考模型使用场景:
-
-┌─────────────────────────────────────────────────────────────┐
-│  Python参考模型 (pymodel/)                                  │
-│  ├─ 用于：生成golden数据、离线精度验证、算法开发              │
-│  ├─ 依赖：numpy (不依赖torch/tensorflow)                    │
-│  └─ 优势：开发快、易调试、易对接算法团队                      │
-├─────────────────────────────────────────────────────────────┤
-│  C参考模型 (src/model/)                                     │
-│  ├─ 用于：嵌入式在线比对、芯片端自测                          │
-│  ├─ 依赖：无外部依赖，纯C实现                                │
-│  └─ 优势：可编译到目标平台、实时比对                          │
-└─────────────────────────────────────────────────────────────┘
-
-验证流程:
-  1. Python模型生成golden数据 → 保存到testdata/golden/
-  2. C测试加载golden数据 → 与硬件输出比对
-  或
-  3. C测试调用C参考模型 → 实时计算参考值 → 与硬件比对
 ```
 
 ---
 
-## 三、完整目录结构
+## 三、目录结构
 
 ```
 aitestframework/
 │
-├── README.md                           # 项目说明
-├── Makefile                            # 顶层Makefile
-├── setup.py                            # Python包安装
-├── requirements.txt                    # Python依赖
+├── README.md                       # 本文件：项目设计
+├── Makefile                        # 顶层构建
+├── requirements.txt                # Python依赖
 │
-├── docs/                               # 文档
-│   ├── architecture.md                 # 架构设计
-│   ├── hal_porting_guide.md            # HAL移植指南
-│   ├── test_writing_guide.md           # 测试编写指南
-│   ├── toolchain_setup.md              # 工具链配置指南
-│   └── coding_style.md                 # C编码规范
+├── docs/                           # 文档
+│   ├── req/                        # 需求文档
+│   │   ├── README.md               # 需求索引、DDD架构详细说明
+│   │   └── REQ-*.md                # 各模块需求
+│   └── coding_style.md             # C编码规范
 │
-├── deps/                               # 依赖管理
-│   ├── README.md                       # 依赖管理说明
-│   ├── manifests/                      # 依赖清单
-│   │   ├── simulator.yaml
-│   │   ├── compiler.yaml
-│   │   ├── esl.yaml
-│   │   ├── fpga_tools.yaml
-│   │   └── os_platform.yaml
-│   ├── compatibility/                  # 配套关系定义
-│   │   ├── matrix.yaml
-│   │   ├── constraints.yaml
-│   │   └── known_issues.yaml
-│   ├── profiles/                       # 预定义配套组合
-│   │   ├── latest.yaml
-│   │   ├── stable.yaml
-│   │   ├── v1.0.yaml
-│   │   └── v2.0.yaml
-│   ├── lock/                           # 锁定文件
-│   │   └── deps.lock.yaml
-│   └── scripts/                        # 依赖管理脚本
-│       ├── dep_manager.py
-│       ├── compat_checker.py
-│       └── version_resolver.py
-│
-├── configs/                            # 配置文件
-│   ├── platforms/                      # 平台配置
-│   │   ├── simulator.yaml
-│   │   ├── fpga.yaml
-│   │   └── chip.yaml
-│   └── testlists/                      # 测试列表
-│       ├── sanity.yaml
-│       ├── nightly.yaml
-│       └── full.yaml
-│
-├── include/                            # C头文件
-│   ├── common/                         # 通用定义
-│   │   ├── types.h
-│   │   ├── error_code.h
-│   │   ├── config.h
-│   │   └── utils.h
-│   ├── hal/                            # HAL接口
-│   │   ├── hal_types.h
-│   │   ├── hal_ops.h
-│   │   └── hal_platform.h
-│   ├── driver/                         # 驱动接口
-│   │   ├── npu_driver.h
-│   │   ├── npu_ops.h
-│   │   └── npu_memory.h
-│   ├── model/                          # 参考模型接口(C)
-│   │   ├── ref_model.h
-│   │   ├── matmul.h
-│   │   ├── conv2d.h
-│   │   └── activation.h
-│   └── framework/                      # 测试框架接口
-│       ├── test_framework.h
-│       ├── test_assert.h
-│       ├── test_runner.h
-│       └── test_report.h
-│
-├── src/                                # C源代码
-│   ├── common/                         # 通用实现
-│   │   ├── utils.c
-│   │   └── log.c
-│   ├── hal/                            # HAL核心
-│   │   ├── hal_core.c
-│   │   └── hal_init.c
-│   ├── driver/                         # 驱动实现
-│   │   ├── npu_driver.c
-│   │   ├── npu_ops.c
-│   │   └── npu_memory.c
-│   ├── model/                          # 参考模型(C实现)
-│   │   ├── ref_matmul.c
-│   │   ├── ref_conv2d.c
-│   │   ├── ref_activation.c
-│   │   ├── ref_pooling.c
-│   │   └── quantize/
-│   │       ├── quant_int8.c
-│   │       ├── quant_fp16.c
-│   │       └── quant_bf16.c
-│   └── framework/                      # 测试框架
-│       ├── test_core.c
-│       ├── test_runner.c
-│       ├── test_filter.c
-│       └── test_report.c
-│
-├── platform/                           # 平台HAL实现
+├── include/                        # C公开头文件
 │   ├── common/
-│   │   ├── platform.h
-│   │   └── mock_hal.h
-│   ├── linux_ut/                       # LinuxUT平台
-│   │   ├── ut_hal.c
-│   │   ├── ut_hal.h
-│   │   ├── ut_mock_reg.c
-│   │   ├── ut_mock_mem.c
-│   │   └── ut_main.c
-│   ├── linux_st/                       # LinuxST平台
-│   │   ├── st_hal.c
-│   │   ├── st_hal.h
-│   │   ├── st_stub_driver.c
-│   │   └── st_main.c
-│   ├── simulator/                      # Simulator平台
-│   │   ├── sim_hal.c
-│   │   ├── sim_hal.h
-│   │   ├── sim_comm.c
-│   │   └── sim_main.c
-│   ├── esl/                            # ESL平台
-│   │   ├── esl_hal.c
-│   │   ├── esl_hal.h
-│   │   ├── esl_perf_model.c
-│   │   ├── esl_trace.c
-│   │   └── esl_main.c
-│   ├── fpga/                           # FPGA平台
-│   │   ├── fpga_hal.c
-│   │   ├── fpga_hal.h
-│   │   ├── fpga_pcie.c
-│   │   ├── fpga_dma.c
-│   │   └── fpga_main.c
-│   └── chip/                           # Chip平台
-│       ├── chip_hal.c
-│       ├── chip_hal.h
-│       ├── chip_mmap.c
-│       ├── chip_irq.c
-│       └── chip_main.c
+│   │   ├── types.h                 # SYS-010 基础类型
+│   │   ├── errno.h                 # 错误码定义
+│   │   └── macros.h                # 通用宏
+│   ├── framework/
+│   │   ├── test_case.h             # FWK-001 用例注册宏
+│   │   ├── assert.h                # FWK-002 断言宏
+│   │   ├── result.h                # FWK-003 结果类型
+│   │   └── runner.h                # FWK-004 运行器接口
+│   ├── hal/
+│   │   └── hal_ops.h               # PLT-001 HAL接口
+│   └── model/
+│       └── compare.h               # MDL-002 比较接口
 │
-├── tests/                              # C测试用例
-│   ├── unit/                           # 单元测试
-│   │   ├── driver/
-│   │   ├── framework/
-│   │   └── model/
-│   ├── integration/                    # 集成测试
-│   ├── functional/                     # 功能测试
-│   │   ├── sanity/
-│   │   ├── matmul/
-│   │   ├── conv/
-│   │   ├── activation/
-│   │   └── precision/
-│   ├── performance/                    # 性能测试
-│   ├── stress/                         # 压力测试
-│   ├── e2e/                            # 端到端测试
-│   └── testcfg/                        # 测试配置
-│       ├── platform_mapping.yaml
-│       ├── test_execution.yaml
-│       └── *.yaml
+├── src/                            # C源代码
+│   ├── framework/
+│   │   ├── runner.c                # FWK-004 运行器实现
+│   │   ├── output.c                # FWK-005 输出格式
+│   │   └── signal.c                # FWK-019 信号处理
+│   ├── platform/
+│   │   ├── linux_ut/
+│   │   │   └── ut_hal.c            # PLT-002 LinuxUT Mock
+│   │   └── platform.c              # PLT-008 平台选择
+│   └── model/
+│       └── compare.c               # MDL-002 比较实现
 │
-├── pymodel/                            # Python参考模型
-│   ├── __init__.py
-│   ├── ops/                            # 算子实现
-│   ├── quantize/                       # 量化工具
-│   ├── layers/                         # 复合层
-│   └── utils/                          # 工具函数
+├── tests/                          # TMT-001 测试用例
+│   ├── unit/                       # 单元测试
+│   │   └── framework/
+│   └── functional/                 # 功能测试
+│       └── sanity/
 │
-├── testdata/                           # 测试数据
-│   ├── generators/                     # 数据生成器
+├── testdata/                       # MDL-001 Golden数据
 │   ├── inputs/
-│   ├── golden/
-│   └── models/
+│   └── golden/
 │
-├── tools/                              # Python工具
-│   ├── toolchain/                      # 工具链管理
-│   ├── runner/                         # 测试运行
-│   ├── report/                         # 报告生成
-│   ├── testmgmt/                       # 用例管理系统
-│   ├── archive/                        # 结果归档
-│   └── data/                           # 数据工具
+├── tools/                          # Python工具（DVT）
+│   ├── runner/                     # 测试运行器
+│   ├── data/                       # 数据生成工具
+│   ├── report/                     # 报告生成
+│   └── deps/                       # 依赖管理
 │
-├── cicd/                               # CI/CD
-│   ├── pipelines/                      # 流水线定义
-│   ├── jobs/                           # 作业定义
-│   ├── jenkins/                        # Jenkins配置
-│   ├── gitlab/                         # GitLab CI
-│   └── github/                         # GitHub Actions
+├── deps/                           # 依赖配置
+│   └── config.yaml                 # 依赖版本配置
 │
-├── scripts/                            # 脚本
-│   ├── setup_env.sh
-│   ├── download_toolchain.py
-│   ├── build.sh
-│   ├── run_tests.py
-│   └── clean.sh
-│
-└── build/                              # 构建输出 (git忽略)
-    ├── toolchain/
+└── build/                          # 构建输出 (gitignore)
     ├── bin/
     └── reports/
 ```
 
 ---
 
-## 四、实践步骤
+## 四、技术选型
 
-### 第一阶段：基础框架搭建
+### 原则
 
-#### 步骤1.1：创建目录结构和配置文件
-- [ ] 创建完整目录结构
-- [ ] 创建 `.gitignore`
-- [ ] 创建顶层 `Makefile`
-- [ ] 创建 `setup.py` 和 `requirements.txt`
+- **C代码**：零外部依赖（纯C99 + POSIX）
+- **Python**：最小依赖 + 标准库优先
 
-#### 步骤1.2：实现C头文件 (include/)
-- [ ] `include/common/types.h` - 基础类型定义
-- [ ] `include/common/error_code.h` - 错误码定义
-- [ ] `include/common/config.h` - 编译配置
-- [ ] `include/common/utils.h` - 工具宏
-- [ ] `include/hal/hal_types.h` - HAL类型
-- [ ] `include/hal/hal_ops.h` - HAL操作接口（函数指针结构体）
-- [ ] `include/hal/hal_platform.h` - 平台选择
-- [ ] `include/driver/npu_driver.h` - NPU驱动接口
-- [ ] `include/driver/npu_ops.h` - 算子接口
-- [ ] `include/driver/npu_memory.h` - 内存管理
-- [ ] `include/model/ref_model.h` - 参考模型接口
-- [ ] `include/model/matmul.h` - 矩阵乘法
-- [ ] `include/model/conv2d.h` - 卷积
-- [ ] `include/model/activation.h` - 激活函数
-- [ ] `include/framework/test_framework.h` - 测试框架核心
-- [ ] `include/framework/test_assert.h` - 断言宏
-- [ ] `include/framework/test_runner.h` - 运行器
-- [ ] `include/framework/test_report.h` - 报告接口
+### C代码
 
-#### 步骤1.3：实现C源文件 (src/)
-- [ ] `src/common/utils.c` - 通用工具
-- [ ] `src/common/log.c` - 日志系统
-- [ ] `src/hal/hal_core.c` - HAL核心实现
-- [ ] `src/hal/hal_init.c` - HAL初始化
-- [ ] `src/driver/npu_driver.c` - 驱动实现
-- [ ] `src/driver/npu_ops.c` - 算子实现
-- [ ] `src/driver/npu_memory.c` - 内存管理实现
-- [ ] `src/model/ref_matmul.c` - 矩阵乘法参考实现
-- [ ] `src/model/ref_conv2d.c` - 卷积参考实现
-- [ ] `src/model/ref_activation.c` - 激活函数参考实现
-- [ ] `src/model/ref_pooling.c` - 池化参考实现
-- [ ] `src/model/quantize/quant_int8.c` - INT8量化
-- [ ] `src/model/quantize/quant_fp16.c` - FP16量化
-- [ ] `src/model/quantize/quant_bf16.c` - BF16量化
-- [ ] `src/framework/test_core.c` - 测试核心
-- [ ] `src/framework/test_runner.c` - 测试运行器
-- [ ] `src/framework/test_filter.c` - 测试过滤
-- [ ] `src/framework/test_report.c` - 报告生成
+| 功能 | 方案 |
+|------|------|
+| JSON输出 | 内置（仅输出，~100行） |
+| 用例注册 | linker section |
+| 信号/Socket/共享内存 | POSIX标准库 |
+| CRC32 | 内置（~50行） |
 
-### 第二阶段：平台HAL实现
+**外部依赖：0**
 
-#### 步骤2.1：公共平台代码
-- [ ] `platform/common/platform.h` - 平台公共接口
-- [ ] `platform/common/mock_hal.h` - Mock HAL基础
+### Python依赖
 
-#### 步骤2.2：LinuxUT平台（单元测试Mock）
-- [ ] `platform/linux_ut/ut_hal.h`
-- [ ] `platform/linux_ut/ut_hal.c`
-- [ ] `platform/linux_ut/ut_mock_reg.c` - 寄存器Mock
-- [ ] `platform/linux_ut/ut_mock_mem.c` - 内存Mock
-- [ ] `platform/linux_ut/ut_main.c` - 入口
+```
+# 核心 (3个，必须)
+pyyaml>=6.0      # 配置解析
+httpx>=0.24      # HTTP下载（异步、HTTP/2）
+numpy>=1.20      # 数值计算
 
-#### 步骤2.3：LinuxST平台（系统测试桩）
-- [ ] `platform/linux_st/st_hal.h`
-- [ ] `platform/linux_st/st_hal.c`
-- [ ] `platform/linux_st/st_stub_driver.c` - 桩驱动
-- [ ] `platform/linux_st/st_main.c`
+# 增强 (2个，推荐)
+jinja2>=3.0      # HTML报告模板
+rich>=13.0       # 终端UI（进度条+表格+着色）
 
-#### 步骤2.4：Simulator平台
-- [ ] `platform/simulator/sim_hal.h`
-- [ ] `platform/simulator/sim_hal.c`
-- [ ] `platform/simulator/sim_comm.c` - 仿真器通信
-- [ ] `platform/simulator/sim_main.c`
+# 可选 (1个)
+flask>=2.0       # Web界面（仅DVT-004需要）
+```
 
-#### 步骤2.5：ESL平台
-- [ ] `platform/esl/esl_hal.h`
-- [ ] `platform/esl/esl_hal.c`
-- [ ] `platform/esl/esl_perf_model.c` - 性能模型
-- [ ] `platform/esl/esl_trace.c` - Trace收集
-- [ ] `platform/esl/esl_main.c`
+**标准库替代第三方库：**
 
-#### 步骤2.6：FPGA平台
-- [ ] `platform/fpga/fpga_hal.h`
-- [ ] `platform/fpga/fpga_hal.c`
-- [ ] `platform/fpga/fpga_pcie.c` - PCIe通信
-- [ ] `platform/fpga/fpga_dma.c` - DMA
-- [ ] `platform/fpga/fpga_main.c`
+| 用标准库 | 不用 |
+|----------|------|
+| argparse | click/typer |
+| json | simplejson |
+| sqlite3 | sqlalchemy |
+| logging | loguru |
+| concurrent.futures | celery |
+| subprocess | sh |
 
-#### 步骤2.7：Chip平台
-- [ ] `platform/chip/chip_hal.h`
-- [ ] `platform/chip/chip_hal.c`
-- [ ] `platform/chip/chip_mmap.c` - 内存映射
-- [ ] `platform/chip/chip_irq.c` - 中断处理
-- [ ] `platform/chip/chip_main.c`
+### 模块依赖映射
 
-### 第三阶段：测试用例
-
-#### 步骤3.1：单元测试
-- [ ] `tests/unit/driver/test_npu_init.c`
-- [ ] `tests/unit/driver/test_mem_mgmt.c`
-- [ ] `tests/unit/driver/test_task_queue.c`
-- [ ] `tests/unit/framework/test_hal_interface.c`
-- [ ] `tests/unit/framework/test_error_handling.c`
-- [ ] `tests/unit/model/test_ref_matmul.c`
-- [ ] `tests/unit/model/test_ref_conv.c`
-
-#### 步骤3.2：集成测试
-- [ ] `tests/integration/test_driver_stack.c`
-- [ ] `tests/integration/test_multi_task.c`
-- [ ] `tests/integration/test_api.c`
-
-#### 步骤3.3：功能测试
-- [ ] `tests/functional/sanity/test_reg_rw.c`
-- [ ] `tests/functional/sanity/test_mem_alloc.c`
-- [ ] `tests/functional/sanity/test_basic_op.c`
-- [ ] `tests/functional/matmul/test_matmul_basic.c`
-- [ ] `tests/functional/matmul/test_matmul_shapes.c`
-- [ ] `tests/functional/conv/test_conv2d_basic.c`
-- [ ] `tests/functional/activation/test_relu.c`
-- [ ] `tests/functional/activation/test_gelu.c`
-- [ ] `tests/functional/precision/test_fp16_precision.c`
-- [ ] `tests/functional/precision/test_int8_quant.c`
-
-#### 步骤3.4：性能/压力/E2E测试
-- [ ] `tests/performance/test_matmul_perf.c`
-- [ ] `tests/performance/test_latency.c`
-- [ ] `tests/stress/test_long_run.c`
-- [ ] `tests/e2e/test_resnet_layer.c`
-
-#### 步骤3.5：测试配置文件
-- [ ] `tests/testcfg/platform_mapping.yaml`
-- [ ] `tests/testcfg/test_execution.yaml`
-- [ ] `tests/testcfg/linux_ut.yaml`
-- [ ] `tests/testcfg/linux_st.yaml`
-- [ ] `tests/testcfg/functional.yaml`
-
-### 第四阶段：Python模块
-
-#### 步骤4.1：Python参考模型 (pymodel/)
-- [ ] `pymodel/__init__.py`
-- [ ] `pymodel/ops/__init__.py`
-- [ ] `pymodel/ops/matmul.py`
-- [ ] `pymodel/ops/conv2d.py`
-- [ ] `pymodel/ops/activation.py`
-- [ ] `pymodel/ops/pooling.py`
-- [ ] `pymodel/quantize/__init__.py`
-- [ ] `pymodel/quantize/int8_quant.py`
-- [ ] `pymodel/quantize/fp16_utils.py`
-- [ ] `pymodel/quantize/bf16_utils.py`
-- [ ] `pymodel/layers/__init__.py`
-- [ ] `pymodel/layers/linear.py`
-- [ ] `pymodel/layers/conv_layer.py`
-- [ ] `pymodel/layers/attention.py`
-- [ ] `pymodel/utils/__init__.py`
-- [ ] `pymodel/utils/tensor_utils.py`
-- [ ] `pymodel/utils/compare.py`
-
-#### 步骤4.2：依赖管理 (deps/)
-- [ ] `deps/README.md`
-- [ ] `deps/manifests/simulator.yaml`
-- [ ] `deps/manifests/compiler.yaml`
-- [ ] `deps/manifests/esl.yaml`
-- [ ] `deps/manifests/fpga_tools.yaml`
-- [ ] `deps/manifests/os_platform.yaml`
-- [ ] `deps/compatibility/matrix.yaml`
-- [ ] `deps/compatibility/constraints.yaml`
-- [ ] `deps/profiles/stable.yaml`
-- [ ] `deps/profiles/latest.yaml`
-- [ ] `deps/scripts/dep_manager.py`
-- [ ] `deps/scripts/compat_checker.py`
-- [ ] `deps/scripts/version_resolver.py`
-
-#### 步骤4.3：Python工具 (tools/)
-- [ ] `tools/__init__.py`
-- [ ] `tools/toolchain/downloader.py`
-- [ ] `tools/toolchain/installer.py`
-- [ ] `tools/runner/test_runner.py`
-- [ ] `tools/runner/parallel_runner.py`
-- [ ] `tools/runner/result_parser.py`
-- [ ] `tools/report/html_report.py`
-- [ ] `tools/report/json_report.py`
-- [ ] `tools/report/templates/report.html`
-- [ ] `tools/testmgmt/server.py`
-- [ ] `tools/testmgmt/database.py`
-- [ ] `tools/testmgmt/models.py`
-- [ ] `tools/testmgmt/templates/*.html`
-- [ ] `tools/archive/archiver.py`
-- [ ] `tools/archive/storage.py`
-
-#### 步骤4.4：测试数据生成器
-- [ ] `testdata/generators/gen_matmul_data.py`
-- [ ] `testdata/generators/gen_conv_data.py`
-- [ ] `testdata/generators/gen_random_tensor.py`
-
-### 第五阶段：CI/CD
-
-#### 步骤5.1：流水线定义
-- [ ] `cicd/pipelines/sanity_pipeline.py`
-- [ ] `cicd/pipelines/nightly_pipeline.py`
-- [ ] `cicd/pipelines/release_pipeline.py`
-
-#### 步骤5.2：作业定义
-- [ ] `cicd/jobs/build_job.py`
-- [ ] `cicd/jobs/test_job.py`
-- [ ] `cicd/jobs/report_job.py`
-
-#### 步骤5.3：CI配置
-- [ ] `cicd/jenkins/Jenkinsfile`
-- [ ] `cicd/gitlab/.gitlab-ci.yml`
-- [ ] `cicd/github/workflows/sanity.yml`
-- [ ] `cicd/github/workflows/nightly.yml`
-
-### 第六阶段：脚本和文档
-
-#### 步骤6.1：脚本
-- [ ] `scripts/setup_env.sh`
-- [ ] `scripts/download_toolchain.py`
-- [ ] `scripts/build.sh`
-- [ ] `scripts/run_tests.py`
-- [ ] `scripts/clean.sh`
-
-#### 步骤6.2：配置文件
-- [ ] `configs/platforms/simulator.yaml`
-- [ ] `configs/platforms/fpga.yaml`
-- [ ] `configs/platforms/chip.yaml`
-- [ ] `configs/testlists/sanity.yaml`
-- [ ] `configs/testlists/nightly.yaml`
-- [ ] `configs/testlists/full.yaml`
-
-#### 步骤6.3：文档
-- [ ] `docs/architecture.md`
-- [ ] `docs/pipeline_stages.md`
-- [ ] `docs/hal_porting_guide.md`
-- [ ] `docs/test_writing_guide.md`
-- [ ] `docs/dependency_management.md`
-- [ ] `docs/testmgmt_guide.md`
-- [ ] `docs/coding_style.md`
+| 模块 | 依赖 |
+|------|------|
+| FWK/PLT/SYS | 无（纯C） |
+| MDL | numpy |
+| TMT/CIC | pyyaml |
+| DEP | httpx, pyyaml, rich |
+| RST | jinja2, rich |
+| DVT | numpy, jinja2, rich, flask(可选) |
 
 ---
 
-## 五、关键设计细节
+## 五、关键设计
 
 ### 5.1 HAL层设计（函数指针多态）
 
 ```c
 /* include/hal/hal_ops.h */
+typedef struct HalOpsStru {
+    ERRNO_T (*RegWrite)(VOID *addr, UINT32 value);
+    ERRNO_T (*RegRead)(VOID *addr, UINT32 *value);
+    ERRNO_T (*MemAlloc)(UINT64 size, VOID **ptr);
+    VOID    (*MemFree)(VOID *ptr);
+    ERRNO_T (*Init)(VOID);
+    ERRNO_T (*Deinit)(VOID);
+} HalOpsStru;
 
-typedef struct hal_ops {
-    /* 寄存器操作 */
-    int (*reg_write)(uint32_t addr, uint32_t value);
-    uint32_t (*reg_read)(uint32_t addr);
-
-    /* DMA操作 */
-    int (*dma_transfer)(uint64_t src, uint64_t dst, size_t size, int dir);
-    int (*dma_wait)(int channel, uint32_t timeout_ms);
-
-    /* 中断操作 */
-    int (*irq_wait)(uint32_t irq_mask, uint32_t timeout_ms);
-    int (*irq_clear)(uint32_t irq_mask);
-
-    /* 内存操作 */
-    void* (*mem_alloc)(size_t size, uint32_t flags);
-    void  (*mem_free)(void *ptr);
-    uint64_t (*mem_virt_to_phys)(void *virt_addr);
-
-    /* 平台控制 */
-    int (*platform_init)(void);
-    int (*platform_deinit)(void);
-    void (*delay_us)(uint32_t us);
-    uint64_t (*get_time_us)(void);
-
-    /* 日志 */
-    void (*log_print)(int level, const char *fmt, ...);
-} hal_ops_t;
-
-/* 全局HAL实例 */
-extern hal_ops_t *g_hal;
-
-/* 便捷宏 */
-#define HAL_REG_WRITE(addr, val)   g_hal->reg_write(addr, val)
-#define HAL_REG_READ(addr)         g_hal->reg_read(addr)
+extern HalOpsStru *g_hal;
 ```
 
 ### 5.2 测试框架核心
 
 ```c
-/* include/framework/test_framework.h */
+/* include/framework/test_case.h */
+typedef ERRNO_T (*TestFunc)(VOID);
 
-typedef enum {
-    TEST_PASS = 0,
-    TEST_FAIL = 1,
-    TEST_SKIP = 2,
-    TEST_TIMEOUT = 3
-} test_result_t;
+typedef struct TestCaseStru {
+    const CHAR *suite;
+    const CHAR *name;
+    TestFunc    func;
+    UINT32      timeoutMs;
+    const CHAR *tags;
+} TestCaseStru;
 
-typedef struct test_case {
-    const char *name;
-    const char *suite;
-    test_result_t (*func)(void);
-    uint32_t timeout_ms;
-    const char *tags;
-} test_case_t;
-
-/* 测试注册宏 - 使用linker section */
+/* linker section方式注册 */
 #define TEST_CASE(suite, name) \
-    static test_result_t test_##suite##_##name(void); \
-    static test_case_t __test_##suite##_##name \
-        __attribute__((used, section("test_cases"))) = { \
-        .name = #name, \
-        .suite = #suite, \
+    static ERRNO_T test_##suite##_##name(VOID); \
+    static TestCaseStru __test_##suite##_##name \
+    __attribute__((section(".testcases"), used)) = { \
+        .suite = #suite, .name = #name, \
         .func = test_##suite##_##name, \
-        .timeout_ms = 5000 \
+        .timeoutMs = 5000 \
     }; \
-    static test_result_t test_##suite##_##name(void)
+    static ERRNO_T test_##suite##_##name(VOID)
 
-/* 断言宏 */
-#define TEST_ASSERT(cond) \
-    do { if (!(cond)) { test_fail(__FILE__, __LINE__, #cond); return TEST_FAIL; } } while(0)
+/* include/framework/assert.h */
+#define TEST_ASSERT(cond) do { \
+    if (!(cond)) { \
+        g_testCtx.failFile = __FILE__; \
+        g_testCtx.failLine = __LINE__; \
+        return TEST_FAIL; \
+    } \
+} while(0)
 
-#define TEST_ASSERT_EQ(a, b)           TEST_ASSERT((a) == (b))
-#define TEST_ASSERT_NEAR(a, b, eps)    TEST_ASSERT(fabs((a)-(b)) < (eps))
-```
+#define TEST_ASSERT_EQ(exp, act) TEST_ASSERT((exp) == (act))
 
-### 5.3 测试用例跨平台复用
-
-```yaml
-# tests/testcfg/platform_mapping.yaml
-
-default_platforms: [linux_ut, linux_st, simulator, esl, fpga, chip]
-
-testcases:
-  "performance/*":
-    platforms: [esl, fpga, chip]
-    skip_reason: "性能测试需要真实时序"
-
-  "performance/test_power.c":
-    platforms: [chip]
-    skip_reason: "功耗测试只能在实际芯片"
-
-stages:
-  linux_ut:
-    platforms: [linux_ut]
-    includes:
-      - "unit/*"
-      - "functional/sanity/*"
-
-  functional:
-    platforms: [simulator]
-    includes:
-      - "functional/*"
-      - "e2e/*"
+/* include/framework/result.h */
+typedef enum TestResultEnum {
+    TEST_PASS    = 0,
+    TEST_FAIL    = 1,
+    TEST_SKIP    = 2,
+    TEST_TIMEOUT = 3,
+    TEST_ERROR   = 4,
+    TEST_CRASH   = 5,
+} TestResultEnum;
 ```
 
 ---
@@ -686,9 +341,6 @@ cd aitestframework
 
 # 安装Python依赖
 pip install -r requirements.txt
-
-# 安装工具链（稳定版）
-python deps/scripts/dep_manager.py install --profile stable
 ```
 
 ### 构建
@@ -699,64 +351,51 @@ make PLATFORM=linux_ut
 
 # 构建Simulator版本
 make PLATFORM=simulator
-
-# 构建所有平台
-make all
 ```
 
 ### 运行测试
 
 ```bash
 # 运行LinuxUT单元测试
-./build/bin/linux_ut/test_runner
+./build/bin/test_runner
 
 # 运行指定用例
-./build/bin/linux_ut/test_runner --filter "matmul*"
+./build/bin/test_runner --filter "matmul*"
 
-# 使用Python运行器
-python scripts/run_tests.py --platform linux_ut --list sanity
-```
-
-### 生成报告
-
-```bash
-python -m tools.report.html_report --input build/reports/latest.json --output report.html
+# 查看结果
+cat build/reports/result.json
 ```
 
 ---
 
-## 七、验证要点
+## 七、需求统计
 
-1. **验证流水线四阶段**：LinuxUT/ST → 功能验证 → 性能ESL → 原型/EDA
-2. **测试用例跨平台复用**：用例按功能分类，通过配置映射到平台
-3. **测试执行可配置**：不同用例可配置不同的桩(stubs)、启动流程(setup)、结果检查器(checker)
-4. **依赖管理独立**：多张manifest + 配套矩阵 + lock锁定
-5. **参考模型双实现**：Python(numpy)离线golden + C嵌入式在线比对
-6. **HAL多平台隔离**：linux_ut/linux_st/simulator/esl/fpga/chip
-7. **用例管理系统**：SQLite存储 + Flask简洁Web界面
-8. **结果归档**：按日期归档，支持保留策略
+| 模块 | 上下文 | P0 | P1 | P2 | 总计 |
+|------|--------|-----|-----|-----|------|
+| SYS | - | 3 | 7 | 3 | 13 |
+| FWK | 核心域 | 6 | 9 | 6 | 21 |
+| PLT | 核心域 | 3 | 4 | 3 | 10 |
+| MDL | 核心域 | 2 | 0 | 1 | 3 |
+| TMT | 支撑域 | 2 | 4 | 1 | 7 |
+| RST | 支撑域 | 1 | 2 | 5 | 8 |
+| DEP | 通用域 | 0 | 3 | 0 | 3 |
+| QCK | 通用域 | 0 | 5 | 6 | 11 |
+| CIC | 通用域 | 0 | 8 | 5 | 13 |
+| DVT | 通用域 | 0 | 4 | 8 | 12 |
+| **总计** | | **17** | **46** | **38** | **101** |
 
----
+**MVP (P0)**: 17个需求，覆盖LinuxUT平台最小可运行功能
 
-## 八、当前进度
-
-### 已完成
-- [x] README.md（本文档）
-
-### 待实现（按优先级）
-1. 目录结构和配置文件
-2. C头文件 (include/)
-3. C源文件 (src/)
-4. 平台HAL实现 (platform/)
-5. C测试用例 (tests/)
-6. Python参考模型 (pymodel/)
-7. 依赖管理系统 (deps/)
-8. Python工具 (tools/)
-9. CI/CD (cicd/)
-10. 脚本和文档
+详细需求见 [docs/req/README.md](docs/req/README.md)
 
 ---
 
-## 九、联系方式
+## 八、文档索引
 
-如有问题，请联系项目维护者。
+| 文档 | 说明 |
+|------|------|
+| [docs/req/README.md](docs/req/README.md) | 需求索引、DDD架构详细说明 |
+| [docs/req/REQ-100-framework.md](docs/req/REQ-100-framework.md) | 测试框架需求 |
+| [docs/req/REQ-700-platform.md](docs/req/REQ-700-platform.md) | 平台适配层需求 |
+| [docs/req/REQ-200-model.md](docs/req/REQ-200-model.md) | 参考模型需求 |
+| [docs/coding_style.md](docs/coding_style.md) | C编码规范 |

@@ -6,14 +6,51 @@ title: 结果管理需求
 priority: P1
 status: draft
 parent: REQ-SYS
-depends:
-  - REQ-FWK
-  - REQ-TMT
+context: Supporting  # 支撑域
+aggregate: Execution  # 聚合根
+subscribes:           # 订阅的领域事件
+  - TestCaseCompleted
+  - TestExecutionCompleted
+publishes:            # 发布的领域事件
+  - ReportGenerated
+  - ResultArchived
 ---
 
 ## 概述
 
 测试结果的收集、存储、归档、报告和趋势分析。
+
+### DDD定位
+
+- **限界上下文**：支撑域（Supporting Domain）
+- **聚合根**：Execution（执行记录）
+- **通信方式**：订阅FWK事件，发布自身事件
+- **防腐层**：将FWK的TestResult转换为内部模型
+
+### 聚合结构
+
+```
+Execution (聚合根)
+├── executionId: STRING
+├── platform: STRING
+├── startedAt: TIMESTAMP
+├── summary: TestSummary (值对象)
+└── results: TestCaseResult[] (实体)
+    ├── testName: STRING
+    ├── status: ResultStatus (内部枚举，非FWK的)
+    └── artifacts: STRING[]
+```
+
+### 事件流
+
+```
+FWK发布 TestCaseCompleted ──► RST订阅 ──► 更新Execution聚合
+                                              │
+FWK发布 TestExecutionCompleted ──► RST订阅 ──► 生成报告
+                                              │
+                                              ▼
+                                   RST发布 ReportGenerated ──► CIC订阅
+```
 
 ---
 
@@ -89,7 +126,7 @@ parent: REQ-RST
 ---
 id: REQ-RST-002
 title: 结果持久化存储
-priority: P0
+priority: P1
 status: draft
 parent: REQ-RST
 ---
@@ -157,7 +194,7 @@ CREATE TABLE test_results (
 ---
 id: REQ-RST-003
 title: 历史结果归档
-priority: P1
+priority: P2
 status: draft
 parent: REQ-RST
 ---
@@ -202,7 +239,7 @@ archive:
 ---
 id: REQ-RST-004
 title: 测试报告生成
-priority: P0
+priority: P1
 status: draft
 parent: REQ-RST
 ---
@@ -257,7 +294,7 @@ parent: REQ-RST
 ---
 id: REQ-RST-005
 title: 结果趋势分析
-priority: P1
+priority: P2
 status: draft
 parent: REQ-RST
 ---
@@ -315,7 +352,7 @@ flaky_tests = analyzer.detect_flaky_tests(
 ---
 id: REQ-RST-006
 title: 结果差异对比
-priority: P1
+priority: P2
 status: draft
 parent: REQ-RST
 ---
@@ -421,3 +458,63 @@ Report: https://ci.example.com/report/20260202
 2. 可配置触发条件
 3. 通知内容可定制
 4. 失败重试后成功发recovery通知
+
+---
+
+## REQ-RST-008 日志收集聚合
+
+---
+id: REQ-RST-008
+title: 分布式日志收集
+priority: P2
+status: draft
+parent: REQ-RST
+---
+
+### 描述
+
+在分布式/并行测试执行时，收集和聚合各节点的日志。
+
+### 日志结构
+
+```
+logs/
+├── execution_<id>/
+│   ├── master.log           # 主控日志
+│   ├── shard_0/             # 分片0日志
+│   │   ├── runner.log
+│   │   ├── tests/
+│   │   │   ├── test_001.log
+│   │   │   └── test_002.log
+│   │   └── artifacts/
+│   ├── shard_1/             # 分片1日志
+│   └── merged.log           # 合并后的完整日志
+```
+
+### 日志格式
+
+```
+[2026-02-02T10:30:15.123Z] [INFO] [shard_0] [test_matmul_basic] Starting test
+[2026-02-02T10:30:15.135Z] [DEBUG] [shard_0] [test_matmul_basic] Loading input A
+[2026-02-02T10:30:15.456Z] [ERROR] [shard_0] [test_matmul_basic] Assertion failed at line 45
+```
+
+### 聚合功能
+
+```bash
+# 合并分布式日志
+python -m tools.log.merge --input logs/execution_001/shard_*/ --output merged.log
+
+# 按时间排序
+python -m tools.log.merge --sort-by time --input logs/*/
+
+# 过滤特定级别
+python -m tools.log.filter --level ERROR --input merged.log
+```
+
+### 验收标准
+
+1. 各节点日志自动收集到中心
+2. 日志包含时间戳、节点、用例标识
+3. 支持日志合并和排序
+4. 支持按级别/用例过滤

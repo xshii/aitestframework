@@ -123,9 +123,9 @@ typedef UINT8 HAL_DMA_DIR_ENUM_UINT8;
 
 ### 验收标准
 
-1. 所有平台适配桩实现完整的hal_ops_t接口
+1. 所有平台适配桩实现完整的HalOpsStru接口
 2. 接口语义在各平台保持一致
-3. 未实现的可选接口返回-ENOTSUP
+3. 未实现的可选接口返回ERR_FWK_NOT_SUPPORT
 4. 提供便捷宏简化调用
 
 ---
@@ -201,7 +201,7 @@ TEST_CASE(driver, init_check_status)
 2. 支持寄存器/DMA/中断Mock
 3. 支持错误注入测试
 4. 支持调用记录和验证
-5. 执行速度最快（目标<1ms/用例）
+5. 执行性能：单用例执行时间P95 < 1ms（不含用例本身逻辑）
 
 ---
 
@@ -210,7 +210,7 @@ TEST_CASE(driver, init_check_status)
 ---
 id: REQ-PLT-003
 title: LinuxST平台Stub实现
-priority: P0
+priority: P1
 status: draft
 parent: REQ-PLT
 ---
@@ -272,7 +272,7 @@ SEC_DDR_TEXT ERRNO_T ST_SaveBinary(const CHAR *path, const VOID *buf, UINT64 siz
 1. Stub实现基本功能逻辑
 2. 支持组件间集成测试
 3. 支持文件IO（加载测试数据）
-4. 执行速度快（目标<100ms/用例）
+4. 执行性能：单用例执行时间P95 < 100ms（不含大规模数据IO）
 
 ---
 
@@ -281,7 +281,7 @@ SEC_DDR_TEXT ERRNO_T ST_SaveBinary(const CHAR *path, const VOID *buf, UINT64 siz
 ---
 id: REQ-PLT-004
 title: Simulator平台适配桩
-priority: P0
+priority: P1
 status: draft
 parent: REQ-PLT
 ---
@@ -656,11 +656,11 @@ dma:
 
 ```c
 /* 加载平台配置 */
-int platform_load_config(const char *config_path);
+SEC_DDR_TEXT ERRNO_T PLAT_LoadConfig(const CHAR *configPath);
 
 /* 获取配置值 */
-const char* platform_config_get_str(const char *key, const char *default_val);
-int platform_config_get_int(const char *key, int default_val);
+SEC_DDR_TEXT const CHAR* PLAT_ConfigGetStr(const CHAR *key, const CHAR *defaultVal);
+SEC_DDR_TEXT INT32 PLAT_ConfigGetInt(const CHAR *key, INT32 defaultVal);
 
 /* 配置路径优先级 */
 /* 1. 命令行 --platform-config <path> */

@@ -6,6 +6,9 @@ title: 效率提升需求
 priority: P1
 status: draft
 parent: REQ-SYS
+depends:
+  - REQ-QCK
+  - REQ-TLS
 ---
 
 ## 概述
@@ -62,7 +65,7 @@ parent: REQ-EFF
 
 ### SSH端口转发配置
 
-由于远端服务器为Docker容器，不支持新增端口暴露，需配置SSH本地端口转发。
+当远程服务器无法直接暴露端口时（如Docker容器、防火墙限制、VPN环境），需配置SSH本地端口转发。
 
 ```json
 // .vscode/settings.json (Remote-SSH)

@@ -6,13 +6,64 @@ title: 用例管理需求
 priority: P0
 status: draft
 parent: REQ-SYS
-depends:
-  - REQ-FWK
+context: Supporting  # 支撑域
+aggregate: TestSuite, TestList  # 聚合根
+uses:
+  - TestCaseInfo interface (FWK)  # 使用FWK提供的用例信息接口
 ---
 
 ## 概述
 
 测试用例的组织、筛选、配置和平台映射。
+
+### DDD定位
+
+- **限界上下文**：支撑域（Supporting Domain）- 用例管理上下文
+- **聚合根**：TestSuite（测试套件）、TestList（测试列表）
+- **通信方式**：使用FWK的接口获取用例信息，不订阅事件
+- **核心职责**：用例组织、筛选、标签、平台映射
+
+### 聚合结构
+
+```
+TestSuite (聚合根)
+├── name: STRING
+├── tests: TestConfig[] (实体)
+│   ├── testName: STRING
+│   ├── platforms: STRING[]
+│   ├── tags: STRING[]
+│   └── timeout: UINT32
+└── setupFlow: STRING
+
+TestList (聚合根)
+├── name: STRING
+├── description: STRING
+├── includes: FilterRule[] (值对象)
+├── excludes: FilterRule[] (值对象)
+└── timeoutMinutes: INT32
+```
+
+### 与FWK的关系
+
+```
+TMT不直接访问FWK内部，而是：
+1. 通过 TCINFO_* 接口获取用例信息（REQ-SYS-012定义）
+2. 通过配置文件定义用例属性
+3. 运行时由FWK读取TMT的配置
+
+FWK                           TMT
+┌─────────────┐              ┌─────────────┐
+│ TestCase    │◄─接口查询────│ TestSuite   │
+│ 聚合        │              │ 聚合        │
+└─────────────┘              └─────────────┘
+      │                            │
+      │ 提供接口                    │ 提供配置
+      ▼                            ▼
+┌──────────────────────────────────────────┐
+│          include/common/testcase_intf.h  │
+│          tests/testcfg/*.yaml            │
+└──────────────────────────────────────────┘
+```
 
 ---
 
@@ -76,7 +127,7 @@ tests/
 ---
 id: REQ-TMT-002
 title: 用例平台映射
-priority: P0
+priority: P1
 status: draft
 parent: REQ-TMT
 ---
@@ -124,31 +175,34 @@ stages:
 
 ### 配置优先级
 
-当同一用例出现在多处配置时，按以下优先级（高→低）：
+当同一用例出现在多处配置时，按以下优先级（高→低，共3级）：
 
 ```
-1. 代码内定义 (.platforms = "chip")     ← 最高
-2. testcases 精确匹配 ("test_power.c")
-3. testcases 通配符 ("performance/*")
-4. stages 配置
-5. default_platforms                     ← 最低
+1. 代码内定义 (.platforms = "chip")     ← 最高，不可被覆盖
+2. YAML精确/通配符匹配                  ← 精确匹配 > 通配符
+3. default_platforms                     ← 最低，兜底默认值
 ```
+
+**优先级规则简化说明**：
+- stages配置仅用于定义阶段包含的用例集，不影响平台配置
+- YAML中精确路径匹配优先于通配符匹配
 
 **示例**：
 ```yaml
 default_platforms: [linux_ut, simulator, chip]
 
 testcases:
+  "performance/test_power.c":
+    platforms: [chip]           # 精确匹配，优先级高
   "performance/*":
-    platforms: [esl, fpga, chip]  # 覆盖default
-
-stages:
-  linux_ut:
-    includes: ["unit/*"]  # 不影响testcases配置
+    platforms: [esl, fpga, chip]  # 通配符匹配
 ```
 
 用例 `performance/test_latency.c`：
-- 最终平台 = `[esl, fpga, chip]`（testcases覆盖default）
+- 最终平台 = `[esl, fpga, chip]`（通配符匹配）
+
+用例 `performance/test_power.c`：
+- 最终平台 = `[chip]`（精确匹配优先）
 
 ### 验收标准
 
@@ -165,7 +219,7 @@ stages:
 ---
 id: REQ-TMT-003
 title: 用例标签系统
-priority: P0
+priority: P1
 status: draft
 parent: REQ-TMT
 ---
@@ -306,7 +360,7 @@ testcase_configs:
 ---
 id: REQ-TMT-005
 title: 测试列表定义
-priority: P0
+priority: P1
 status: draft
 parent: REQ-TMT
 ---

@@ -6,11 +6,67 @@ title: C测试框架需求
 priority: P0
 status: draft
 parent: REQ-SYS
+context: Core  # 核心域
+aggregate: TestCase, TestExecution  # 聚合根
+publishes:     # 发布的领域事件
+  - TestExecutionStarted
+  - TestCaseCompleted
+  - TestExecutionCompleted
 ---
 
 ## 概述
 
 纯C实现的测试框架，提供测试注册、断言、运行、报告等核心功能。
+
+### DDD定位
+
+- **限界上下文**：核心域（Core Domain）- 测试执行上下文
+- **聚合根**：TestCase（测试用例）、TestExecution（测试执行）
+- **通信方式**：发布领域事件，不依赖其他上下文
+- **核心职责**：用例注册、断言、执行、结果收集
+
+### 聚合结构
+
+```
+TestCase (聚合根)
+├── name: STRING
+├── suite: STRING
+├── tags: STRING[]
+├── platforms: STRING[]
+├── timeoutMs: UINT32
+└── function: TestFunc (值对象)
+
+TestExecution (聚合根)
+├── executionId: STRING
+├── platform: STRING
+├── config: RunnerConfig (值对象)
+├── results: TestResult[] (实体)
+└── summary: TestSummary (值对象)
+```
+
+### 事件发布
+
+```c
+/* 执行开始时发布 */
+EVT_Publish(&(TestExecutionStartedEvent){
+    .executionId = execId,
+    .platform = platform,
+    .testCount = count
+});
+
+/* 每个用例完成时发布 */
+EVT_Publish(&(TestCaseCompletedEvent){
+    .testName = tc->name,
+    .result = result,
+    .durationMs = duration
+});
+
+/* 执行完成时发布 */
+EVT_Publish(&(TestExecutionCompletedEvent){
+    .executionId = execId,
+    .summary = summary
+});
+```
 
 ---
 
@@ -50,12 +106,37 @@ TEST_CASE_EX(suite_name, test_name,
 }
 ```
 
+### 实现方式
+
+**主要方案：Linker Section（推荐）**
+```c
+/* 利用 __attribute__((section)) 或 #pragma 实现 */
+#define TEST_CASE(suite, name) \
+    static TestCaseStru __test_##suite##_##name \
+    __attribute__((section(".test_cases"), used)) = { ... }
+```
+
+**备选方案：手动注册（兼容性）**
+当目标平台链接器不支持自定义section时，提供手动注册方式：
+```c
+/* 在模块初始化时调用 */
+TEST_REGISTER(suite_name, test_name, test_function);
+
+/* 或在统一注册文件中 */
+/* tests/test_registry.c */
+VOID TEST_RegisterAll(VOID) {
+    TEST_REGISTER(matmul, basic, test_matmul_basic);
+    TEST_REGISTER(matmul, large, test_matmul_large);
+}
+```
+
 ### 验收标准
 
-1. 使用linker section实现自动注册
-2. 编译时自动收集所有TEST_CASE
-3. 支持指定超时、标签、平台等属性
-4. 无需修改任何列表文件即可添加新用例
+1. 默认使用linker section实现自动注册
+2. 提供手动注册备选方案（CONFIG_MANUAL_REGISTER）
+3. 编译时/运行时自动收集所有TEST_CASE
+4. 支持指定超时、标签、平台等属性
+5. 无需修改框架代码即可添加新用例
 
 ---
 
@@ -136,6 +217,7 @@ typedef enum TestResultEnum {
     TEST_SKIP    = 2,   /* 跳过 */
     TEST_TIMEOUT = 3,   /* 超时 */
     TEST_ERROR   = 4,   /* 错误（框架异常） */
+    TEST_CRASH   = 5,   /* 崩溃（信号导致，如SIGSEGV） */
 } TestResultEnum;
 typedef UINT8 TEST_RESULT_ENUM_UINT8;
 ```
@@ -146,6 +228,7 @@ typedef UINT8 TEST_RESULT_ENUM_UINT8;
 2. SKIP用于平台不支持等场景
 3. TIMEOUT由框架自动判定
 4. ERROR用于框架本身异常
+5. CRASH用于信号导致的崩溃（由REQ-FWK-019处理）
 
 ---
 
@@ -320,7 +403,7 @@ TEST_LOG_IF(condition, level, fmt, ...)
 ---
 id: REQ-FWK-008
 title: 参数化测试支持
-priority: P0
+priority: P1
 status: draft
 parent: REQ-FWK
 ---
@@ -410,7 +493,7 @@ typedef ERRNO_T (*ParamGeneratorFunc)(VOID **params, INT32 *count);
 ---
 id: REQ-FWK-009
 title: 数据驱动测试
-priority: P0
+priority: P1
 status: draft
 parent: REQ-FWK
 ---
@@ -613,10 +696,19 @@ parent: REQ-FWK
 
 自动生成满足约束的随机测试输入。
 
-**注意**：完整的constraint solver（如UVM）实现复杂，本框架采用**简化方案**：
-- 支持基本随机（范围、枚举）
-- 约束通过**拒绝采样**实现（生成后检查，不满足则重新生成）
-- 不实现复杂的SAT求解器
+**实现范围说明**：
+本框架采用**简化方案**，不实现完整的constraint solver（如UVM）：
+
+| 支持 | 不支持 |
+|------|--------|
+| 范围随机（min-max） | SAT求解器 |
+| 枚举随机 | 跨变量复杂约束 |
+| 独立变量约束 | 概率分布控制 |
+| 拒绝采样（生成后检查） | 约束求解生成 |
+
+**约束实现方式**：拒绝采样（生成后检查，不满足则重新生成，最多重试1000次）
+
+**达到重试上限的行为**：返回TEST_ERROR，错误信息为"Constraint satisfaction failed after 1000 attempts"
 
 ### 接口设计
 
@@ -864,11 +956,22 @@ title: 失败调试支持
 priority: P2
 status: draft
 parent: REQ-FWK
+depends:
+  - REQ-FWK-002
+  - REQ-FWK-007
 ---
 
 ### 描述
 
 测试失败时提供调试信息。
+
+**与REQ-FWK-018（失败重现）的分工：**
+| 功能 | FWK-015 调试支持 | FWK-018 失败重现 |
+|------|-----------------|-----------------|
+| 目的 | 提供调试工具和详细信息 | 保存状态以便重现 |
+| 触发 | 用户主动调用 | 框架自动触发 |
+| 数据 | 详细diff、内存dump | 输入/输出/seed |
+| 使用场景 | 开发调试 | CI失败后重现 |
 
 ### 接口设计
 
@@ -936,3 +1039,324 @@ parent: REQ-FWK
 2. 所有分片并集覆盖全部用例
 3. 支持按历史耗时平衡分片
 4. 结果可合并生成完整报告
+
+---
+
+## REQ-FWK-017 测试隔离性
+
+---
+id: REQ-FWK-017
+title: 测试用例隔离
+priority: P1
+status: draft
+parent: REQ-FWK
+depends:
+  - REQ-FWK-006
+  - REQ-FWK-010
+---
+
+### 描述
+
+确保测试用例之间相互独立，一个用例的执行不影响其他用例。
+
+### 隔离要求
+
+| 隔离维度 | 要求 | 实现方式 |
+|----------|------|----------|
+| 全局变量 | 用例间不共享状态 | 每个用例前重置全局变量 |
+| Mock状态 | 自动清理Mock上下文 | Teardown自动调用MOCK_RESET_ALL |
+| 内存 | 无内存泄漏残留 | 用例前后检查堆状态 |
+| 文件系统 | 临时文件自动清理 | 使用临时目录，用例后删除 |
+
+### 接口设计
+
+```c
+/* 全局状态重置回调 */
+typedef VOID (*StateResetFunc)(VOID);
+
+/* 注册状态重置函数 */
+SEC_DDR_TEXT ERRNO_T TEST_RegisterStateReset(StateResetFunc func);
+
+/* 框架内置重置 */
+SEC_DDR_TEXT VOID TEST_ResetAllMocks(VOID);
+SEC_DDR_TEXT VOID TEST_ResetGlobalState(VOID);
+```
+
+### 验收标准
+
+1. 用例执行顺序变化不影响结果
+2. 支持`--shuffle`随机打乱用例顺序验证隔离性
+3. Mock状态每个用例独立
+4. 无全局变量污染
+
+---
+
+## REQ-FWK-018 失败重现机制
+
+---
+id: REQ-FWK-018
+title: 失败重现支持
+priority: P1
+status: draft
+parent: REQ-FWK
+depends:
+  - REQ-FWK-004
+  - REQ-FWK-007
+---
+
+### 描述
+
+测试失败时自动保存环境状态，支持后续重现和调试。
+
+### 重现数据
+
+```
+build/failures/<execution_id>/<test_name>/
+├── context.json          # 执行上下文（参数、seed、环境变量）
+├── input/                # 输入数据
+├── output/               # 实际输出
+├── golden/               # 期望输出（如有）
+├── logs/                 # 详细日志
+└── core (可选)           # core dump文件
+```
+
+### 接口设计
+
+```c
+/* 失败时自动保存（框架内置） */
+/* 无需用户调用，断言失败时自动触发 */
+
+/* 重现执行 */
+./test_runner --replay build/failures/20260202_103000/test_matmul_large/
+
+/* 编程接口 */
+SEC_DDR_TEXT ERRNO_T TEST_SaveFailureContext(const CHAR *testName);
+SEC_DDR_TEXT ERRNO_T TEST_LoadReplayContext(const CHAR *replayPath);
+```
+
+### 命令行支持
+
+```bash
+# 运行失败时自动保存（默认开启）
+./test_runner --save-failures
+
+# 重现指定失败
+./test_runner --replay <failure_path>
+
+# 重现最近一次失败
+./test_runner --replay-last
+```
+
+### 验收标准
+
+1. 失败时自动保存输入、输出、日志
+2. `--replay`可完全重现失败场景
+3. 随机测试失败时保存seed
+4. 保存core dump（如有）
+
+---
+
+## REQ-FWK-019 信号处理
+
+---
+id: REQ-FWK-019
+title: 信号处理机制
+priority: P0
+status: draft
+parent: REQ-FWK
+depends:
+  - REQ-FWK-003
+  - REQ-FWK-004
+---
+
+### 描述
+
+捕获异常信号（SIGSEGV、SIGBUS等），优雅处理并记录信息。
+
+### 支持信号
+
+| 信号 | 处理方式 |
+|------|----------|
+| SIGSEGV | 记录错误，标记用例CRASH，继续下一用例 |
+| SIGBUS | 同SIGSEGV |
+| SIGFPE | 同SIGSEGV |
+| SIGABRT | 同SIGSEGV |
+| SIGALRM | 超时处理，标记用例TIMEOUT |
+| SIGINT | 优雅退出，输出当前进度 |
+| SIGTERM | 同SIGINT |
+
+### 接口设计
+
+```c
+/* 信号处理初始化（框架启动时自动调用） */
+SEC_DDR_TEXT ERRNO_T TEST_SignalInit(VOID);
+
+/* 自定义信号处理（可选） */
+typedef VOID (*SignalHandlerFunc)(INT32 sig);
+SEC_DDR_TEXT ERRNO_T TEST_RegisterSignalHandler(INT32 sig, SignalHandlerFunc handler);
+
+/* 获取最后信号信息 */
+typedef struct SignalInfoStru {
+    INT32 signal;
+    VOID *faultAddr;      /* SIGSEGV/SIGBUS的地址 */
+    CHAR  backtrace[1024]; /* 调用栈（如可用） */
+} SignalInfoStru;
+SEC_DDR_TEXT ERRNO_T TEST_GetLastSignal(SignalInfoStru *info);
+```
+
+### 输出格式
+
+```
+[CRASH] functional.matmul.buggy (SIGSEGV)
+  Signal: Segmentation fault
+  Fault address: 0x0000000000000000
+  Backtrace:
+    #0 test_matmul_buggy() at test_matmul.c:123
+    #1 TEST_RunSingle() at runner.c:456
+    #2 main() at main.c:78
+```
+
+### 验收标准
+
+1. SIGSEGV等致命信号不导致整个测试中断
+2. 信号发生时记录调用栈（如平台支持）
+3. 支持生成core dump
+4. Ctrl+C可优雅退出
+
+---
+
+## REQ-FWK-020 超时细化
+
+---
+id: REQ-FWK-020
+title: 超时粒度细化
+priority: P1
+status: draft
+parent: REQ-FWK
+depends:
+  - REQ-FWK-004
+  - REQ-FWK-006
+---
+
+### 描述
+
+区分测试各阶段的超时控制。
+
+### 超时类型
+
+| 超时类型 | 默认值 | 说明 |
+|----------|--------|------|
+| setup_timeout_ms | 5000 | Setup阶段超时 |
+| execution_timeout_ms | 30000 | 测试执行阶段超时 |
+| teardown_timeout_ms | 5000 | Teardown阶段超时 |
+| total_timeout_ms | 60000 | 用例总超时（兜底） |
+
+### 接口设计
+
+```c
+/* 用例定义时指定 */
+TEST_CASE_EX(suite, test,
+    .setup_timeout_ms = 10000,
+    .execution_timeout_ms = 60000,
+    .teardown_timeout_ms = 5000
+)
+{ ... }
+
+/* 全局默认配置 */
+typedef struct TestTimeoutConfigStru {
+    UINT32 setupTimeoutMs;
+    UINT32 executionTimeoutMs;
+    UINT32 teardownTimeoutMs;
+    UINT32 totalTimeoutMs;
+} TestTimeoutConfigStru;
+
+SEC_DDR_TEXT ERRNO_T TEST_SetDefaultTimeouts(const TestTimeoutConfigStru *config);
+```
+
+### 超时处理
+
+```
+用例执行流程：
+1. Setup (setup_timeout_ms)
+   └─ 超时 → 跳过用例，标记SKIP
+2. Execution (execution_timeout_ms)
+   └─ 超时 → 标记TIMEOUT，执行Teardown
+3. Teardown (teardown_timeout_ms)
+   └─ 超时 → 强制终止，记录警告
+4. Total (total_timeout_ms)
+   └─ 任何阶段超过总时间 → 强制终止
+```
+
+### 验收标准
+
+1. 各阶段超时独立可配置
+2. 超时后正确标记结果
+3. Teardown超时不影响结果（已在Execution阶段确定）
+4. 支持全局默认和单用例覆盖
+
+---
+
+## REQ-FWK-021 运行器回调接口
+
+---
+id: REQ-FWK-021
+title: 测试运行器回调
+priority: P2
+status: draft
+parent: REQ-FWK
+depends:
+  - REQ-FWK-004
+---
+
+### 描述
+
+提供运行器事件回调接口，便于集成自定义处理逻辑。
+
+### 回调接口
+
+```c
+typedef struct TestRunnerCallbacksStru {
+    /* 执行级回调 */
+    VOID (*OnExecutionStart)(const CHAR *executionId);
+    VOID (*OnExecutionEnd)(const CHAR *executionId, const TestSummaryStru *summary);
+
+    /* 套件级回调 */
+    VOID (*OnSuiteStart)(const CHAR *suiteName);
+    VOID (*OnSuiteEnd)(const CHAR *suiteName, const TestSummaryStru *summary);
+
+    /* 用例级回调 */
+    VOID (*OnTestStart)(const CHAR *testName);
+    VOID (*OnTestEnd)(const CHAR *testName, TEST_RESULT_ENUM_UINT8 result, UINT32 durationMs);
+
+    /* 断言回调 */
+    VOID (*OnAssertFail)(const CHAR *file, INT32 line, const CHAR *expr, const CHAR *msg);
+
+    /* 用户数据 */
+    VOID *userData;
+} TestRunnerCallbacksStru;
+
+SEC_DDR_TEXT ERRNO_T TEST_RunnerSetCallbacks(const TestRunnerCallbacksStru *callbacks);
+```
+
+### 使用示例
+
+```c
+/* 自定义日志输出 */
+static VOID MyOnTestEnd(const CHAR *name, TEST_RESULT_ENUM_UINT8 result, UINT32 ms)
+{
+    CustomLogger_Log("Test %s: %s (%ums)", name,
+                     result == TEST_PASS ? "PASS" : "FAIL", ms);
+}
+
+TestRunnerCallbacksStru callbacks = {
+    .OnTestEnd = MyOnTestEnd,
+};
+TEST_RunnerSetCallbacks(&callbacks);
+```
+
+### 验收标准
+
+1. 回调在正确时机触发
+2. 回调异常不影响测试执行
+3. 支持自定义userData传递
+4. 未设置的回调安全跳过（NULL检查）
