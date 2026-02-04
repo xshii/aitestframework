@@ -32,6 +32,8 @@ pipeline {
         // 质量门禁阈值
         COVERAGE_THRESHOLD = '80'
         PYLINT_THRESHOLD = '8.0'
+        // Conda 环境名
+        CONDA_ENV = 'aitestframework'
     }
 
     parameters {
@@ -50,6 +52,11 @@ pipeline {
             defaultValue: false,
             description: '强制构建（忽略质量门禁）'
         )
+        booleanParam(
+            name: 'USE_CONDA',
+            defaultValue: true,
+            description: '使用 Conda 管理环境（推荐）'
+        )
     }
 
     stages {
@@ -63,13 +70,36 @@ pipeline {
                     echo "提交: ${GIT_COMMIT:-unknown}"
                 '''
 
-                // 创建虚拟环境并安装依赖
-                sh '''
-                    ${PYTHON} -m venv .venv
-                    . .venv/bin/activate
-                    pip install --upgrade pip
-                    pip install -r requirements/dev.txt
-                '''
+                script {
+                    if (params.USE_CONDA) {
+                        // 使用 Conda 环境
+                        sh '''
+                            echo "使用 Conda 环境..."
+
+                            # 初始化 conda
+                            eval "$(conda shell.bash hook)" || true
+
+                            # 检查环境是否存在
+                            if ! conda env list | grep -q "^${CONDA_ENV} "; then
+                                echo "创建 Conda 环境: ${CONDA_ENV}"
+                                conda create -n ${CONDA_ENV} python=3.11 cmake -y
+                            fi
+
+                            conda activate ${CONDA_ENV}
+                            pip install --upgrade pip
+                            pip install -r requirements/dev.txt
+                        '''
+                    } else {
+                        // 使用 venv
+                        sh '''
+                            echo "使用 venv 环境..."
+                            ${PYTHON} -m venv .venv
+                            . .venv/bin/activate
+                            pip install --upgrade pip
+                            pip install -r requirements/dev.txt
+                        '''
+                    }
+                }
 
                 // 编译 cpu_golden (可选，需要 cmake)
                 sh '''

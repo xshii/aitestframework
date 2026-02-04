@@ -55,6 +55,48 @@ setup() {
 
     cd "${PROJECT_ROOT}"
 
+    local env_name="aitestframework"
+
+    # 优先使用 conda/mamba
+    if command -v conda &> /dev/null || command -v mamba &> /dev/null; then
+        setup_conda "${env_name}"
+    else
+        setup_venv
+    fi
+
+    echo -e "${GREEN}✓ CI依赖安装完成${NC}"
+}
+
+setup_conda() {
+    local env_name="$1"
+    local pkg_manager="conda"
+
+    # 优先使用 mamba（更快）
+    if command -v mamba &> /dev/null; then
+        pkg_manager="mamba"
+    fi
+
+    echo "使用 ${pkg_manager} 管理环境..."
+
+    # 检查环境是否存在
+    if ! conda env list | grep -q "^${env_name} "; then
+        echo "创建 conda 环境: ${env_name}"
+        ${pkg_manager} create -n "${env_name}" python=3.11 -y
+    fi
+
+    # 激活环境
+    eval "$(conda shell.bash hook)"
+    conda activate "${env_name}"
+
+    # 安装依赖
+    echo "安装依赖..."
+    pip install --upgrade pip
+    pip install -r requirements/dev.txt
+}
+
+setup_venv() {
+    echo "使用 venv 管理环境..."
+
     # 创建虚拟环境
     if [[ ! -d ".venv" ]]; then
         echo "创建虚拟环境..."

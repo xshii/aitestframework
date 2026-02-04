@@ -1,0 +1,13 @@
+name: aitestframework
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - numpy
+  - cmake  # for cpu_golden build
+  - pybind11
+  # pip dependencies
+  - pip:
+    - -r requirements/dev.txt
