@@ -126,6 +126,10 @@ class TestTransposeFunctionalAPI:
         """测试 F.linear 输出形状 (PyTorch 格式)"""
         from aidevtools import ops
         from aidevtools.ops import get_records
+        from aidevtools.ops.cpu_golden import is_cpu_golden_available
+
+        if not is_cpu_golden_available():
+            pytest.skip("CPU golden not available")
 
         ops.seed(42)
         ops.clear()
@@ -149,6 +153,10 @@ class TestTransposeFunctionalAPI:
         """测试 F.linear + numpy transpose (PyTorch 格式)"""
         from aidevtools import ops
         from aidevtools.ops import get_records
+        from aidevtools.ops.cpu_golden import is_cpu_golden_available
+
+        if not is_cpu_golden_available():
+            pytest.skip("CPU golden not available")
 
         ops.seed(42)
         ops.clear()

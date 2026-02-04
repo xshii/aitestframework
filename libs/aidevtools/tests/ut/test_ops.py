@@ -1,5 +1,6 @@
 """算子 API 单元测试"""
 import numpy as np
+import pytest
 
 from aidevtools.ops import _functional as F
 

@@ -54,6 +54,11 @@ class TestGoldenMode:
 
     def test_compare_mode_fuzzy(self):
         """模糊比对"""
+        from aidevtools.ops.cpu_golden import is_cpu_golden_available
+
+        if not is_cpu_golden_available():
+            pytest.skip("CPU golden not available")
+
         x = torch.randn(2, 64)
 
         with golden_mode(golden="python", compare="fuzzy") as backend:
@@ -85,6 +90,11 @@ class TestQuantization:
 
     def test_quantize_gfp16(self):
         """gfp16 量化"""
+        from aidevtools.ops.cpu_golden import is_cpu_golden_available
+
+        if not is_cpu_golden_available():
+            pytest.skip("CPU golden not available")
+
         x = torch.randn(2, 64)
 
         with golden_mode(golden="python", quantize="gfp16", compare="quantized") as backend:
@@ -125,6 +135,11 @@ class TestModuleIntegration:
 
     def test_simple_model(self):
         """简单模型"""
+        from aidevtools.ops.cpu_golden import is_cpu_golden_available
+
+        if not is_cpu_golden_available():
+            pytest.skip("CPU golden not available")
+
         # 使用固定种子保证测试稳定
         torch.manual_seed(42)
 

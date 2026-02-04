@@ -3,7 +3,17 @@
 """比数命令"""
 
 import numpy as np
-from prettycli import command
+
+# prettycli 是可选依赖
+try:
+    from prettycli import command
+except ImportError:
+    # 提供 stub decorator，允许直接调用 cmd_compare
+    def command(*args, **kwargs):
+        """Stub decorator when prettycli is not available"""
+        def decorator(func):
+            return func
+        return decorator
 
 from aidevtools.core.log import logger
 from aidevtools.core.utils import parse_dtype, parse_list, parse_shape
