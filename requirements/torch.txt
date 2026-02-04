@@ -1,0 +1,4 @@
+# PyTorch依赖（算子Golden生成需要）
+# CPU版本（推荐，体积小）
+--index-url https://download.pytorch.org/whl/cpu
+torch>=2.0.0

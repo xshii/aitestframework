@@ -1,12 +1,14 @@
 # AI测试框架 - AI模型测试需求
 # 分类: AI模型测试 (AI Model Testing)
-# 版本: 1.0.0
+# 版本: 1.1.0
 # 创建时间: 2026-02-02
+# 更新时间: 2026-02-04
+# 说明: 移除LLM专项测试，聚焦业务模型和算子验证，集成aidevtools
 
 module:
   id: MODEL
   name: AI模型测试
-  description: 针对AI/ML模型的专项测试能力
+  description: 针对业务模型和小模型的专项测试能力，集成aidevtools进行算子级验证
 
 requirements:
 
@@ -15,34 +17,24 @@ requirements:
   # ============================================
   - id: MODEL-001
     name: 模型加载器
-    description: 支持多种格式和框架的模型加载
-    priority: P0
+    description: 支持多种格式的模型加载，优先使用aidevtools.ops
+    priority: P1  # 降级：主要通过aidevtools.ops使用
     status: pending
     sub_requirements:
       - id: MODEL-001-01
         name: PyTorch模型加载
         description: 支持加载.pt/.pth格式的PyTorch模型
-        priority: P0
+        priority: P1
         status: pending
       - id: MODEL-001-02
-        name: TensorFlow模型加载
-        description: 支持加载SavedModel和.h5格式的TF模型
-        priority: P0
-        status: pending
-      - id: MODEL-001-03
         name: ONNX模型加载
         description: 支持加载.onnx格式的通用模型
-        priority: P0
-        status: pending
-      - id: MODEL-001-04
-        name: HuggingFace模型加载
-        description: 支持从HuggingFace Hub加载模型
         priority: P1
         status: pending
-      - id: MODEL-001-05
+      - id: MODEL-001-03
         name: 自定义模型加载器
         description: 支持用户自定义模型加载逻辑
-        priority: P1
+        priority: P2
         status: pending
 
   - id: MODEL-002
@@ -68,32 +60,32 @@ requirements:
         status: pending
 
   # ============================================
-  # 推理测试
+  # 推理测试（集成aidevtools）
   # ============================================
   - id: MODEL-003
     name: 推理正确性测试
-    description: 验证模型推理结果的正确性
+    description: 基于aidevtools CompareEngine验证DUT输出正确性，支持四状态判定
     priority: P0
     status: pending
     sub_requirements:
       - id: MODEL-003-01
-        name: 单样本推理测试
-        description: 对单个输入样本进行推理验证
+        name: 单算子比对测试
+        description: 对单个算子输出进行四状态比对验证(PASS/GOLDEN_SUSPECT/DUT_ISSUE/BOTH_SUSPECT)
         priority: P0
         status: pending
       - id: MODEL-003-02
-        name: 批量推理测试
-        description: 批量输入的推理结果验证
+        name: 算子链比对测试
+        description: 多算子串联的端到端比对验证
         priority: P0
         status: pending
       - id: MODEL-003-03
-        name: 输出形状验证
-        description: 验证输出张量的形状是否正确
+        name: 批量比对测试
+        description: 批量数据的比对结果聚合
         priority: P0
         status: pending
       - id: MODEL-003-04
-        name: 输出数值范围验证
-        description: 验证输出值在预期范围内
+        name: 输出形状验证
+        description: 验证输出张量的形状是否正确
         priority: P0
         status: pending
       - id: MODEL-003-05
@@ -104,33 +96,33 @@ requirements:
 
   - id: MODEL-004
     name: 模型精度测试
-    description: 评估模型在各种指标上的精度表现
+    description: 基于aidevtools指标评估模型精度，支持QSNR、cosine等
     priority: P0
     status: pending
     sub_requirements:
       - id: MODEL-004-01
-        name: 分类精度指标
-        description: 支持accuracy、precision、recall、F1等
+        name: QSNR指标
+        description: 支持QSNR(量化信噪比)评估，集成aidevtools.compare
         priority: P0
         status: pending
       - id: MODEL-004-02
-        name: 回归精度指标
-        description: 支持MSE、MAE、RMSE、R2等
+        name: Cosine相似度
+        description: 支持余弦相似度评估
         priority: P0
         status: pending
       - id: MODEL-004-03
-        name: 目标检测指标
-        description: 支持mAP、IoU等检测指标
-        priority: P1
+        name: 最大绝对误差
+        description: 支持max_abs误差评估
+        priority: P0
         status: pending
       - id: MODEL-004-04
-        name: NLP任务指标
-        description: 支持BLEU、ROUGE、Perplexity等
+        name: 分类精度指标
+        description: 支持accuracy、precision、recall、F1等
         priority: P1
         status: pending
       - id: MODEL-004-05
-        name: 自定义指标
-        description: 支持用户定义自定义评估指标
+        name: 回归精度指标
+        description: 支持MSE、MAE、RMSE等
         priority: P1
         status: pending
       - id: MODEL-004-06
@@ -161,12 +153,12 @@ requirements:
       - id: MODEL-005-03
         name: 内存占用测试
         description: 测量推理过程的内存消耗
-        priority: P0
+        priority: P1
         status: pending
       - id: MODEL-005-04
-        name: GPU利用率测试
-        description: 测量GPU使用率和显存占用
-        priority: P1
+        name: 不同批次性能测试
+        description: 测试batch_size=1/8/16/32等不同批次的性能
+        priority: P0
         status: pending
       - id: MODEL-005-05
         name: 预热运行支持
@@ -200,11 +192,6 @@ requirements:
         description: 检测长时间运行是否存在内存泄漏
         priority: P1
         status: pending
-      - id: MODEL-006-04
-        name: 资源限制测试
-        description: 在受限资源下的表现测试
-        priority: P2
-        status: pending
 
   # ============================================
   # 鲁棒性测试
@@ -230,22 +217,20 @@ requirements:
         description: 在输入中添加噪声测试稳定性
         priority: P1
         status: pending
-      - id: MODEL-007-04
-        name: 对抗样本测试
-        description: 测试模型对对抗样本的抵抗能力
-        priority: P2
-        status: pending
 
+  # ============================================
+  # 一致性测试（量化场景核心）
+  # ============================================
   - id: MODEL-008
     name: 模型一致性测试
-    description: 验证模型在不同环境下的一致性
-    priority: P1
+    description: 验证模型在不同环境和量化条件下的一致性
+    priority: P0
     status: pending
     sub_requirements:
       - id: MODEL-008-01
         name: CPU/GPU一致性
         description: 验证CPU和GPU推理结果一致
-        priority: P1
+        priority: P0
         status: pending
       - id: MODEL-008-02
         name: 不同批次大小一致性
@@ -253,52 +238,12 @@ requirements:
         priority: P1
         status: pending
       - id: MODEL-008-03
-        name: 模型转换一致性
-        description: 验证模型格式转换后结果一致
-        priority: P1
+        name: 量化模型一致性
+        description: 验证量化前后精度损失在可接受范围，集成aidevtools量化格式
+        priority: P0  # 提升：这是核心场景
         status: pending
       - id: MODEL-008-04
-        name: 量化模型一致性
-        description: 验证量化前后精度损失在可接受范围
-        priority: P2
-        status: pending
-
-  # ============================================
-  # LLM专项测试
-  # ============================================
-  - id: MODEL-009
-    name: 大语言模型测试
-    description: 针对LLM的专项测试能力
-    priority: P1
-    status: pending
-    sub_requirements:
-      - id: MODEL-009-01
-        name: 提示词测试
-        description: 测试不同提示词的输出质量
-        priority: P1
-        status: pending
-      - id: MODEL-009-02
-        name: 上下文长度测试
-        description: 测试不同上下文长度的处理能力
-        priority: P1
-        status: pending
-      - id: MODEL-009-03
-        name: 生成质量评估
-        description: 评估生成文本的流畅性、相关性等
-        priority: P1
-        status: pending
-      - id: MODEL-009-04
-        name: 幻觉检测
-        description: 检测模型输出的事实性错误
-        priority: P2
-        status: pending
-      - id: MODEL-009-05
-        name: 安全性测试
-        description: 测试模型对有害提示的抵抗能力
-        priority: P1
-        status: pending
-      - id: MODEL-009-06
-        name: 多轮对话测试
-        description: 测试多轮对话的连贯性和一致性
-        priority: P2
+        name: Golden自检
+        description: 基于aidevtools.sanity验证Golden数据有效性(non_zero/no_nan_inf/qsnr_valid)
+        priority: P0
         status: pending

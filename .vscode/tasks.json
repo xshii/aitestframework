@@ -1,0 +1,243 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "CI: 完整流程",
+            "type": "shell",
+            "command": "./scripts/ci/ci.sh all",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "CI: 代码检查",
+            "type": "shell",
+            "command": "./scripts/ci/ci.sh lint",
+            "group": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": [
+                "$eslint-stylish"
+            ]
+        },
+        {
+            "label": "CI: 代码检查(自动修复)",
+            "type": "shell",
+            "command": "./scripts/ci/run_lint.sh --fix",
+            "group": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "CI: 单元测试",
+            "type": "shell",
+            "command": "./scripts/ci/run_tests.sh unit",
+            "group": "test",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "CI: 集成测试",
+            "type": "shell",
+            "command": "./scripts/ci/run_tests.sh integration",
+            "group": "test",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "CI: 测试+覆盖率",
+            "type": "shell",
+            "command": "./scripts/ci/ci.sh coverage",
+            "group": "test",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "CI: 质量门禁",
+            "type": "shell",
+            "command": "./scripts/ci/ci.sh gate",
+            "group": "test",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "CI: 安装依赖",
+            "type": "shell",
+            "command": "./scripts/ci/ci.sh setup",
+            "group": "none",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Pytest: 运行当前文件",
+            "type": "shell",
+            "command": "PYTHONPATH=.:libs pytest ${file} -v",
+            "group": "test",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Pytest: 运行当前文件(调试)",
+            "type": "shell",
+            "command": "PYTHONPATH=.:libs pytest ${file} -v -s --tb=long",
+            "group": "test",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Python: 运行当前文件",
+            "type": "shell",
+            "command": "PYTHONPATH=.:libs python ${file}",
+            "group": "none",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Demo: 运行基础算子",
+            "type": "shell",
+            "command": "PYTHONPATH=.:libs python demos/01_basic_ops/run.py",
+            "group": "none",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Ruff: 检查",
+            "type": "shell",
+            "command": "ruff check aitestframework libs/aidevtools",
+            "group": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": {
+                "owner": "ruff",
+                "fileLocation": ["relative", "${workspaceFolder}"],
+                "pattern": {
+                    "regexp": "^(.+):(\\d+):(\\d+): (\\w+) (.+)$",
+                    "file": 1,
+                    "line": 2,
+                    "column": 3,
+                    "code": 4,
+                    "message": 5
+                }
+            }
+        },
+        {
+            "label": "Ruff: 修复",
+            "type": "shell",
+            "command": "ruff check aitestframework libs/aidevtools --fix && ruff format aitestframework libs/aidevtools",
+            "group": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Pylint: 检查",
+            "type": "shell",
+            "command": "pylint aitestframework --output-format=colorized",
+            "group": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": {
+                "owner": "pylint",
+                "fileLocation": ["relative", "${workspaceFolder}"],
+                "pattern": {
+                    "regexp": "^(.+):(\\d+):(\\d+): (\\w+): (.+) \\((.+)\\)$",
+                    "file": 1,
+                    "line": 2,
+                    "column": 3,
+                    "severity": 4,
+                    "message": 5,
+                    "code": 6
+                }
+            }
+        },
+        {
+            "label": "Golden: 编译C++",
+            "type": "shell",
+            "command": "cd libs/aidevtools/golden/cpp && ./build.sh",
+            "group": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": "$gcc"
+        },
+        {
+            "label": "Pip: 安装开发依赖",
+            "type": "shell",
+            "command": "pip install -r requirements/dev.txt",
+            "group": "none",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Pip: 安装完整依赖",
+            "type": "shell",
+            "command": "pip install -r requirements/full.txt",
+            "group": "none",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        }
+    ]
+}

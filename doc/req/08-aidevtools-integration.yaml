@@ -1,0 +1,222 @@
+# AI测试框架 - aidevtools集成需求
+# 分类: aidevtools集成 (aidevtools Integration)
+# 版本: 1.0.0
+# 创建时间: 2026-02-04
+# 说明: 与aidevtools算子验证工具的深度集成
+
+module:
+  id: ADT
+  name: aidevtools集成
+  description: 集成aidevtools工具集，提供算子级Golden生成、精度比对、量化格式支持
+
+requirements:
+
+  # ============================================
+  # 比对引擎集成
+  # ============================================
+  - id: ADT-001
+    name: CompareEngine集成
+    description: 集成aidevtools.compare模块进行精度比对
+    priority: P0
+    status: pending
+    sub_requirements:
+      - id: ADT-001-01
+        name: 四状态适配
+        description: 适配PASS/GOLDEN_SUSPECT/DUT_ISSUE/BOTH_SUSPECT四种状态
+        priority: P0
+        status: pending
+      - id: ADT-001-02
+        name: 精确比对集成
+        description: 集成exact比对，支持max_abs/max_count阈值
+        priority: P0
+        status: pending
+      - id: ADT-001-03
+        name: 模糊比对集成
+        description: 集成fuzzy比对，支持QSNR/cosine/atol/rtol阈值
+        priority: P0
+        status: pending
+      - id: ADT-001-04
+        name: Golden自检集成
+        description: 集成sanity检查(non_zero/no_nan_inf/range_valid/qsnr_valid)
+        priority: P0
+        status: pending
+      - id: ADT-001-05
+        name: 比对配置映射
+        description: 框架配置到CompareConfig的映射
+        priority: P0
+        status: pending
+
+  # ============================================
+  # 算子Golden生成
+  # ============================================
+  - id: ADT-002
+    name: ops算子集成
+    description: 集成aidevtools.ops模块生成算子Golden
+    priority: P0
+    status: pending
+    sub_requirements:
+      - id: ADT-002-01
+        name: Functional API调用
+        description: 支持调用F.matmul/F.softmax/F.layernorm等
+        priority: P0
+        status: pending
+      - id: ADT-002-02
+        name: OpRecord获取
+        description: 获取算子执行记录(input/golden/op_name)
+        priority: P0
+        status: pending
+      - id: ADT-002-03
+        name: 双轨Golden支持
+        description: 支持golden_pure(fp32)和golden_qnt(量化)双轨模式
+        priority: P0
+        status: pending
+      - id: ADT-002-04
+        name: C++ Golden调用
+        description: 支持调用cpu_golden CLI生成高精度Golden
+        priority: P1
+        status: pending
+
+  # ============================================
+  # 量化格式支持
+  # ============================================
+  - id: ADT-003
+    name: 量化格式集成
+    description: 集成aidevtools.formats支持多种量化格式
+    priority: P0
+    status: pending
+    sub_requirements:
+      - id: ADT-003-01
+        name: BFP格式支持
+        description: 支持bfp16/bfp8/bfp4块浮点格式
+        priority: P0
+        status: pending
+      - id: ADT-003-02
+        name: GFloat格式支持
+        description: 支持gfloat16/gfloat8/gfloat4自定义浮点格式
+        priority: P0
+        status: pending
+      - id: ADT-003-03
+        name: 标准格式支持
+        description: 支持float32/float16标准格式
+        priority: P0
+        status: pending
+      - id: ADT-003-04
+        name: 量化/反量化API
+        description: 提供统一的quantize/dequantize接口
+        priority: P1
+        status: pending
+
+  # ============================================
+  # 数据生成集成
+  # ============================================
+  - id: ADT-004
+    name: 数据生成集成
+    description: 集成aidevtools.frontend.datagen生成测试数据
+    priority: P1
+    status: pending
+    sub_requirements:
+      - id: ADT-004-01
+        name: DataGenerator调用
+        description: 调用DataGenerator生成输入数据
+        priority: P1
+        status: pending
+      - id: ADT-004-02
+        name: 分布类型支持
+        description: 支持normal/uniform/xavier等分布
+        priority: P1
+        status: pending
+      - id: ADT-004-03
+        name: 种子控制
+        description: 支持随机种子保证可重复性
+        priority: P1
+        status: pending
+
+  # ============================================
+  # xlsx工作流集成
+  # ============================================
+  - id: ADT-005
+    name: xlsx工作流集成
+    description: 集成aidevtools.xlsx表格驱动测试
+    priority: P1
+    status: pending
+    sub_requirements:
+      - id: ADT-005-01
+        name: xlsx模板导入
+        description: 导入xlsx定义的算子测试序列
+        priority: P1
+        status: pending
+      - id: ADT-005-02
+        name: xlsx执行集成
+        description: 集成run_xlsx执行表格定义的测试
+        priority: P1
+        status: pending
+      - id: ADT-005-03
+        name: 结果导出xlsx
+        description: 将测试结果导出到xlsx格式
+        priority: P2
+        status: pending
+
+  # ============================================
+  # 报告集成
+  # ============================================
+  - id: ADT-006
+    name: 比对报告集成
+    description: 集成aidevtools比对报告到框架报告系统
+    priority: P0
+    status: pending
+    sub_requirements:
+      - id: ADT-006-01
+        name: 四状态汇总
+        description: 统计各状态数量(PASS/GOLDEN_SUSPECT/DUT_ISSUE/BOTH_SUSPECT)
+        priority: P0
+        status: pending
+      - id: ADT-006-02
+        name: 指标详情展示
+        description: 展示每个算子的QSNR/cosine/max_abs等指标
+        priority: P0
+        status: pending
+      - id: ADT-006-03
+        name: 表格格式报告
+        description: 生成aidevtools风格的表格报告
+        priority: P1
+        status: pending
+      - id: ADT-006-04
+        name: 失败详情报告
+        description: 详细展示DUT_ISSUE/BOTH_SUSPECT的失败原因
+        priority: P0
+        status: pending
+
+  # ============================================
+  # 断言适配
+  # ============================================
+  - id: ADT-007
+    name: 四状态断言
+    description: 基于aidevtools四状态的断言方法
+    priority: P0
+    status: pending
+    sub_requirements:
+      - id: ADT-007-01
+        name: assertComparePass
+        description: 断言比对状态为PASS
+        priority: P0
+        status: pending
+      - id: ADT-007-02
+        name: assertNotDutIssue
+        description: 断言状态不是DUT_ISSUE(允许GOLDEN_SUSPECT)
+        priority: P0
+        status: pending
+      - id: ADT-007-03
+        name: assertGoldenValid
+        description: 断言Golden自检通过
+        priority: P0
+        status: pending
+      - id: ADT-007-04
+        name: assertQsnrAbove
+        description: 断言QSNR高于指定阈值
+        priority: P0
+        status: pending
+      - id: ADT-007-05
+        name: assertCosineAbove
+        description: 断言cosine相似度高于指定阈值
+        priority: P0
+        status: pending
