@@ -1,0 +1,4 @@
+"""CLI 命令"""
+from aidevtools.commands import compare
+
+__all__ = ["compare"]

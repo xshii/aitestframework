@@ -1,0 +1,30 @@
+{
+    "recommendations": [
+        // Python开发
+        "ms-python.python",
+        "ms-python.debugpy",
+        "ms-python.pylint",
+        "charliermarsh.ruff",
+
+        // 测试
+        "littlefoxteam.vscode-python-test-adapter",
+
+        // Git
+        "eamodio.gitlens",
+        "mhutchie.git-graph",
+
+        // YAML/JSON
+        "redhat.vscode-yaml",
+
+        // Markdown
+        "yzhang.markdown-all-in-one",
+
+        // Jenkins
+        "janjoerke.jenkins-pipeline-linter-connector",
+
+        // 其他
+        "gruntfuggly.todo-tree",
+        "streetsidesoftware.code-spell-checker"
+    ],
+    "unwantedRecommendations": []
+}

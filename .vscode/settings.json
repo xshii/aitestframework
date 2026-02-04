@@ -1,0 +1,76 @@
+{
+    // Python配置
+    "python.analysis.extraPaths": [
+        "${workspaceFolder}",
+        "${workspaceFolder}/libs"
+    ],
+    "python.autoComplete.extraPaths": [
+        "${workspaceFolder}",
+        "${workspaceFolder}/libs"
+    ],
+    "python.envFile": "${workspaceFolder}/.env",
+
+    // 测试配置
+    "python.testing.pytestEnabled": true,
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestArgs": [
+        "aitestframework/",
+        "-v"
+    ],
+
+    // 格式化配置
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+        "source.organizeImports": "explicit"
+    },
+
+    // Ruff配置
+    "ruff.lint.args": [
+        "--config=${workspaceFolder}/pyproject.toml"
+    ],
+    "ruff.format.args": [
+        "--config=${workspaceFolder}/pyproject.toml"
+    ],
+
+    // Pylint配置
+    "pylint.args": [
+        "--rcfile=${workspaceFolder}/pyproject.toml"
+    ],
+
+    // 文件关联
+    "files.associations": {
+        "Jenkinsfile": "groovy",
+        "*.yaml": "yaml",
+        "*.yml": "yaml"
+    },
+
+    // 排除文件
+    "files.exclude": {
+        "**/__pycache__": true,
+        "**/*.pyc": true,
+        "**/.pytest_cache": true,
+        "**/.ruff_cache": true,
+        "**/htmlcov": true,
+        "**/*.egg-info": true,
+        "**/.venv": true
+    },
+
+    // 搜索排除
+    "search.exclude": {
+        "**/__pycache__": true,
+        "**/htmlcov": true,
+        "**/coverage": true,
+        "**/.venv": true
+    },
+
+    // 终端配置
+    "terminal.integrated.env.linux": {
+        "PYTHONPATH": "${workspaceFolder}:${workspaceFolder}/libs"
+    },
+    "terminal.integrated.env.osx": {
+        "PYTHONPATH": "${workspaceFolder}:${workspaceFolder}/libs"
+    },
+
+    // 推荐扩展提示
+    "extensions.ignoreRecommendations": false
+}

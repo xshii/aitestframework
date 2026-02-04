@@ -7,32 +7,57 @@ name = "aitestframework"
 version = "0.1.0"
 description = "AI模型测试框架，集成aidevtools算子验证工具"
 requires-python = ">=3.9"
+
+# 核心依赖（最小安装）
 dependencies = [
-    "prettycli @ file:libs/prettycli",
     "numpy>=1.21,<2.0",
     "pyyaml>=6.0",
-    "jinja2>=3.0",
-    "torch>=2.0.0",
 ]
 
 [project.optional-dependencies]
+# 开发依赖
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
     "ruff>=0.1.0",
     "pylint>=3.0.0",
 ]
+
+# PyTorch后端（算子Golden生成需要）
+torch = [
+    "torch>=2.0.0",
+]
+
+# Excel工作流
 xlsx = [
     "openpyxl>=3.0.0",
 ]
+
+# C++ Golden编译
 cpp = [
     "pybind11>=2.10.0",
+    "cmake>=3.20.0",
 ]
+
+# 工具链下载
 toolchain = [
     "httpx>=0.24.0",
 ]
+
+# 报告生成
+report = [
+    "jinja2>=3.0",
+    "matplotlib>=3.5.0",
+]
+
+# 完整安装（所有可选功能）
 all = [
-    "aitestframework[xlsx,cpp,toolchain]",
+    "aitestframework[torch,xlsx,cpp,toolchain,report]",
+]
+
+# libs中各库的依赖汇总
+aidevtools = [
+    "aitestframework[torch,xlsx,cpp]",
 ]
 
 [project.scripts]
@@ -43,7 +68,10 @@ aidev = "aidevtools.cli:main"
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["aitestframework", "aidevtools", "backends"]
+packages = ["aitestframework", "libs/aidevtools", "backends"]
+
+[tool.hatch.build.targets.wheel.sources]
+"libs/aidevtools" = "aidevtools"
 
 [tool.pylint.messages_control]
 disable = [
