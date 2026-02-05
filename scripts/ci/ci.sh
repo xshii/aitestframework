@@ -72,6 +72,8 @@ setup_conda() {
     local pkg_manager="conda"
 
     # 优先使用 mamba（更快）
+    # 推荐安装 miniconda（体积小，约50MB）而非完整 Anaconda
+    # 安装: https://docs.conda.io/en/latest/miniconda.html
     if command -v mamba &> /dev/null; then
         pkg_manager="mamba"
     fi

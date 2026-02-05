@@ -55,7 +55,7 @@ pipeline {
         booleanParam(
             name: 'USE_CONDA',
             defaultValue: true,
-            description: '使用 Conda 管理环境（推荐）'
+            description: '使用 Miniconda 管理环境（推荐，需预装 miniconda）'
         )
     }
 
@@ -72,7 +72,8 @@ pipeline {
 
                 script {
                     if (params.USE_CONDA) {
-                        // 使用 Conda 环境（持久化，复用已安装依赖）
+                        // 使用 Miniconda 环境（持久化，复用已安装依赖）
+                        // 需要预装 miniconda: https://docs.conda.io/en/latest/miniconda.html
                         sh '''
                             echo "使用 Conda 环境..."
 

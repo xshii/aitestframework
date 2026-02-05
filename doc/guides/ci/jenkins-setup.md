@@ -89,7 +89,34 @@ sudo cat /var/lib/jenkins/secrets/initialAdminPassword
 
 ### 2.2 Python环境配置
 
-在Jenkins服务器上安装Python环境：
+#### 方式一：Miniconda（推荐）
+
+推荐使用 **Miniconda** 管理 Python 环境，优势：
+- 体积小（~50MB vs Anaconda的3GB+）
+- 环境可复用，多次 CI 提交无需重复安装依赖
+- 支持依赖缓存，加速构建
+
+```bash
+# 下载并安装 Miniconda（以 Jenkins 用户执行）
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh
+bash /tmp/miniconda.sh -b -p /opt/miniconda
+
+# 初始化（添加到 Jenkins 用户的 .bashrc）
+/opt/miniconda/bin/conda init bash
+
+# 创建项目环境
+/opt/miniconda/bin/conda create -n aitestframework python=3.11 cmake -y
+
+# 激活并安装依赖
+source /opt/miniconda/bin/activate aitestframework
+pip install -r requirements/dev.txt
+```
+
+**依赖缓存机制**：Jenkinsfile 已配置基于 requirements 文件哈希的缓存，依赖无变化时跳过安装。
+
+#### 方式二：venv（备选）
+
+如不使用 Miniconda，可使用标准 venv：
 
 ```bash
 # 安装Python和pip
@@ -106,6 +133,8 @@ sudo /opt/jenkins-python/venv/bin/pip install \
     pylint ruff \
     numpy pyyaml
 ```
+
+> **注意**：venv 方式每次构建都会重新安装依赖，不如 Miniconda 高效。
 
 ## 3. 创建流水线任务
 
