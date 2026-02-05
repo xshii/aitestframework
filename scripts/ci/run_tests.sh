@@ -56,7 +56,7 @@ case "${TEST_TYPE}" in
         echo ""
         echo -e "${YELLOW}运行单元测试${NC}"
         echo "----------------------------------------"
-        pytest aitestframework/ ${PYTEST_ARGS} \
+        pytest aitestframework/ tests/ut/ ${PYTEST_ARGS} \
             --junitxml=test-results/unit-tests.xml || EXIT_CODE=$?
         ;;
 
@@ -76,7 +76,7 @@ case "${TEST_TYPE}" in
         # 框架单元测试
         echo ""
         echo "[1/3] 框架单元测试"
-        pytest aitestframework/ ${PYTEST_ARGS} \
+        pytest aitestframework/ tests/ut/ ${PYTEST_ARGS} \
             --junitxml=test-results/unit-tests.xml || EXIT_CODE=$?
 
         # aidevtools 测试
@@ -108,7 +108,7 @@ if $COVERAGE && [[ -f "coverage/coverage.xml" ]]; then
     echo "           覆盖率报告"
     echo "=========================================="
 
-    COVERAGE_THRESHOLD=80
+    COVERAGE_THRESHOLD=85
     COVERAGE_PERCENT=$(python3 -c "
 import xml.etree.ElementTree as ET
 tree = ET.parse('coverage/coverage.xml')

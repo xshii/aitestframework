@@ -90,10 +90,39 @@ setup_conda() {
     eval "$(conda shell.bash hook)"
     conda activate "${env_name}"
 
-    # 安装依赖
-    echo "安装依赖..."
-    pip install --upgrade pip
-    pip install -r requirements/dev.txt
+    # 检查依赖缓存（基于文件哈希 + 7天过期）
+    local req_hash=$(cat requirements/*.txt 2>/dev/null | md5sum | cut -d' ' -f1)
+    local cache_file="${CONDA_PREFIX}/.req_hash"
+    local cache_time_file="${CONDA_PREFIX}/.req_cache_time"
+    local cache_max_age_days=7
+    local need_install=0
+
+    if [[ ! -f "${cache_file}" ]] || [[ "$(cat ${cache_file})" != "${req_hash}" ]]; then
+        echo "依赖文件有变化"
+        need_install=1
+    fi
+
+    if [[ -f "${cache_time_file}" ]]; then
+        local cache_time=$(cat ${cache_time_file})
+        local current_time=$(date +%s)
+        local age_days=$(( (current_time - cache_time) / 86400 ))
+        if [[ ${age_days} -ge ${cache_max_age_days} ]]; then
+            echo "缓存已过期 (${age_days} 天)"
+            need_install=1
+        fi
+    else
+        need_install=1
+    fi
+
+    if [[ ${need_install} -eq 1 ]]; then
+        echo "安装/更新依赖..."
+        pip install --upgrade pip
+        pip install -r requirements/dev.txt
+        echo "${req_hash}" > "${cache_file}"
+        date +%s > "${cache_time_file}"
+    else
+        echo "依赖缓存有效，跳过安装"
+    fi
 }
 
 setup_venv() {

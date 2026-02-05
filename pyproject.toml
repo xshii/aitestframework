@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "aitestframework"
 version = "0.1.0"
 description = "AI模型测试框架，集成aidevtools算子验证工具"
-requires-python = ">=3.9"
+requires-python = ">=3.9,<3.13"
 
 # 核心依赖（最小安装）
 dependencies = [
@@ -75,8 +75,15 @@ packages = ["aitestframework", "libs/aidevtools", "backends"]
 
 [tool.pylint.messages_control]
 disable = [
-    "import-outside-toplevel",
-    "abstract-method",
+    "import-outside-toplevel",    # 允许延迟导入（可选依赖）
+    "abstract-method",            # 允许部分实现的抽象类
+    "too-many-arguments",         # AI模型常有多个参数
+    "too-many-instance-attributes",  # 配置类属性多
+    "too-many-locals",            # 复杂算子实现
+    "too-many-branches",          # 条件分支多
+    "duplicate-code",             # 算子实现存在相似代码
+    "fixme",                      # 允许 TODO/FIXME 注释
+    "logging-fstring-interpolation",  # 允许 f-string 日志
 ]
 
 [tool.pylint.basic]
@@ -94,6 +101,36 @@ max-attributes = 12
 
 [tool.ruff]
 line-length = 100
+target-version = "py39"
+
+# 启用的规则组
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "N",      # pep8-naming
+    "UP",     # pyupgrade
+    "B",      # flake8-bugbear
+    "A",      # flake8-builtins
+    "C4",     # flake8-comprehensions
+    "RUF",    # ruff-specific
+]
+
+# 忽略的规则
+ignore = [
+    "E501",   # 行长度由 line-length 控制
+    "E731",   # 允许 lambda 赋值（AI代码常用）
+    "N803",   # 允许大写参数名（如 N, M, K 等张量维度）
+    "N806",   # 允许大写变量名（如 H, W, C 等）
+    "B008",   # 允许函数调用作为默认参数
+    "B905",   # 允许 zip 不带 strict
+]
+
+[tool.ruff.per-file-ignores]
+"__init__.py" = ["F401", "F403"]  # 允许 import 但未使用
+"**/tests/*" = ["F401", "F811", "B011"]  # 测试文件放宽规则
+"**/conftest.py" = ["F401", "F811"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

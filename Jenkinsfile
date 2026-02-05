@@ -30,7 +30,7 @@ pipeline {
         // 项目路径
         PYTHONPATH = "${WORKSPACE}:${WORKSPACE}/libs"
         // 质量门禁阈值
-        COVERAGE_THRESHOLD = '80'
+        COVERAGE_THRESHOLD = '85'
         PYLINT_THRESHOLD = '8.0'
         // Conda 环境名
         CONDA_ENV = 'aitestframework'
@@ -89,17 +89,41 @@ pipeline {
 
                             conda activate ${CONDA_ENV}
 
-                            # 检查依赖是否需要更新（基于 requirements 文件哈希）
+                            # 检查依赖是否需要更新（基于 requirements 文件哈希 + 缓存过期）
                             REQ_HASH=$(cat requirements/*.txt | md5sum | cut -d' ' -f1)
                             CACHE_FILE="${CONDA_PREFIX}/.req_hash"
+                            CACHE_TIME_FILE="${CONDA_PREFIX}/.req_cache_time"
+                            CACHE_MAX_AGE_DAYS=7
 
+                            NEED_INSTALL=0
+
+                            # 检查哈希是否匹配
                             if [[ ! -f "${CACHE_FILE}" ]] || [[ "$(cat ${CACHE_FILE})" != "${REQ_HASH}" ]]; then
-                                echo "依赖有变化，重新安装..."
+                                echo "依赖文件有变化，需要重新安装"
+                                NEED_INSTALL=1
+                            fi
+
+                            # 检查缓存是否过期（7天）
+                            if [[ -f "${CACHE_TIME_FILE}" ]]; then
+                                CACHE_TIME=$(cat ${CACHE_TIME_FILE})
+                                CURRENT_TIME=$(date +%s)
+                                AGE_DAYS=$(( (CURRENT_TIME - CACHE_TIME) / 86400 ))
+                                if [[ ${AGE_DAYS} -ge ${CACHE_MAX_AGE_DAYS} ]]; then
+                                    echo "缓存已过期 (${AGE_DAYS} 天)，需要刷新"
+                                    NEED_INSTALL=1
+                                fi
+                            else
+                                NEED_INSTALL=1
+                            fi
+
+                            if [[ ${NEED_INSTALL} -eq 1 ]]; then
+                                echo "安装/更新依赖..."
                                 pip install --upgrade pip
                                 pip install -r requirements/dev.txt
                                 echo "${REQ_HASH}" > "${CACHE_FILE}"
+                                date +%s > "${CACHE_TIME_FILE}"
                             else
-                                echo "依赖无变化，跳过安装"
+                                echo "依赖无变化且缓存未过期，跳过安装"
                             fi
                         '''
 
