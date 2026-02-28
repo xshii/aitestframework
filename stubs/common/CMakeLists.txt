@@ -8,6 +8,7 @@ file(GLOB_RECURSE COMMON_SOURCES CONFIGURE_DEPENDS
 list(FILTER COMMON_SOURCES EXCLUDE REGEX "stub_main\\.c$")
 
 add_library(stub_common STATIC ${COMMON_SOURCES})
+set_target_properties(stub_common PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(stub_common PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/memmap

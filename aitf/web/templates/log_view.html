@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}{{ filename }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <h5 class="mb-0">{{ subpath }}</h5>
+  <div>
+    <a href="{{ url_for('logs.log_download', subpath=subpath) }}" class="btn btn-sm btn-primary">Download</a>
+    <a href="{{ url_for('logs.log_index', subpath=parent) }}" class="btn btn-sm btn-outline-secondary">Back</a>
+  </div>
+</div>
+
+<div class="mb-2 text-muted small">
+  Lines {{ offset + 1 }}–{{ offset + lines|length }} of {{ total_lines }}
+  {% if total_lines > limit %}
+  | Page:
+  {% for p in range(pages) %}
+    {% if p * limit == offset %}
+      <strong>{{ p + 1 }}</strong>
+    {% else %}
+      <a href="?offset={{ p * limit }}&limit={{ limit }}">{{ p + 1 }}</a>
+    {% endif %}
+  {% endfor %}
+  {% endif %}
+</div>
+
+<pre class="bg-dark text-light p-3" style="font-size:13px; max-height:75vh; overflow:auto;">
+{%- for line in lines %}
+<span class="{% if 'error' in line.lower() or 'fail' in line.lower() %}text-danger{% elif 'warn' in line.lower() %}text-warning{% endif %}">{{ "%5d" | format(offset + loop.index) }} | {{ line }}</span>
+{%- endfor %}
+</pre>
+{% endblock %}

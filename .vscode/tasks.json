@@ -21,6 +21,20 @@
             "command": "build/func_sim/stub_runner",
             "dependsOn": "[stub] 01-build app",
             "problemMatcher": []
+        },
+        {
+            "label": "[web] 01-start",
+            "type": "shell",
+            "command": "./scripts/start.sh",
+            "problemMatcher": [],
+            "isBackground": true
+        },
+        {
+            "label": "[web] 02-start (debug)",
+            "type": "shell",
+            "command": "./scripts/start.sh --debug",
+            "problemMatcher": [],
+            "isBackground": true
         }
     ]
 }
