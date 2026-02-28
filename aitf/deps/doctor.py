@@ -16,26 +16,17 @@ def run_diagnostics(
     cfg: DepsConfig, *, cache_dir: Path, repos_dir: Path,
     project_root: Path, lock_path: Path | None = None,
 ) -> list[DiagResult]:
-    """Run all diagnostic checks and return results."""
     results: list[DiagResult] = [
         DiagResult(check="config", ok=True, message="deps.yaml parsed successfully"),
     ]
 
-    # Toolchains & libraries
-    for name, tc in cfg.toolchains.items():
-        installed = is_installed(name, tc.version, cache_dir)
-        results.append(DiagResult(
-            check=f"toolchain:{name}", ok=installed,
-            message=(f"{name} {tc.version} installed" if installed
-                     else f"{name} {tc.version} not installed — run: aitf deps install {name}"),
-        ))
-    for name, lib in cfg.libraries.items():
-        installed = is_installed(name, lib.version, cache_dir)
-        results.append(DiagResult(
-            check=f"library:{name}", ok=installed,
-            message=(f"{name} {lib.version} installed" if installed
-                     else f"{name} {lib.version} not installed — run: aitf deps install {name}"),
-        ))
+    # Toolchains & libraries — identical check pattern, table-driven
+    for dep_type, deps in [("toolchain", cfg.toolchains), ("library", cfg.libraries)]:
+        for name, dep in deps.items():
+            ok = is_installed(name, dep.version, cache_dir)
+            msg = (f"{name} {dep.version} installed" if ok
+                   else f"{name} {dep.version} not installed — run: aitf deps install {name}")
+            results.append(DiagResult(check=f"{dep_type}:{name}", ok=ok, message=msg))
 
     # Repos
     for name, repo in cfg.repos.items():
@@ -57,19 +48,14 @@ def run_diagnostics(
                 message=f"{name} not cloned — run: aitf deps install {name}",
             ))
 
-    # Scripts
+    # Scripts — collect from all deps in one pass
     scripts: set[str] = set()
-    for tc in cfg.toolchains.values():
-        if tc.acquire.script:
-            scripts.add(tc.acquire.script)
-    for lib in cfg.libraries.values():
-        if lib.acquire.script:
-            scripts.add(lib.acquire.script)
-        if lib.build_script:
-            scripts.add(lib.build_script)
-    for repo in cfg.repos.values():
-        if repo.build_script:
-            scripts.add(repo.build_script)
+    for dep in (*cfg.toolchains.values(), *cfg.libraries.values()):
+        if dep.acquire.script:
+            scripts.add(dep.acquire.script)
+    for dep in (*cfg.libraries.values(), *cfg.repos.values()):
+        if dep.build_script:
+            scripts.add(dep.build_script)
     for s in sorted(scripts):
         exists = (project_root / s).is_file()
         results.append(DiagResult(
@@ -85,7 +71,7 @@ def run_diagnostics(
             message=f"{tool} {'available' if avail else 'not found on PATH'}",
         ))
 
-    # Lock file sync
+    # Lock file sync — table-driven mismatch check
     if lock_path:
         lock = load_lock(lock_path)
         if lock is None:
@@ -95,22 +81,17 @@ def run_diagnostics(
             ))
         else:
             mismatches = []
-            for name, tc in cfg.toolchains.items():
-                entry = lock.toolchains.get(name)
-                if not entry or entry.version != tc.version:
-                    mismatches.append(name)
-            for name, lib in cfg.libraries.items():
-                entry = lock.libraries.get(name)
-                if not entry or entry.version != lib.version:
-                    mismatches.append(name)
-            if mismatches:
-                results.append(DiagResult(
-                    check="lock_file", ok=False,
-                    message=f"Lock file out of sync for: {', '.join(mismatches)} — run: aitf deps lock",
-                ))
-            else:
-                results.append(DiagResult(
-                    check="lock_file", ok=True, message="deps.lock.yaml in sync",
-                ))
+            for cfg_section, lock_section in [
+                (cfg.toolchains, lock.toolchains),
+                (cfg.libraries, lock.libraries),
+            ]:
+                for name, dep in cfg_section.items():
+                    entry = lock_section.get(name)
+                    if not entry or entry.version != dep.version:
+                        mismatches.append(name)
+            ok = not mismatches
+            msg = ("deps.lock.yaml in sync" if ok
+                   else f"Lock file out of sync for: {', '.join(mismatches)} — run: aitf deps lock")
+            results.append(DiagResult(check="lock_file", ok=ok, message=msg))
 
     return results

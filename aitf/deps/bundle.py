@@ -16,6 +16,11 @@ from aitf.deps.types import BundleConfig, BundleError, BundleNotFoundError, Bund
 logger = logging.getLogger(__name__)
 
 
+def _tar_directory(src: Path, dest: Path) -> None:
+    with tarfile.open(dest, "w:gz") as tf:
+        tf.add(src, arcname=src.name)
+
+
 class BundleManager:
     """Manage configuration bundles (REQ-3.5)."""
 
@@ -53,7 +58,6 @@ class BundleManager:
         bundle = self.show(name)
         cfg = self._mgr.config
 
-        # Install all referenced deps, tolerating missing archives
         dep_names = [
             *(n for n in bundle.toolchains if n in cfg.toolchains),
             *(n for n in bundle.libraries if n in cfg.libraries),
@@ -67,6 +71,13 @@ class BundleManager:
 
     # -- export / import -----------------------------------------------------
 
+    def _section_table(self, bundle: BundleConfig) -> list[tuple[str, dict[str, str], Path]]:
+        return [
+            ("toolchains", bundle.toolchains, self._mgr.cache_dir),
+            ("libraries", bundle.libraries, self._mgr.cache_dir),
+            ("repos", bundle.repos, self._mgr.repos_dir),
+        ]
+
     def export_bundle(self, name: str, output: str | Path) -> Path:
         bundle = self.show(name)
         output_path = Path(output)
@@ -75,7 +86,6 @@ class BundleManager:
             staging = Path(tmpdir) / name
             staging.mkdir()
 
-            # Bundle metadata
             with open(staging / "bundle.yaml", "w", encoding="utf-8") as fh:
                 yaml.dump({
                     "name": bundle.name, "description": bundle.description,
@@ -83,27 +93,15 @@ class BundleManager:
                     "libraries": bundle.libraries, "repos": bundle.repos, "env": bundle.env,
                 }, fh, default_flow_style=False, allow_unicode=True)
 
-            # Tar cached dirs for each section
-            for section, items, base_dir in [
-                ("toolchains", bundle.toolchains, self._mgr.cache_dir),
-                ("libraries", bundle.libraries, self._mgr.cache_dir),
-            ]:
+            # All sections: tar cached dirs
+            for section, items, base_dir in self._section_table(bundle):
                 sec_dir = staging / section
                 sec_dir.mkdir()
                 for dep_name, dep_ver in items.items():
-                    src = base_dir / f"{dep_name}-{dep_ver}"
+                    src = base_dir / dep_name if section == "repos" else base_dir / f"{dep_name}-{dep_ver}"
                     if src.is_dir():
                         _tar_directory(src, sec_dir / f"{dep_name}-{dep_ver}.tar.gz")
 
-            # Repos
-            repos_dir = staging / "repos"
-            repos_dir.mkdir()
-            for repo_name, repo_ref in bundle.repos.items():
-                src = self._mgr.repos_dir / repo_name
-                if src.is_dir():
-                    _tar_directory(src, repos_dir / f"{repo_name}-{repo_ref}.tar.gz")
-
-            # Final archive
             output_path.parent.mkdir(parents=True, exist_ok=True)
             with tarfile.open(output_path, "w:gz") as tf:
                 tf.add(staging, arcname=name)
@@ -132,7 +130,6 @@ class BundleManager:
                 meta = yaml.safe_load(fh)
             bundle_name = meta.get("name", bundle_dir.name)
 
-            # Extract all sections into cache/repos
             for section, dest_base in [
                 ("toolchains", self._mgr.cache_dir),
                 ("libraries", self._mgr.cache_dir),
@@ -158,8 +155,3 @@ class BundleManager:
         env = dict(self._mgr.get_env())
         env.update(b.env)
         return env
-
-
-def _tar_directory(src: Path, dest: Path) -> None:
-    with tarfile.open(dest, "w:gz") as tf:
-        tf.add(src, arcname=src.name)

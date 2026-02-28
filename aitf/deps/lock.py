@@ -16,24 +16,26 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_LOCK_FILE = "deps.lock.yaml"
 
+# Table-driven serialization: section -> fields to extract from LockEntry
+_LOCK_FIELDS: dict[str, tuple[str, ...]] = {
+    "toolchains": ("version", "sha256", "installed_at"),
+    "libraries": ("version", "sha256", "installed_at"),
+    "repos": ("ref", "commit", "installed_at"),
+}
+
 
 def generate_lock(cfg: DepsConfig, cache_dir: Path, repos_dir: Path) -> LockFile:
-    """Inspect installed dependencies and generate a lock file."""
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
     lock = LockFile(generated_at=now, platform=detect_platform())
 
-    for name, tc in cfg.toolchains.items():
-        if (cache_dir / f"{name}-{tc.version}").is_dir():
-            lock.toolchains[name] = LockEntry(
-                name=name, version=tc.version,
-                sha256=tc.sha256.get(detect_platform(), ""), installed_at=now,
-            )
-
-    for name, lib in cfg.libraries.items():
-        if (cache_dir / f"{name}-{lib.version}").is_dir():
-            lock.libraries[name] = LockEntry(
-                name=name, version=lib.version, sha256=lib.sha256, installed_at=now,
-            )
+    # Toolchains & libraries — same pattern, different sha256 access
+    for section, cfg_section in [("toolchains", cfg.toolchains), ("libraries", cfg.libraries)]:
+        for name, dep in cfg_section.items():
+            if (cache_dir / f"{name}-{dep.version}").is_dir():
+                sha = dep.sha256.get(detect_platform(), "") if isinstance(dep.sha256, dict) else dep.sha256
+                getattr(lock, section)[name] = LockEntry(
+                    name=name, version=dep.version, sha256=sha, installed_at=now,
+                )
 
     for name, repo in cfg.repos.items():
         repo_dir = repos_dir / name
@@ -48,21 +50,13 @@ def generate_lock(cfg: DepsConfig, cache_dir: Path, repos_dir: Path) -> LockFile
 
 def save_lock(lock: LockFile, path: str | Path = DEFAULT_LOCK_FILE) -> None:
     data: dict = {"generated_at": lock.generated_at, "platform": lock.platform}
-    if lock.toolchains:
-        data["toolchains"] = {
-            n: {"version": e.version, "sha256": e.sha256, "installed_at": e.installed_at}
-            for n, e in lock.toolchains.items()
-        }
-    if lock.libraries:
-        data["libraries"] = {
-            n: {"version": e.version, "sha256": e.sha256, "installed_at": e.installed_at}
-            for n, e in lock.libraries.items()
-        }
-    if lock.repos:
-        data["repos"] = {
-            n: {"ref": e.ref, "commit": e.commit, "installed_at": e.installed_at}
-            for n, e in lock.repos.items()
-        }
+    for section, fields in _LOCK_FIELDS.items():
+        entries = getattr(lock, section)
+        if entries:
+            data[section] = {
+                n: {f: getattr(e, f) for f in fields}
+                for n, e in entries.items()
+            }
     with open(Path(path), "w", encoding="utf-8") as fh:
         yaml.dump(data, fh, default_flow_style=False, allow_unicode=True, sort_keys=False)
 

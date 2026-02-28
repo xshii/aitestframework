@@ -24,13 +24,28 @@ DEFAULT_DEPS_FILE = "deps.yaml"
 
 
 def detect_platform() -> str:
-    """Return a platform tag such as ``linux-x86_64``."""
     return f"{_platform.system().lower()}-{_platform.machine()}"
 
 
 def _filtered(d: dict) -> dict:
-    """Drop None / empty / False values from a dict."""
     return {k: v for k, v in d.items() if v}
+
+
+def _parse_acquire(raw: dict) -> AcquireConfig:
+    acq = raw.get("acquire") or {}
+    return AcquireConfig(
+        local_dir=acq.get("local_dir"),
+        remote=acq.get("remote", False),
+        script=acq.get("script"),
+    )
+
+
+def _serialize_acquire(acq: AcquireConfig) -> dict:
+    return _filtered({
+        "local_dir": acq.local_dir,
+        "remote": acq.remote or None,
+        "script": acq.script,
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -50,11 +65,6 @@ class DepsConfig:
 
 
 def load_deps_config(path: str | Path = DEFAULT_DEPS_FILE) -> DepsConfig:
-    """Load and parse ``deps.yaml``.
-
-    Raises:
-        DepsConfigError: If the file is missing or malformed.
-    """
     p = Path(path)
     if not p.exists():
         raise DepsConfigError(f"Configuration file not found: {p}")
@@ -71,34 +81,19 @@ def load_deps_config(path: str | Path = DEFAULT_DEPS_FILE) -> DepsConfig:
     cfg = DepsConfig()
 
     for name, raw in data.get("toolchains", {}).items():
-        acq = raw.get("acquire") or {}
         cfg.toolchains[name] = ToolchainConfig(
-            name=name,
-            version=str(raw.get("version", "")),
-            sha256=raw.get("sha256", {}),
-            bin_dir=raw.get("bin_dir"),
-            env=raw.get("env", {}),
-            acquire=AcquireConfig(
-                local_dir=acq.get("local_dir"),
-                remote=acq.get("remote", False),
-                script=acq.get("script"),
-            ),
+            name=name, version=str(raw.get("version", "")),
+            sha256=raw.get("sha256", {}), bin_dir=raw.get("bin_dir"),
+            env=raw.get("env", {}), acquire=_parse_acquire(raw),
         )
 
     for name, raw in data.get("libraries", {}).items():
-        acq = raw.get("acquire") or {}
         cfg.libraries[name] = LibraryConfig(
-            name=name,
-            version=str(raw.get("version", "")),
+            name=name, version=str(raw.get("version", "")),
             sha256=str(raw.get("sha256", "")),
             build_system=raw.get("build_system", "cmake"),
             cmake_args=raw.get("cmake_args", []),
-            build_script=raw.get("build_script"),
-            acquire=AcquireConfig(
-                local_dir=acq.get("local_dir"),
-                remote=acq.get("remote", False),
-                script=acq.get("script"),
-            ),
+            build_script=raw.get("build_script"), acquire=_parse_acquire(raw),
         )
 
     for name, raw in data.get("repos", {}).items():
@@ -130,17 +125,13 @@ def load_deps_config(path: str | Path = DEFAULT_DEPS_FILE) -> DepsConfig:
 
 
 def save_deps_config(cfg: DepsConfig, path: str | Path = DEFAULT_DEPS_FILE) -> None:
-    """Write the config back to ``deps.yaml``."""
     data: dict = {}
 
     if cfg.toolchains:
         data["toolchains"] = {
             name: _filtered({
                 "version": tc.version, "sha256": tc.sha256, "bin_dir": tc.bin_dir,
-                "env": tc.env, "acquire": _filtered({
-                    "local_dir": tc.acquire.local_dir,
-                    "remote": tc.acquire.remote or None, "script": tc.acquire.script,
-                }),
+                "env": tc.env, "acquire": _serialize_acquire(tc.acquire),
             })
             for name, tc in cfg.toolchains.items()
         }
@@ -149,10 +140,8 @@ def save_deps_config(cfg: DepsConfig, path: str | Path = DEFAULT_DEPS_FILE) -> N
             name: _filtered({
                 "version": lib.version, "sha256": lib.sha256,
                 "build_system": lib.build_system, "cmake_args": lib.cmake_args,
-                "build_script": lib.build_script, "acquire": _filtered({
-                    "local_dir": lib.acquire.local_dir,
-                    "remote": lib.acquire.remote or None, "script": lib.acquire.script,
-                }),
+                "build_script": lib.build_script,
+                "acquire": _serialize_acquire(lib.acquire),
             })
             for name, lib in cfg.libraries.items()
         }

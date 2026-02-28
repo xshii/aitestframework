@@ -14,13 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 class DepsManager:
-    """Central facade for dependency operations (REQ-3).
-
-    Args:
-        project_root: Project root directory (contains deps.yaml).
-        deps_file: Path to deps.yaml (relative to *project_root*).
-        build_dir: Build output directory (default ``build/``).
-    """
+    """Central facade for dependency operations (REQ-3)."""
 
     def __init__(
         self, project_root: str | Path = ".",
@@ -53,16 +47,11 @@ class DepsManager:
         if name:
             self._install_one(name, cfg)
         else:
+            kw = dict(cache_dir=self._cache_dir, project_root=self._root, remote=cfg.remote)
             for tc in cfg.toolchains.values():
-                self._try(lambda t=tc: acquire.install_toolchain(
-                    t, cache_dir=self._cache_dir, project_root=self._root,
-                    remote=cfg.remote,
-                ), f"toolchain {tc.name}")
+                self._try(lambda t=tc: acquire.install_toolchain(t, **kw), f"toolchain {tc.name}")
             for lib in cfg.libraries.values():
-                self._try(lambda l=lib: acquire.install_library(
-                    l, cache_dir=self._cache_dir, project_root=self._root,
-                    remote=cfg.remote,
-                ), f"library {lib.name}")
+                self._try(lambda l=lib: acquire.install_library(l, **kw), f"library {lib.name}")
             for rc in cfg.repos.values():
                 self._try(lambda r=rc: self._clone_and_build(r), f"repo {rc.name}")
 
@@ -70,16 +59,11 @@ class DepsManager:
         save_lock(lock, self._lock_path)
 
     def _install_one(self, name: str, cfg: DepsConfig) -> None:
+        kw = dict(cache_dir=self._cache_dir, project_root=self._root, remote=cfg.remote)
         if name in cfg.toolchains:
-            acquire.install_toolchain(
-                cfg.toolchains[name], cache_dir=self._cache_dir,
-                project_root=self._root, remote=cfg.remote,
-            )
+            acquire.install_toolchain(cfg.toolchains[name], **kw)
         elif name in cfg.libraries:
-            acquire.install_library(
-                cfg.libraries[name], cache_dir=self._cache_dir,
-                project_root=self._root, remote=cfg.remote,
-            )
+            acquire.install_library(cfg.libraries[name], **kw)
         elif name in cfg.repos:
             self._clone_and_build(cfg.repos[name])
         else:
@@ -121,15 +105,14 @@ class DepsManager:
     def get_env(self) -> dict[str, str]:
         cfg = self.config
         env: dict[str, str] = {}
-        for name, tc in cfg.toolchains.items():
-            d = self._cache_dir / f"{name}-{tc.version}"
+        # Collect (dir, env_dict) pairs from toolchains + repos
+        entries = [
+            *(( self._cache_dir / f"{n}-{tc.version}", tc.env) for n, tc in cfg.toolchains.items()),
+            *((self._repos_dir / n, rc.env) for n, rc in cfg.repos.items()),
+        ]
+        for d, dep_env in entries:
             if d.is_dir():
-                for k, v in tc.env.items():
-                    env[k] = v.replace("{install_dir}", str(d))
-        for name, rc in cfg.repos.items():
-            d = self._repos_dir / name
-            if d.is_dir():
-                for k, v in rc.env.items():
+                for k, v in dep_env.items():
                     env[k] = v.replace("{install_dir}", str(d))
         return env
 
@@ -145,12 +128,10 @@ class DepsManager:
 
     def get_install_dir(self, name: str) -> Path | None:
         cfg = self.config
-        if name in cfg.toolchains:
-            d = self._cache_dir / f"{name}-{cfg.toolchains[name].version}"
-            return d if d.is_dir() else None
-        if name in cfg.libraries:
-            d = self._cache_dir / f"{name}-{cfg.libraries[name].version}"
-            return d if d.is_dir() else None
+        for section, base in [(cfg.toolchains, self._cache_dir), (cfg.libraries, self._cache_dir)]:
+            if name in section:
+                d = base / f"{name}-{section[name].version}"
+                return d if d.is_dir() else None
         if name in cfg.repos:
             d = self._repos_dir / name
             return d if d.is_dir() else None

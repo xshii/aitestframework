@@ -7,6 +7,7 @@ import logging
 import shutil
 import subprocess
 import tarfile
+from collections.abc import Callable
 from pathlib import Path
 
 from aitf.deps.config import detect_platform
@@ -26,7 +27,6 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 def sha256_file(path: Path) -> str:
-    """Compute the SHA-256 hex digest of *path*."""
     h = hashlib.sha256()
     with open(path, "rb") as fh:
         while chunk := fh.read(1 << 20):
@@ -35,11 +35,9 @@ def sha256_file(path: Path) -> str:
 
 
 def run_script(script: str, args: list[str], *, project_root: Path, timeout: int = 600) -> None:
-    """Execute ``bash <script> <args...>``. Raises :class:`AcquireError` on failure."""
     script_path = project_root / script
     if not script_path.is_file():
         raise AcquireError(f"Script not found: {script_path}")
-
     result = subprocess.run(
         ["bash", str(script_path), *args],
         capture_output=True, text=True, cwd=str(project_root), timeout=timeout,
@@ -50,55 +48,64 @@ def run_script(script: str, args: list[str], *, project_root: Path, timeout: int
         )
 
 
+def _archive_candidates(name: str, version: str, plat: str) -> tuple[str, str]:
+    return (f"{name}-{version}-{plat}.tar.gz", f"{name}-{version}.tar.gz")
+
+
 # ---------------------------------------------------------------------------
-# Install
+# Unified install (Strategy: extract common flow, vary sha + post-install)
 # ---------------------------------------------------------------------------
+
+def _install_dep(
+    name: str, version: str, acq: AcquireConfig, *,
+    cache_dir: Path, project_root: Path,
+    remote: RemoteDepotConfig | None, remote_subdir: str,
+    expected_sha: str,
+    post_install: Callable[[Path], None] | None = None,
+) -> Path:
+    install_dir = cache_dir / f"{name}-{version}"
+    if install_dir.is_dir():
+        return install_dir
+
+    archive = _locate_archive(
+        name, version, acq, project_root, cache_dir,
+        remote=remote, remote_subdir=remote_subdir,
+    )
+    if expected_sha:
+        _verify_sha256(archive, expected_sha, f"{name}-{version}")
+
+    _unpack(archive, install_dir)
+    if post_install:
+        post_install(install_dir)
+    return install_dir
+
 
 def install_toolchain(
     tc: ToolchainConfig, *, cache_dir: Path, project_root: Path,
     remote: RemoteDepotConfig | None = None,
 ) -> Path:
-    """Acquire and install a toolchain, returning the install directory."""
-    install_dir = cache_dir / f"{tc.name}-{tc.version}"
-    if install_dir.is_dir():
-        return install_dir
-
-    archive = _locate_archive(
-        tc.name, tc.version, tc.acquire, project_root, cache_dir,
+    return _install_dep(
+        tc.name, tc.version, tc.acquire,
+        cache_dir=cache_dir, project_root=project_root,
         remote=remote, remote_subdir="toolchains",
+        expected_sha=tc.sha256.get(detect_platform(), ""),
     )
-
-    expected_sha = tc.sha256.get(detect_platform())
-    if expected_sha:
-        _verify_sha256(archive, expected_sha, f"{tc.name}-{tc.version}")
-
-    _unpack(archive, install_dir)
-    return install_dir
 
 
 def install_library(
     lib: LibraryConfig, *, cache_dir: Path, project_root: Path,
     remote: RemoteDepotConfig | None = None,
 ) -> Path:
-    """Acquire and install a C/C++ library, returning the install directory."""
-    install_dir = cache_dir / f"{lib.name}-{lib.version}"
-    if install_dir.is_dir():
-        return install_dir
-
-    archive = _locate_archive(
-        lib.name, lib.version, lib.acquire, project_root, cache_dir,
+    return _install_dep(
+        lib.name, lib.version, lib.acquire,
+        cache_dir=cache_dir, project_root=project_root,
         remote=remote, remote_subdir="libraries",
+        expected_sha=lib.sha256,
+        post_install=(lambda d: run_script(
+            lib.build_script, [str(d), str(d)],
+            project_root=project_root, timeout=1800,
+        )) if lib.build_script else None,
     )
-
-    if lib.sha256:
-        _verify_sha256(archive, lib.sha256, f"{lib.name}-{lib.version}")
-
-    _unpack(archive, install_dir)
-
-    if lib.build_script:
-        run_script(lib.build_script, [str(install_dir), str(install_dir)],
-                   project_root=project_root, timeout=1800)
-    return install_dir
 
 
 def _verify_sha256(archive: Path, expected: str, label: str) -> None:
@@ -109,7 +116,7 @@ def _verify_sha256(archive: Path, expected: str, label: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Archive location (3-tier: local → remote SFTP → script)
+# Archive location (3-tier: local -> remote SFTP -> script)
 # ---------------------------------------------------------------------------
 
 def _locate_archive(
@@ -121,19 +128,16 @@ def _locate_archive(
     downloads.mkdir(parents=True, exist_ok=True)
     plat = detect_platform()
 
-    # Priority 1: local_dir
     if acquire.local_dir:
         found = _find_archive(project_root / acquire.local_dir, name, version, plat)
         if found:
             return found
 
-    # Priority 2: SFTP remote depot
     if acquire.remote and remote:
         fetched = _fetch_from_remote(remote, remote_subdir, name, version, plat, downloads)
         if fetched:
             return fetched
 
-    # Priority 3: fetch script
     if acquire.script:
         run_script(acquire.script, [version, str(downloads)], project_root=project_root)
         found = _find_archive(downloads, name, version, plat)
@@ -147,8 +151,7 @@ def _locate_archive(
 
 
 def _find_archive(directory: Path, name: str, version: str, plat: str) -> Path | None:
-    """Search *directory* for a matching ``.tar.gz`` (platform-specific first)."""
-    for candidate in (f"{name}-{version}-{plat}.tar.gz", f"{name}-{version}.tar.gz"):
+    for candidate in _archive_candidates(name, version, plat):
         p = directory / candidate
         if p.is_file():
             return p
@@ -160,7 +163,6 @@ def _fetch_from_remote(
     name: str, version: str, plat: str,
     downloads: Path,
 ) -> Path | None:
-    """Try to download an archive from the SFTP remote depot."""
     try:
         import paramiko
     except ImportError:
@@ -168,7 +170,6 @@ def _fetch_from_remote(
         return None
 
     remote_base = f"{remote.path.rstrip('/')}/{subdir}" if subdir else remote.path.rstrip("/")
-    candidates = [f"{name}-{version}-{plat}.tar.gz", f"{name}-{version}.tar.gz"]
 
     try:
         ssh = paramiko.SSHClient()
@@ -179,7 +180,7 @@ def _fetch_from_remote(
         ssh.connect(**connect_kw)
         sftp = ssh.open_sftp()
         try:
-            for filename in candidates:
+            for filename in _archive_candidates(name, version, plat):
                 remote_path = f"{remote_base}/{filename}"
                 local_path = downloads / filename
                 try:
