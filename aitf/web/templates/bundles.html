@@ -22,7 +22,7 @@
     <td>{% for k, v in b.repos.items() %}<code>{{ k }}:{{ v }}</code> {% endfor %}</td>
     <td class="text-nowrap">
       <a href="/api/bundles/{{ b.name }}/export" class="btn btn-sm btn-outline-primary">Export</a>
-      <button class="btn btn-sm btn-outline-danger" onclick="bundleDelete('{{ b.name }}')">Delete</button>
+      <button class="btn btn-sm btn-outline-danger btn-delete-bundle" data-name="{{ b.name }}">Delete</button>
     </td>
   </tr>
   {% endfor %}
@@ -164,14 +164,17 @@ document.getElementById('importBundleForm').addEventListener('submit', function(
     }).catch(e => { msg.textContent = 'Failed: ' + e; });
 });
 
-function bundleDelete(name) {
-  if (!confirm('Delete bundle "' + name + '"?')) return;
-  fetch('/api/bundles/' + name, {method: 'DELETE'})
-    .then(r => r.json())
-    .then(d => {
-      if (d.error) alert('Error: ' + d.error);
-      else location.reload();
-    }).catch(e => alert('Failed: ' + e));
-}
+document.querySelectorAll('.btn-delete-bundle').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    var name = this.dataset.name;
+    if (!confirm('Delete bundle "' + name + '"?')) return;
+    fetch('/api/bundles/' + encodeURIComponent(name), {method: 'DELETE'})
+      .then(r => r.json())
+      .then(d => {
+        if (d.error) alert('Error: ' + d.error);
+        else location.reload();
+      }).catch(e => alert('Failed: ' + e));
+  });
+});
 </script>
 {% endblock %}

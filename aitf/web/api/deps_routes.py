@@ -151,7 +151,7 @@ def _safe_upload_path(filename: str) -> Path | None:
         return None
     upload = _upload_dir().resolve()
     target = (upload / safe_name).resolve()
-    if not str(target).startswith(str(upload)):
+    if not target.is_relative_to(upload):
         return None
     return target
 

@@ -28,7 +28,7 @@ def _safe_path(subpath: str) -> Path:
     """Resolve *subpath* under log root; abort 404 if escapes."""
     root = _log_root()
     target = (root / subpath).resolve()
-    if not str(target).startswith(str(root)):
+    if not target.is_relative_to(root):
         abort(404)
     return target
 
@@ -73,11 +73,21 @@ def log_view(subpath: str):
     offset = request.args.get("offset", 0, type=int)
     limit = request.args.get("limit", _DEFAULT_LIMIT, type=int)
 
+    # Count total lines without loading entire file into memory
+    total = 0
     with open(target, encoding="utf-8", errors="replace") as fh:
-        all_lines = fh.readlines()
+        for _ in fh:
+            total += 1
 
-    total = len(all_lines)
-    lines = [l.rstrip("\n") for l in all_lines[offset:offset + limit]]
+    # Read only the requested page
+    lines = []
+    with open(target, encoding="utf-8", errors="replace") as fh:
+        for i, raw in enumerate(fh):
+            if i < offset:
+                continue
+            if i >= offset + limit:
+                break
+            lines.append(raw.rstrip("\n"))
     pages = (total + limit - 1) // limit
 
     parent = str(Path(subpath).parent)

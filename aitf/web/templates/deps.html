@@ -44,7 +44,7 @@
     <td>{{ u.size }}</td>
     <td>
       <a href="/api/deps/uploads/{{ u.name }}/download" class="btn btn-sm btn-outline-primary">Download</a>
-      <button class="btn btn-sm btn-outline-danger" onclick="deleteDep('{{ u.name }}')">Delete</button>
+      <button class="btn btn-sm btn-outline-danger btn-delete-dep" data-name="{{ u.name }}">Delete</button>
     </td>
   </tr>
   {% endfor %}
@@ -71,14 +71,17 @@ document.getElementById('uploadForm').addEventListener('submit', function(e) {
     }).catch(e => { msg.textContent = 'Failed: ' + e; });
 });
 
-function deleteDep(name) {
-  if (!confirm('Delete "' + name + '"?')) return;
-  fetch('/api/deps/uploads/' + name, {method: 'DELETE'})
-    .then(r => r.json())
-    .then(d => {
-      if (d.error) alert('Error: ' + d.error);
-      else location.reload();
-    }).catch(e => alert('Failed: ' + e));
-}
+document.querySelectorAll('.btn-delete-dep').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    var name = this.dataset.name;
+    if (!confirm('Delete "' + name + '"?')) return;
+    fetch('/api/deps/uploads/' + encodeURIComponent(name), {method: 'DELETE'})
+      .then(r => r.json())
+      .then(d => {
+        if (d.error) alert('Error: ' + d.error);
+        else location.reload();
+      }).catch(e => alert('Failed: ' + e));
+  });
+});
 </script>
 {% endblock %}
