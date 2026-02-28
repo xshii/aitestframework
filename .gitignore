@@ -1,3 +1,5 @@
 build/
-tests/__pycache__/
-tests/.pytest_cache/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
