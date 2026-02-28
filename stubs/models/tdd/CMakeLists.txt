@@ -1,0 +1,3 @@
+set(MODEL_NAME     "tdd" PARENT_SCOPE)
+set(MODEL_RUN_FN   "tdd_run" PARENT_SCOPE)
+set(MODEL_SETUP_FN "tdd_setup" PARENT_SCOPE)

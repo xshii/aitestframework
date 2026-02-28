@@ -4,8 +4,8 @@
 static int dummy_run(const stub_config_t *cfg) { (void)cfg; return 0; }
 
 static const model_entry_t test_table[] = {
-    {"test_a", dummy_run},
-    {"test_b", dummy_run},
+    {"test_a", dummy_run, NULL},
+    {"test_b", dummy_run, NULL},
 };
 
 static void test_init_and_count(void)

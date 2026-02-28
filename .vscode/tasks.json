@@ -2,25 +2,24 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "build",
+            "label": "[stub] 01-build app",
             "type": "shell",
-            "command": "cmake -B build/func_sim -S stubs -DHOOK_PLATFORM=func_sim && cmake --build build/func_sim",
+            "command": "stubs/build.sh -p func_sim -m app",
             "group": {"kind": "build", "isDefault": true},
             "problemMatcher": "$gcc"
         },
         {
-            "label": "test",
+            "label": "[stub] 02-build ut",
             "type": "shell",
-            "command": "ctest --test-dir build/func_sim --output-on-failure",
-            "group": {"kind": "test", "isDefault": true},
-            "dependsOn": "build",
-            "problemMatcher": []
+            "command": "stubs/build.sh -p func_sim -m ut",
+            "group": "build",
+            "problemMatcher": "$gcc"
         },
         {
-            "label": "run",
+            "label": "[stub] 03-run",
             "type": "shell",
             "command": "build/func_sim/stub_runner",
-            "dependsOn": "build",
+            "dependsOn": "[stub] 01-build app",
             "problemMatcher": []
         }
     ]

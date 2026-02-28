@@ -1,0 +1,3 @@
+set(MODEL_NAME     "fdd" PARENT_SCOPE)
+set(MODEL_RUN_FN   "fdd_run" PARENT_SCOPE)
+set(MODEL_SETUP_FN "fdd_setup" PARENT_SCOPE)

@@ -42,11 +42,5 @@ static int sim_stop_case(int reason)
 void platform_sim_setup(void)
 {
     memset(s_ddr, 0, DDR_SIZE);
-    platform_hooks_t hooks = {
-        .send_msg  = sim_send_msg,
-        .write_mem = sim_write_mem,
-        .read_mem  = sim_read_mem,
-        .stop_case = sim_stop_case,
-    };
-    platform_register(&hooks);
+    platform_register(sim_send_msg, sim_write_mem, sim_read_mem, sim_stop_case);
 }

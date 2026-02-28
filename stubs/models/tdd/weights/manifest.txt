@@ -1,0 +1,7 @@
+# TDD model weights
+# base_addr  swap
+0x1000  0
+
+tdd_conv_w.bin
+tdd_conv_b.bin
+tdd_fc_w.bin

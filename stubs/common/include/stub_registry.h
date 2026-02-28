@@ -3,13 +3,15 @@
 
 #include "stub_config.h"
 
-/* Model run function signature */
+/* Model function signatures */
 typedef int (*model_run_fn)(const stub_config_t *cfg);
+typedef int (*model_setup_fn)(const stub_config_t *cfg);
 
 /* Model entry in the registry */
 typedef struct {
-    const char  *name;
-    model_run_fn run;
+    const char    *name;
+    model_run_fn   run;
+    model_setup_fn setup;  /* NULL = no setup */
 } model_entry_t;
 
 /* Initialise registry from an externally-provided table (CMake-generated) */

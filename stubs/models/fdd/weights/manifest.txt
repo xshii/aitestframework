@@ -1,0 +1,11 @@
+# FDD model weights
+
+# Group 1: filter weights, no swap
+0x2000  0
+fdd_filter_w.bin
+fdd_filter_b.bin
+
+# Group 2: DFE weights, swap=4 (big-endian to little-endian)
+0x5000  4
+fdd_dfe_w.bin
+fdd_dfe_b.bin

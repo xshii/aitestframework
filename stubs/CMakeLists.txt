@@ -1,11 +1,14 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.12)
 project(stub_framework C)
 
 # ============================================================
 # Options
 # ============================================================
-set(HOOK_PLATFORM "func_sim" CACHE STRING "Platform hook to use (func_sim)")
-set(STUB_BUILD_TARGET "all" CACHE STRING "Build target: app, ut, or all")
+set(HOOK_PLATFORM "func_sim" CACHE STRING "Hook platform (func_sim)")
+set(STUB_BUILD_TARGET "all" CACHE STRING "Build target: app | ut | all")
+option(EMBED_WEIGHTS "Embed weight binaries into the compiled binary" OFF)
+set(EMBED_WEIGHT_MANIFEST "" CACHE FILEPATH "Weight manifest for embedding")
+set(EMBED_WEIGHT_DIR "" CACHE PATH "Base directory for weight bin files")
 
 # ============================================================
 # Compiler settings
@@ -15,18 +18,15 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 add_compile_options(-Wall -Wextra -Werror)
 
 # ============================================================
-# Platform hooks
+# Platform hook headers
 # ============================================================
-add_subdirectory(hooks/${HOOK_PLATFORM}/lib)
+set(HOOK_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/hooks/${HOOK_PLATFORM}/include)
 
 # ============================================================
-# Common library (registry + config + platform wrappers)
+# Common library
 # ============================================================
 add_subdirectory(common)
-# stub_common needs platform hook headers for platform_api.h
-target_include_directories(stub_common PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/hooks/${HOOK_PLATFORM}/include
-)
+target_include_directories(stub_common PUBLIC ${HOOK_INCLUDE_DIR})
 
 # ============================================================
 # Models — auto-generates stub_model_table.c
@@ -34,19 +34,15 @@ target_include_directories(stub_common PUBLIC
 add_subdirectory(models)
 
 # ============================================================
-# App target: stub_runner executable
+# App target: stub_runner.so
 # ============================================================
 if(STUB_BUILD_TARGET STREQUAL "app" OR STUB_BUILD_TARGET STREQUAL "all")
-    add_executable(stub_runner
-        hooks/${HOOK_PLATFORM}/src/${HOOK_PLATFORM}_main.c
+    add_library(stub_runner SHARED
         common/src/stub_main.c
         ${GENERATED_MODEL_TABLE}
         ${ALL_MODEL_SOURCES}
     )
-    target_link_libraries(stub_runner PRIVATE
-        stub_common
-        platform_sim
-    )
+    target_link_libraries(stub_runner PRIVATE stub_common)
 endif()
 
 # ============================================================

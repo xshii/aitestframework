@@ -11,16 +11,11 @@ typedef int (*pfn_write_mem)(uint32_t addr, const void *data, size_t size);
 typedef int (*pfn_read_mem)(uint32_t addr, void *data, size_t size);
 typedef int (*pfn_stop_case)(int reason);
 
-/* ---- Hooks table ---- */
-typedef struct {
-    pfn_send_msg  send_msg;
-    pfn_write_mem write_mem;
-    pfn_read_mem  read_mem;
-    pfn_stop_case stop_case;
-} platform_hooks_t;
-
-/* Register hooks — platform calls this, stub system saves to global */
-void platform_register(const platform_hooks_t *hooks);
+/* Register hooks — platform calls this with all hooks as flat args */
+void platform_register(pfn_send_msg  send_msg,
+                       pfn_write_mem write_mem,
+                       pfn_read_mem  read_mem,
+                       pfn_stop_case stop_case);
 
 /* Convenience wrappers — call through registered hooks */
 int platform_send_msg(const platform_msg_t *msg, platform_resp_t *resp);
