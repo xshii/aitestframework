@@ -6,3 +6,5 @@ __pycache__/
 .venv/
 data/
 deps/uploads/
+deps.yaml
+deps.lock.yaml
