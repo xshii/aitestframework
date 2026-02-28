@@ -9,7 +9,7 @@ from pathlib import Path
 from aitf.deps import acquire, doctor, repo
 from aitf.deps.config import DepsConfig, load_deps_config
 from aitf.deps.lock import generate_lock, save_lock
-from aitf.deps.types import DepsError, DiagResult
+from aitf.deps.types import DepsError, DiagResult, RepoConfig
 
 logger = logging.getLogger(__name__)
 
@@ -78,17 +78,14 @@ class DepsManager:
         else:
             raise DepsError(f"Unknown dependency: {name}")
 
-    def _clone_and_build(self, rc: object) -> None:
-        from aitf.deps.types import RepoConfig
-        if not isinstance(rc, RepoConfig):
-            raise TypeError(f"Expected RepoConfig, got {type(rc).__name__}")
+    def _clone_and_build(self, rc: RepoConfig) -> None:
         repo_dir = repo.clone_repo(rc, self._repos_dir)
         repo.build_repo(rc, repo_dir, repo_dir, project_root=self._root)
 
     @staticmethod
-    def _try(fn: object, label: str) -> None:
+    def _try(fn: Callable[[], None], label: str) -> None:
         try:
-            fn()  # type: ignore[operator]
+            fn()
         except Exception as exc:
             logger.error("Failed to install %s: %s", label, exc)
 
@@ -127,6 +124,14 @@ class DepsManager:
         return env
 
     # -- path helpers --------------------------------------------------------
+
+    @property
+    def project_root(self) -> Path:
+        return self._root
+
+    @property
+    def deps_file(self) -> Path:
+        return self._deps_file
 
     @property
     def cache_dir(self) -> Path:

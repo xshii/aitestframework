@@ -32,7 +32,7 @@ def index():
         for name, repo in cfg.repos.items():
             deps_list.append({"name": name, "type": "repo", "version": repo.ref})
 
-    upload_dir = mgr._root / "deps" / "uploads"
+    upload_dir = mgr.project_root / "deps" / "uploads"
     uploads = []
     if upload_dir.is_dir():
         for p in sorted(upload_dir.glob("*.tar.gz")):

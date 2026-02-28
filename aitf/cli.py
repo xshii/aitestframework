@@ -11,7 +11,7 @@ Usage::
     aitf data push --remote <name> --case <id>
     aitf data push-artifacts --remote <name> --case <id> --dir <path>
     aitf data rebuild-cache
-    aitf deps install [name] [--locked]
+    aitf deps install [name]
     aitf deps list
     aitf deps lock
     aitf deps clean
@@ -22,7 +22,7 @@ Usage::
     aitf bundle install <name>
     aitf bundle export <name> -o <file>
     aitf bundle import <file>
-    aitf web [--host 0.0.0.0] [--port 5000] [--debug]
+    aitf web [--host 127.0.0.1] [--port 5000] [--debug]
 """
 
 from __future__ import annotations

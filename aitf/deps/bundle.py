@@ -72,7 +72,7 @@ class BundleManager:
         ]
         for i, dep_name in enumerate(dep_names):
             if on_progress:
-                on_progress(i, len(dep_names), dep_name)
+                on_progress(i + 1, len(dep_names), dep_name)
             try:
                 self._mgr._install_one(dep_name, cfg)
             except Exception as exc:

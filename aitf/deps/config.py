@@ -27,7 +27,8 @@ def detect_platform() -> str:
     return f"{_platform.system().lower()}-{_platform.machine()}"
 
 
-def _filtered(d: dict) -> dict:
+def strip_none(d: dict) -> dict:
+    """Return a copy of *d* with all ``None``-valued keys removed."""
     return {k: v for k, v in d.items() if v is not None}
 
 
@@ -41,7 +42,7 @@ def _parse_acquire(raw: dict) -> AcquireConfig:
 
 
 def _serialize_acquire(acq: AcquireConfig) -> dict:
-    return _filtered({
+    return strip_none({
         "local_dir": acq.local_dir,
         "remote": acq.remote or None,
         "script": acq.script,
@@ -129,7 +130,7 @@ def save_deps_config(cfg: DepsConfig, path: str | Path = DEFAULT_DEPS_FILE) -> N
 
     if cfg.toolchains:
         data["toolchains"] = {
-            name: _filtered({
+            name: strip_none({
                 "version": tc.version, "sha256": tc.sha256, "bin_dir": tc.bin_dir,
                 "env": tc.env, "acquire": _serialize_acquire(tc.acquire),
             })
@@ -137,7 +138,7 @@ def save_deps_config(cfg: DepsConfig, path: str | Path = DEFAULT_DEPS_FILE) -> N
         }
     if cfg.libraries:
         data["libraries"] = {
-            name: _filtered({
+            name: strip_none({
                 "version": lib.version, "sha256": lib.sha256,
                 "build_system": lib.build_system, "cmake_args": lib.cmake_args,
                 "build_script": lib.build_script,
@@ -147,7 +148,7 @@ def save_deps_config(cfg: DepsConfig, path: str | Path = DEFAULT_DEPS_FILE) -> N
         }
     if cfg.repos:
         data["repos"] = {
-            name: _filtered({
+            name: strip_none({
                 "url": r.url, "ref": r.ref, "depth": r.depth,
                 "sparse_checkout": r.sparse_checkout, "build_script": r.build_script,
                 "env": r.env,
@@ -156,7 +157,7 @@ def save_deps_config(cfg: DepsConfig, path: str | Path = DEFAULT_DEPS_FILE) -> N
         }
     if cfg.bundles:
         data["bundles"] = {
-            name: _filtered({
+            name: strip_none({
                 "description": b.description, "status": b.status,
                 "toolchains": b.toolchains, "libraries": b.libraries,
                 "repos": b.repos, "env": b.env,
@@ -164,10 +165,10 @@ def save_deps_config(cfg: DepsConfig, path: str | Path = DEFAULT_DEPS_FILE) -> N
             for name, b in cfg.bundles.items()
         }
     if cfg.remote:
-        data["remote"] = _filtered({
+        data["remote"] = strip_none({
             "host": cfg.remote.host, "user": cfg.remote.user, "path": cfg.remote.path,
             "port": cfg.remote.port if cfg.remote.port != 22 else None,
-            "auth": _filtered({"key_file": cfg.remote.key_file}),
+            "auth": strip_none({"key_file": cfg.remote.key_file}),
         })
     if cfg.active_bundle:
         data["active"] = cfg.active_bundle

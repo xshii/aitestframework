@@ -193,7 +193,7 @@ def _fetch_from_remote(
         finally:
             sftp.close()
             ssh.close()
-    except Exception as exc:
+    except (OSError, paramiko.SSHException) as exc:
         logger.warning("Remote fetch failed: %s", exc)
 
     return None
@@ -218,7 +218,7 @@ def clean_cache(cache_dir: Path) -> int:
         return 0
     count = 0
     for child in cache_dir.iterdir():
-        if child.is_dir():
+        if child.is_dir() and not child.name.startswith("."):
             shutil.rmtree(child)
             count += 1
     return count

@@ -11,7 +11,8 @@ import yaml as _yaml
 from flask import Blueprint, jsonify, request, send_file
 from werkzeug.utils import secure_filename
 
-from aitf.deps.types import BundleNotFoundError, DepsConfigError, DepsError
+from aitf.deps.config import strip_none
+from aitf.deps.types import BundleNotFoundError, BundleStatus, DepsConfigError, DepsError
 from aitf.web import tasks
 from aitf.web.views import get_bundle_manager, get_deps_manager
 
@@ -141,7 +142,7 @@ def use_bundle(name):
 # -- upload / download routes -----------------------------------------------
 
 def _upload_dir() -> Path:
-    return get_deps_manager()._root / "deps" / "uploads"
+    return get_deps_manager().project_root / "deps" / "uploads"
 
 
 def _safe_upload_path(filename: str) -> Path | None:
@@ -215,23 +216,28 @@ def create_bundle():
     from aitf.deps.config import save_deps_config
     from aitf.deps.types import BundleConfig
 
-    body = request.get_json(force=True)
+    body = request.get_json(silent=True) or {}
     name = body.get("name")
     if not name:
         return jsonify({"error": "name is required"}), 400
+
+    status = body.get("status", "testing")
+    valid_statuses = {s.value for s in BundleStatus}
+    if status not in valid_statuses:
+        return jsonify({"error": f"invalid status, must be one of: {', '.join(sorted(valid_statuses))}"}), 400
 
     mgr = get_deps_manager()
     cfg = mgr.config
     cfg.bundles[name] = BundleConfig(
         name=name,
         description=body.get("description", ""),
-        status=body.get("status", "testing"),
+        status=status,
         toolchains=body.get("toolchains", {}),
         libraries=body.get("libraries", {}),
         repos=body.get("repos", {}),
         env=body.get("env", {}),
     )
-    save_deps_config(cfg, mgr._deps_file)
+    save_deps_config(cfg, mgr.deps_file)
     mgr.reload()
     return jsonify({"created": name}), 201
 
@@ -248,14 +254,9 @@ def delete_bundle(name):
     del cfg.bundles[name]
     if cfg.active_bundle == name:
         cfg.active_bundle = None
-    save_deps_config(cfg, mgr._deps_file)
+    save_deps_config(cfg, mgr.deps_file)
     mgr.reload()
     return jsonify({"deleted": name})
-
-
-def _non_none(d: dict) -> dict:
-    """Strip None values for clean YAML output."""
-    return {k: v for k, v in d.items() if v is not None}
 
 
 @deps_bp.route("/api/bundles/<name>/export", methods=["GET"])
@@ -270,10 +271,10 @@ def export_bundle(name):
     for tc_name, tc_ver in bundle.toolchains.items():
         tc = cfg.toolchains.get(tc_name)
         if tc:
-            tc_section[tc_name] = _non_none({
+            tc_section[tc_name] = strip_none({
                 "version": tc_ver, "sha256": tc.sha256 or None,
                 "bin_dir": tc.bin_dir, "env": tc.env or None,
-                "acquire": _non_none({"local_dir": tc.acquire.local_dir,
+                "acquire": strip_none({"local_dir": tc.acquire.local_dir,
                                       "script": tc.acquire.script}),
             })
     if tc_section:
@@ -283,10 +284,10 @@ def export_bundle(name):
     for lib_name, lib_ver in bundle.libraries.items():
         lib = cfg.libraries.get(lib_name)
         if lib:
-            lib_section[lib_name] = _non_none({
+            lib_section[lib_name] = strip_none({
                 "version": lib_ver, "sha256": lib.sha256 or None,
                 "build_system": lib.build_system,
-                "acquire": _non_none({"local_dir": lib.acquire.local_dir,
+                "acquire": strip_none({"local_dir": lib.acquire.local_dir,
                                       "script": lib.acquire.script}),
             })
     if lib_section:
@@ -296,14 +297,14 @@ def export_bundle(name):
     for repo_name, repo_ref in bundle.repos.items():
         repo = cfg.repos.get(repo_name)
         if repo:
-            repo_section[repo_name] = _non_none({
+            repo_section[repo_name] = strip_none({
                 "url": repo.url, "ref": repo_ref,
                 "depth": repo.depth, "build_script": repo.build_script,
             })
     if repo_section:
         data["repos"] = repo_section
 
-    data["bundles"] = {name: _non_none({
+    data["bundles"] = {name: strip_none({
         "description": bundle.description or None, "status": bundle.status,
         "toolchains": bundle.toolchains, "libraries": bundle.libraries,
         "repos": bundle.repos, "env": bundle.env or None,
