@@ -78,7 +78,7 @@ class DataStoreManager:
 
         files: dict[str, list] = {}
         for dtype in DataType:
-            entries = integrity.scan_directory(lp, dtype)
+            entries = integrity.scan_directory(lp, dtype.value)
             if entries:
                 files[dtype] = entries
 

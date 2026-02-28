@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 
 _MAX_RETRIES = 3
 _RETRY_DELAY = 5  # seconds
-_PULL_TYPES = (DataType.WEIGHTS, DataType.INPUTS, DataType.GOLDEN)
-_PUSH_TYPES = tuple(DataType)
+_PULL_TYPES = (DataType.WEIGHTS.value, DataType.INPUTS.value, DataType.GOLDEN.value)
+_PUSH_TYPES = tuple(dt.value for dt in DataType)
 
 
 class SftpClient:
