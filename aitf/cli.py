@@ -129,7 +129,7 @@ def _cmd_deps_install(args: argparse.Namespace) -> None:
     from aitf.deps.manager import DepsManager
 
     mgr = DepsManager()
-    mgr.install(name=args.name, locked=args.locked)
+    mgr.install(name=args.name)
     print("Dependencies installed.")
 
 
@@ -329,7 +329,6 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p = deps_sub.add_parser("install", help="Install dependencies")
     p.add_argument("name", nargs="?", default=None, help="Install only this dependency")
-    p.add_argument("--locked", action="store_true", help="Use lock file for exact versions")
 
     deps_sub.add_parser("list", help="List all dependencies and status")
     deps_sub.add_parser("lock", help="Generate / update deps.lock.yaml")
@@ -361,7 +360,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # -- web -----------------------------------------------------------------
     p = sub.add_parser("web", help="Start the web server")
-    p.add_argument("--host", default="0.0.0.0")
+    p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=5000)
     p.add_argument("--debug", action="store_true")
 

@@ -44,7 +44,7 @@ class DepsManager:
     # -- install -------------------------------------------------------------
 
     def install(
-        self, name: str | None = None, *, locked: bool = False,
+        self, name: str | None = None, *,
         on_progress: Callable[[int, int, str], None] | None = None,
     ) -> None:
         cfg = self.config
@@ -61,7 +61,7 @@ class DepsManager:
             ]
             for i, (label, fn) in enumerate(steps):
                 if on_progress:
-                    on_progress(i, len(steps), label)
+                    on_progress(i + 1, len(steps), label)
                 self._try(fn, label)
 
         lock = generate_lock(cfg, self._cache_dir, self._repos_dir)
@@ -80,7 +80,8 @@ class DepsManager:
 
     def _clone_and_build(self, rc: object) -> None:
         from aitf.deps.types import RepoConfig
-        assert isinstance(rc, RepoConfig)
+        if not isinstance(rc, RepoConfig):
+            raise TypeError(f"Expected RepoConfig, got {type(rc).__name__}")
         repo_dir = repo.clone_repo(rc, self._repos_dir)
         repo.build_repo(rc, repo_dir, repo_dir, project_root=self._root)
 

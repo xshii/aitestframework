@@ -89,6 +89,10 @@ def run_diagnostics(
                     entry = lock_section.get(name)
                     if not entry or entry.version != dep.version:
                         mismatches.append(name)
+            for name, repo_dep in cfg.repos.items():
+                entry = lock.repos.get(name)
+                if not entry or entry.ref != repo_dep.ref:
+                    mismatches.append(name)
             ok = not mismatches
             msg = ("deps.lock.yaml in sync" if ok
                    else f"Lock file out of sync for: {', '.join(mismatches)} — run: aitf deps lock")

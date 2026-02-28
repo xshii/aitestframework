@@ -33,6 +33,8 @@ def create_app(config: dict | None = None) -> Flask:
     app.json_provider_class = _JSONProvider
     app.json = _JSONProvider(app)
 
+    app.config['MAX_CONTENT_LENGTH'] = 512 * 1024 * 1024  # 512 MB
+
     if config:
         app.config.update(config)
 

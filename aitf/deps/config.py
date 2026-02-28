@@ -28,7 +28,7 @@ def detect_platform() -> str:
 
 
 def _filtered(d: dict) -> dict:
-    return {k: v for k, v in d.items() if v}
+    return {k: v for k, v in d.items() if v is not None}
 
 
 def _parse_acquire(raw: dict) -> AcquireConfig:

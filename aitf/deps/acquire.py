@@ -173,7 +173,7 @@ def _fetch_from_remote(
 
     try:
         ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh.set_missing_host_key_policy(paramiko.WarningPolicy())
         connect_kw: dict = {"hostname": remote.host, "port": remote.port, "username": remote.user}
         if remote.key_file:
             connect_kw["key_filename"] = remote.key_file
@@ -201,8 +201,12 @@ def _fetch_from_remote(
 
 def _unpack(archive: Path, dest: Path) -> None:
     dest.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(archive, "r:gz") as tf:
-        tf.extractall(dest, filter="data")
+    try:
+        with tarfile.open(archive, "r:gz") as tf:
+            tf.extractall(dest, filter="data")
+    except Exception:
+        shutil.rmtree(dest, ignore_errors=True)
+        raise
 
 
 def is_installed(name: str, version: str, cache_dir: Path) -> bool:

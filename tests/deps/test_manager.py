@@ -71,6 +71,7 @@ class TestDepsManagerInstall:
             manager.install()
         # Should have logged errors for missing archives
         # (repos will also fail since URLs are fake)
+        assert any("Failed to install" in r.message for r in caplog.records)
 
 
 class TestDepsManagerList:
