@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import tempfile
+import threading
 from dataclasses import asdict
 from pathlib import Path
 
@@ -17,6 +18,10 @@ from aitf.web import tasks
 from aitf.web.views import get_bundle_manager, get_deps_manager
 
 deps_bp = Blueprint("deps", __name__)
+
+# Guards concurrent writes to deps.yaml and concurrent installs.
+_config_lock = threading.Lock()
+_install_lock = threading.Lock()
 
 
 # -- error handlers ----------------------------------------------------------
@@ -83,7 +88,15 @@ def install_dep():
     mgr = get_deps_manager()
 
     def _run(task):
-        mgr.install(name=name, on_progress=task.progress)
+        if not _install_lock.acquire(timeout=0):
+            task.status = "failed"
+            task.error = "Another install is already running"
+            task.logs.append("error: another install is already running")
+            return
+        try:
+            mgr.install(name=name, on_progress=task.progress)
+        finally:
+            _install_lock.release()
 
     task = tasks.submit(_run)
     return jsonify({"task_id": task.id}), 202
@@ -121,7 +134,15 @@ def install_bundle(name):
     bm = get_bundle_manager()
 
     def _run(task):
-        bm.install(name, on_progress=task.progress)
+        if not _install_lock.acquire(timeout=0):
+            task.status = "failed"
+            task.error = "Another install is already running"
+            task.logs.append("error: another install is already running")
+            return
+        try:
+            bm.install(name, on_progress=task.progress)
+        finally:
+            _install_lock.release()
 
     task = tasks.submit(_run)
     return jsonify({"task_id": task.id}), 202
@@ -133,7 +154,15 @@ def use_bundle(name):
     bm = get_bundle_manager()
 
     def _run(task):
-        bm.use(name, force=force, on_progress=task.progress)
+        if not _install_lock.acquire(timeout=0):
+            task.status = "failed"
+            task.error = "Another install is already running"
+            task.logs.append("error: another install is already running")
+            return
+        try:
+            bm.use(name, force=force, on_progress=task.progress)
+        finally:
+            _install_lock.release()
 
     task = tasks.submit(_run)
     return jsonify({"task_id": task.id}), 202
@@ -195,7 +224,10 @@ def delete_upload(filename):
     target = _safe_upload_path(filename)
     if not target or not target.is_file():
         return jsonify({"error": "file not found"}), 404
-    target.unlink()
+    try:
+        target.unlink()
+    except FileNotFoundError:
+        return jsonify({"error": "file not found"}), 404
     return jsonify({"deleted": filename})
 
 
@@ -227,18 +259,19 @@ def create_bundle():
         return jsonify({"error": f"invalid status, must be one of: {', '.join(sorted(valid_statuses))}"}), 400
 
     mgr = get_deps_manager()
-    cfg = mgr.config
-    cfg.bundles[name] = BundleConfig(
-        name=name,
-        description=body.get("description", ""),
-        status=status,
-        toolchains=body.get("toolchains", {}),
-        libraries=body.get("libraries", {}),
-        repos=body.get("repos", {}),
-        env=body.get("env", {}),
-    )
-    save_deps_config(cfg, mgr.deps_file)
-    mgr.reload()
+    with _config_lock:
+        cfg = mgr.config
+        cfg.bundles[name] = BundleConfig(
+            name=name,
+            description=body.get("description", ""),
+            status=status,
+            toolchains=body.get("toolchains", {}),
+            libraries=body.get("libraries", {}),
+            repos=body.get("repos", {}),
+            env=body.get("env", {}),
+        )
+        save_deps_config(cfg, mgr.deps_file)
+        mgr.reload()
     return jsonify({"created": name}), 201
 
 
@@ -248,14 +281,15 @@ def delete_bundle(name):
     from aitf.deps.config import save_deps_config
 
     mgr = get_deps_manager()
-    cfg = mgr.config
-    if name not in cfg.bundles:
-        return jsonify({"error": "bundle not found"}), 404
-    del cfg.bundles[name]
-    if cfg.active_bundle == name:
-        cfg.active_bundle = None
-    save_deps_config(cfg, mgr.deps_file)
-    mgr.reload()
+    with _config_lock:
+        cfg = mgr.config
+        if name not in cfg.bundles:
+            return jsonify({"error": "bundle not found"}), 404
+        del cfg.bundles[name]
+        if cfg.active_bundle == name:
+            cfg.active_bundle = None
+        save_deps_config(cfg, mgr.deps_file)
+        mgr.reload()
     return jsonify({"deleted": name})
 
 
