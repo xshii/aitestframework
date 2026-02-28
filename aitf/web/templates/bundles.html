@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% block title %}Bundles{% endblock %}
+{% block content %}
+<h4>Bundles</h4>
+
+{% if bundles %}
+<table class="table table-striped table-sm">
+  <thead><tr><th>Name</th><th>Description</th><th>Status</th><th>Toolchains</th><th>Libraries</th><th>Repos</th><th></th></tr></thead>
+  <tbody>
+  {% for b in bundles %}
+  <tr class="{% if b.name == active_name %}table-success{% endif %}">
+    <td>
+      <strong>{{ b.name }}</strong>
+      {% if b.name == active_name %}<span class="badge bg-success">active</span>{% endif %}
+    </td>
+    <td>{{ b.description }}</td>
+    <td>
+      <span class="badge bg-{{ 'success' if b.status == 'verified' else ('warning' if b.status == 'testing' else 'danger') }}">{{ b.status }}</span>
+    </td>
+    <td>{% for k, v in b.toolchains.items() %}<code>{{ k }}:{{ v }}</code> {% endfor %}</td>
+    <td>{% for k, v in b.libraries.items() %}<code>{{ k }}:{{ v }}</code> {% endfor %}</td>
+    <td>{% for k, v in b.repos.items() %}<code>{{ k }}:{{ v }}</code> {% endfor %}</td>
+    <td class="text-nowrap">
+      <a href="/api/bundles/{{ b.name }}/export" class="btn btn-sm btn-outline-primary">Export</a>
+      <button class="btn btn-sm btn-outline-danger" onclick="bundleDelete('{{ b.name }}')">Delete</button>
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="text-muted">No bundles configured.</p>
+{% endif %}
+
+<hr>
+<div class="row">
+<div class="col-md-6">
+<h5>Create Bundle</h5>
+<form id="createBundleForm">
+  <div class="mb-2">
+    <label class="form-label form-label-sm">Name</label>
+    <input type="text" name="name" class="form-control form-control-sm" required placeholder="e.g. npu-v2.2">
+  </div>
+  <div class="mb-2">
+    <label class="form-label form-label-sm">Description</label>
+    <input type="text" name="description" class="form-control form-control-sm" placeholder="Optional description">
+  </div>
+  <div class="mb-2">
+    <label class="form-label form-label-sm">Status</label>
+    <select name="status" class="form-select form-select-sm">
+      <option value="testing">testing</option>
+      <option value="verified">verified</option>
+      <option value="deprecated">deprecated</option>
+    </select>
+  </div>
+
+  {% if available.toolchains %}
+  <fieldset class="mb-2">
+    <legend class="fs-6">Toolchains</legend>
+    {% for name, ver in available.toolchains.items() %}
+    <div class="input-group input-group-sm mb-1">
+      <div class="input-group-text">
+        <input type="checkbox" class="form-check-input mt-0" name="tc_check_{{ name }}" checked>
+      </div>
+      <span class="input-group-text">{{ name }}</span>
+      <input type="text" name="tc_ver_{{ name }}" class="form-control" value="{{ ver }}" placeholder="version">
+    </div>
+    {% endfor %}
+  </fieldset>
+  {% endif %}
+
+  {% if available.libraries %}
+  <fieldset class="mb-2">
+    <legend class="fs-6">Libraries</legend>
+    {% for name, ver in available.libraries.items() %}
+    <div class="input-group input-group-sm mb-1">
+      <div class="input-group-text">
+        <input type="checkbox" class="form-check-input mt-0" name="lib_check_{{ name }}" checked>
+      </div>
+      <span class="input-group-text">{{ name }}</span>
+      <input type="text" name="lib_ver_{{ name }}" class="form-control" value="{{ ver }}" placeholder="version">
+    </div>
+    {% endfor %}
+  </fieldset>
+  {% endif %}
+
+  {% if available.repos %}
+  <fieldset class="mb-2">
+    <legend class="fs-6">Repos</legend>
+    {% for name, ref in available.repos.items() %}
+    <div class="input-group input-group-sm mb-1">
+      <div class="input-group-text">
+        <input type="checkbox" class="form-check-input mt-0" name="repo_check_{{ name }}" checked>
+      </div>
+      <span class="input-group-text">{{ name }}</span>
+      <input type="text" name="repo_ref_{{ name }}" class="form-control" value="{{ ref }}" placeholder="branch / tag / commit">
+    </div>
+    {% endfor %}
+  </fieldset>
+  {% endif %}
+
+  <button type="submit" class="btn btn-sm btn-primary">Create</button>
+</form>
+</div>
+
+<div class="col-md-6">
+<h5>Import Bundle</h5>
+<form action="/api/bundles/import" method="post" enctype="multipart/form-data" class="mb-3">
+  <div class="input-group input-group-sm" style="max-width:400px">
+    <input type="file" name="file" accept=".tar.gz,.gz" class="form-control" required>
+    <button type="submit" class="btn btn-primary">Import</button>
+  </div>
+  <small class="text-muted">Upload a bundle .tar.gz exported from another machine</small>
+</form>
+</div>
+</div>
+
+<script>
+document.getElementById('createBundleForm').addEventListener('submit', function(e) {
+  e.preventDefault();
+  var f = this;
+  var body = {
+    name: f.name.value,
+    description: f.description.value,
+    status: f.status.value,
+    toolchains: {}, libraries: {}, repos: {}
+  };
+  {% for name in available.toolchains %}
+  if (f['tc_check_{{ name }}'] && f['tc_check_{{ name }}'].checked)
+    body.toolchains['{{ name }}'] = f['tc_ver_{{ name }}'].value;
+  {% endfor %}
+  {% for name in available.libraries %}
+  if (f['lib_check_{{ name }}'] && f['lib_check_{{ name }}'].checked)
+    body.libraries['{{ name }}'] = f['lib_ver_{{ name }}'].value;
+  {% endfor %}
+  {% for name in available.repos %}
+  if (f['repo_check_{{ name }}'] && f['repo_check_{{ name }}'].checked)
+    body.repos['{{ name }}'] = f['repo_ref_{{ name }}'].value;
+  {% endfor %}
+
+  fetch('/api/bundles', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  }).then(r => r.json()).then(d => {
+    if (d.error) alert('Error: ' + d.error);
+    else location.reload();
+  }).catch(e => alert('Failed: ' + e));
+});
+
+function bundleDelete(name) {
+  if (!confirm('Delete bundle "' + name + '"?')) return;
+  fetch('/api/bundles/' + name, {method: 'DELETE'})
+    .then(r => r.json())
+    .then(d => {
+      if (d.error) alert('Error: ' + d.error);
+      else location.reload();
+    }).catch(e => alert('Failed: ' + e));
+}
+</script>
+{% endblock %}

@@ -11,6 +11,7 @@ from flask.json.provider import DefaultJSONProvider
 from aitf.ds.manager import DataStoreManager
 from aitf.web.api.deps_routes import deps_bp
 from aitf.web.api.ds_routes import ds_bp
+from aitf.web.views.deps import deps_pages_bp
 from aitf.web.views.logs import logs_bp
 
 
@@ -44,5 +45,6 @@ def create_app(config: dict | None = None) -> Flask:
     app.register_blueprint(ds_bp)
     app.register_blueprint(deps_bp)
     app.register_blueprint(logs_bp)
+    app.register_blueprint(deps_pages_bp)
 
     return app
