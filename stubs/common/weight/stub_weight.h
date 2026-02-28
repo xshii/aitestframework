@@ -8,7 +8,7 @@
 #define WEIGHT_MAX_GROUPS  16
 
 typedef struct {
-    char path[256];
+    char path[512];
 } weight_entry_t;
 
 typedef struct {
