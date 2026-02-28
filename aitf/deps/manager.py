@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
 
 from aitf.deps import acquire, doctor, repo
@@ -42,18 +43,26 @@ class DepsManager:
 
     # -- install -------------------------------------------------------------
 
-    def install(self, name: str | None = None, *, locked: bool = False) -> None:
+    def install(
+        self, name: str | None = None, *, locked: bool = False,
+        on_progress: Callable[[int, int, str], None] | None = None,
+    ) -> None:
         cfg = self.config
         if name:
             self._install_one(name, cfg)
+            if on_progress:
+                on_progress(1, 1, name)
         else:
             kw = dict(cache_dir=self._cache_dir, project_root=self._root, remote=cfg.remote)
-            for tc in cfg.toolchains.values():
-                self._try(lambda t=tc: acquire.install_toolchain(t, **kw), f"toolchain {tc.name}")
-            for lib in cfg.libraries.values():
-                self._try(lambda l=lib: acquire.install_library(l, **kw), f"library {lib.name}")
-            for rc in cfg.repos.values():
-                self._try(lambda r=rc: self._clone_and_build(r), f"repo {rc.name}")
+            steps = [
+                *((f"toolchain {tc.name}", lambda t=tc: acquire.install_toolchain(t, **kw)) for tc in cfg.toolchains.values()),
+                *((f"library {lib.name}", lambda l=lib: acquire.install_library(l, **kw)) for lib in cfg.libraries.values()),
+                *((f"repo {rc.name}", lambda r=rc: self._clone_and_build(r)) for rc in cfg.repos.values()),
+            ]
+            for i, (label, fn) in enumerate(steps):
+                if on_progress:
+                    on_progress(i, len(steps), label)
+                self._try(fn, label)
 
         lock = generate_lock(cfg, self._cache_dir, self._repos_dir)
         save_lock(lock, self._lock_path)

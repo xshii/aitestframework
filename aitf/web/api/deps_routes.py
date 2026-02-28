@@ -6,9 +6,10 @@ from dataclasses import asdict
 
 from flask import Blueprint, jsonify, request
 
-from aitf.deps.manager import DepsManager
 from aitf.deps.bundle import BundleManager
+from aitf.deps.manager import DepsManager
 from aitf.deps.types import BundleNotFoundError, DepsConfigError, DepsError
+from aitf.web import tasks
 
 deps_bp = Blueprint("deps", __name__)
 
@@ -41,6 +42,20 @@ def _handle_deps_error(exc):
     return jsonify({"error": str(exc)}), 500
 
 
+# -- task polling ------------------------------------------------------------
+
+@deps_bp.route("/api/tasks/<task_id>", methods=["GET"])
+def get_task(task_id):
+    task = tasks.get(task_id)
+    if not task:
+        return jsonify({"error": "task not found"}), 404
+    return jsonify({
+        "id": task.id, "status": task.status,
+        "step": task.step, "done": task.done, "total": task.total,
+        "error": task.error, "logs": task.logs,
+    })
+
+
 # -- deps routes -------------------------------------------------------------
 
 @deps_bp.route("/api/deps", methods=["GET"])
@@ -70,8 +85,14 @@ def list_deps():
 @deps_bp.route("/api/deps/install", methods=["POST"])
 def install_dep():
     body = request.get_json(silent=True) or {}
-    _mgr().install(name=body.get("name"))
-    return jsonify({"status": "ok"})
+    name = body.get("name")
+    mgr = _mgr()
+
+    def _run(task):
+        mgr.install(name=name, on_progress=task.progress)
+
+    task = tasks.submit(_run)
+    return jsonify({"task_id": task.id}), 202
 
 
 @deps_bp.route("/api/deps/clean", methods=["POST"])
@@ -103,12 +124,22 @@ def show_bundle(name):
 
 @deps_bp.route("/api/bundles/<name>/install", methods=["POST"])
 def install_bundle(name):
-    _bm().install(name)
-    return jsonify({"status": "ok", "bundle": name})
+    bm = _bm()
+
+    def _run(task):
+        bm.install(name, on_progress=task.progress)
+
+    task = tasks.submit(_run)
+    return jsonify({"task_id": task.id}), 202
 
 
 @deps_bp.route("/api/bundles/<name>/use", methods=["POST"])
 def use_bundle(name):
     force = (request.get_json(silent=True) or {}).get("force", False)
-    _bm().use(name, force=force)
-    return jsonify({"status": "ok", "active": name})
+    bm = _bm()
+
+    def _run(task):
+        bm.use(name, force=force, on_progress=task.progress)
+
+    task = tasks.submit(_run)
+    return jsonify({"task_id": task.id}), 202

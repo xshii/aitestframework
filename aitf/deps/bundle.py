@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import tarfile
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 import yaml
@@ -45,16 +46,22 @@ class BundleManager:
 
     # -- use / install -------------------------------------------------------
 
-    def use(self, name: str, *, force: bool = False) -> None:
+    def use(
+        self, name: str, *, force: bool = False,
+        on_progress: Callable[[int, int, str], None] | None = None,
+    ) -> None:
         bundle = self.show(name)
         if bundle.status == BundleStatus.DEPRECATED and not force:
             raise BundleError(f"Bundle '{name}' is deprecated. Use --force to override.")
 
-        self.install(name)
+        self.install(name, on_progress=on_progress)
         self._mgr.config.active_bundle = name
         save_deps_config(self._mgr.config, self._deps_file)
 
-    def install(self, name: str) -> None:
+    def install(
+        self, name: str, *,
+        on_progress: Callable[[int, int, str], None] | None = None,
+    ) -> None:
         bundle = self.show(name)
         cfg = self._mgr.config
 
@@ -63,7 +70,9 @@ class BundleManager:
             *(n for n in bundle.libraries if n in cfg.libraries),
             *(n for n in bundle.repos if n in cfg.repos),
         ]
-        for dep_name in dep_names:
+        for i, dep_name in enumerate(dep_names):
+            if on_progress:
+                on_progress(i, len(dep_names), dep_name)
             try:
                 self._mgr._install_one(dep_name, cfg)
             except Exception as exc:
