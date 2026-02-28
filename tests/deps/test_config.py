@@ -78,6 +78,29 @@ class TestLoadDepsConfig:
         assert len(cfg.toolchains) == 1
         assert cfg.toolchains["cc"].version == "1.0"
 
+    def test_load_with_remote(self, tmp_path):
+        cfg_data = {
+            "remote": {
+                "host": "10.0.0.1",
+                "user": "deploy",
+                "path": "/data/deps",
+                "port": 2222,
+                "auth": {"key_file": "~/.ssh/id_rsa"},
+            },
+            "toolchains": {
+                "cc": {"version": "1.0", "acquire": {"remote": True}},
+            },
+        }
+        p = tmp_path / "deps.yaml"
+        with open(p, "w") as fh:
+            yaml.dump(cfg_data, fh)
+        cfg = load_deps_config(p)
+        assert cfg.remote is not None
+        assert cfg.remote.host == "10.0.0.1"
+        assert cfg.remote.port == 2222
+        assert cfg.remote.key_file == "~/.ssh/id_rsa"
+        assert cfg.toolchains["cc"].acquire.remote is True
+
 
 class TestSaveDepsConfig:
     def test_round_trip(self, deps_yaml, project_root):
@@ -99,12 +122,3 @@ class TestSaveDepsConfig:
         save_deps_config(cfg, out)
         cfg2 = load_deps_config(out)
         assert cfg2.toolchains == {}
-
-
-class TestDepsConfigToDict:
-    def test_to_dict_preserves_structure(self, deps_yaml):
-        cfg = load_deps_config(deps_yaml)
-        d = cfg.to_dict()
-        assert "toolchains" in d
-        assert "npu-compiler" in d["toolchains"]
-        assert d["active"] == "npu-v2.1"

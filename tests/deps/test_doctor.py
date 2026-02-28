@@ -8,7 +8,6 @@ import pytest
 
 from aitf.deps.config import load_deps_config
 from aitf.deps.doctor import run_diagnostics
-from aitf.deps.types import DiagLevel
 
 
 class TestRunDiagnostics:
@@ -21,16 +20,16 @@ class TestRunDiagnostics:
             project_root=project_root,
         )
         # Config check should pass
-        config_check = [r for r in results if r.check == "deps.yaml configuration"]
+        config_check = [r for r in results if r.check == "config"]
         assert len(config_check) == 1
-        assert config_check[0].level == DiagLevel.PASS
+        assert config_check[0].ok is True
 
         # Toolchains and libraries should fail (not installed)
         tc_checks = [r for r in results if r.check.startswith("toolchain:")]
-        assert all(r.level == DiagLevel.FAIL for r in tc_checks)
+        assert all(r.ok is False for r in tc_checks)
 
         lib_checks = [r for r in results if r.check.startswith("library:")]
-        assert all(r.level == DiagLevel.FAIL for r in lib_checks)
+        assert all(r.ok is False for r in lib_checks)
 
     def test_installed_toolchain_passes(self, deps_yaml, project_root):
         cfg = load_deps_config(deps_yaml)
@@ -45,7 +44,7 @@ class TestRunDiagnostics:
         )
         tc_checks = [r for r in results if r.check == "toolchain:npu-compiler"]
         assert len(tc_checks) == 1
-        assert tc_checks[0].level == DiagLevel.PASS
+        assert tc_checks[0].ok is True
 
     def test_build_tools_check(self, deps_yaml, project_root):
         cfg = load_deps_config(deps_yaml)
@@ -59,7 +58,7 @@ class TestRunDiagnostics:
         # git should be available in test environment
         git_check = [r for r in tool_checks if r.check == "tool:git"]
         assert len(git_check) == 1
-        assert git_check[0].level == DiagLevel.PASS
+        assert git_check[0].ok is True
 
     def test_lock_missing(self, deps_yaml, project_root):
         cfg = load_deps_config(deps_yaml)
@@ -71,7 +70,7 @@ class TestRunDiagnostics:
             lock_path=project_root / "deps.lock.yaml",
         )
         lock_checks = [r for r in results if r.check == "lock_file"]
-        assert any(r.level == DiagLevel.FAIL for r in lock_checks)
+        assert any(r.ok is False for r in lock_checks)
 
     def test_script_checks(self, deps_yaml, project_root):
         """Scripts referenced in config should be checked for existence."""

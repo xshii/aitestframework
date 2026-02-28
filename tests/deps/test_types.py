@@ -8,14 +8,13 @@ from aitf.deps.types import (
     BundleError,
     BundleNotFoundError,
     BundleStatus,
-    DepStatus,
     DepsConfigError,
     DepsError,
-    DiagLevel,
     DiagResult,
     LibraryConfig,
     LockEntry,
     LockFile,
+    RemoteDepotConfig,
     RepoConfig,
     ToolchainConfig,
 )
@@ -49,14 +48,26 @@ class TestDataClasses:
         assert bc.libraries == {}
 
     def test_diag_result(self):
-        r = DiagResult(check="test", level=DiagLevel.PASS, message="ok")
-        assert r.level == DiagLevel.PASS
+        r = DiagResult(check="test", ok=True, message="ok")
+        assert r.ok is True
 
     def test_lock_file_defaults(self):
         lf = LockFile()
         assert lf.toolchains == {}
         assert lf.libraries == {}
         assert lf.repos == {}
+
+    def test_acquire_config_remote_flag(self):
+        acq = AcquireConfig(remote=True)
+        assert acq.remote is True
+        assert acq.local_dir is None
+        assert acq.script is None
+
+    def test_remote_depot_config(self):
+        rdc = RemoteDepotConfig(host="10.0.0.1", user="deploy", path="/data/deps")
+        assert rdc.host == "10.0.0.1"
+        assert rdc.port == 22
+        assert rdc.key_file is None
 
 
 class TestExceptions:
@@ -69,7 +80,3 @@ class TestExceptions:
     def test_bundle_status_enum(self):
         assert BundleStatus.VERIFIED == "verified"
         assert BundleStatus.DEPRECATED == "deprecated"
-
-    def test_dep_status_enum(self):
-        assert DepStatus.INSTALLED == "installed"
-        assert DepStatus.NOT_INSTALLED == "not_installed"

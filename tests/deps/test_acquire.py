@@ -9,7 +9,6 @@ from pathlib import Path
 import pytest
 
 from aitf.deps.acquire import (
-    _archive_name,
     _find_archive,
     clean_cache,
     install_library,
@@ -17,6 +16,7 @@ from aitf.deps.acquire import (
     is_installed,
     sha256_file,
 )
+from aitf.deps.config import detect_platform
 from aitf.deps.types import AcquireConfig, AcquireError, LibraryConfig, ToolchainConfig
 
 
@@ -28,22 +28,22 @@ class TestSha256File:
         assert sha256_file(f) == expected
 
 
-class TestArchiveName:
-    def test_with_platform(self):
-        assert _archive_name("cc", "1.0", "linux-x86_64") == "cc-1.0-linux-x86_64.tar.gz"
-
-    def test_without_platform(self):
-        assert _archive_name("lib", "2.0") == "lib-2.0.tar.gz"
-
-
 class TestFindArchive:
     def test_finds_generic(self, tmp_path):
         archive = tmp_path / "lib-2.0.tar.gz"
         archive.write_bytes(b"fake")
-        assert _find_archive(tmp_path, "lib", "2.0") == archive
+        assert _find_archive(tmp_path, "lib", "2.0", "linux-x86_64") == archive
+
+    def test_finds_platform_specific(self, tmp_path):
+        generic = tmp_path / "lib-2.0.tar.gz"
+        generic.write_bytes(b"generic")
+        specific = tmp_path / "lib-2.0-linux-x86_64.tar.gz"
+        specific.write_bytes(b"specific")
+        # Platform-specific should be preferred
+        assert _find_archive(tmp_path, "lib", "2.0", "linux-x86_64") == specific
 
     def test_not_found(self, tmp_path):
-        assert _find_archive(tmp_path, "missing", "1.0") is None
+        assert _find_archive(tmp_path, "missing", "1.0", "linux-x86_64") is None
 
 
 def _make_toolchain_archive(

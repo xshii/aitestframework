@@ -175,15 +175,14 @@ def _cmd_deps_clean(args: argparse.Namespace) -> None:
 
 def _cmd_deps_doctor(args: argparse.Namespace) -> None:
     from aitf.deps.manager import DepsManager
-    from aitf.deps.types import DiagLevel
 
     mgr = DepsManager()
     results = mgr.doctor()
     has_failure = False
     for r in results:
-        icon = "\u2713" if r.level == DiagLevel.PASS else "\u2717"
+        icon = "\u2713" if r.ok else "\u2717"
         print(f"  {icon} {r.message}")
-        if r.level == DiagLevel.FAIL:
+        if not r.ok:
             has_failure = True
     if has_failure:
         sys.exit(1)

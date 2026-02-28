@@ -97,7 +97,7 @@ class TestDepsManagerDoctor:
         results = manager.doctor()
         assert len(results) > 0
         # Config check should always pass
-        config_checks = [r for r in results if r.check == "deps.yaml configuration"]
+        config_checks = [r for r in results if r.check == "config"]
         assert len(config_checks) == 1
 
 

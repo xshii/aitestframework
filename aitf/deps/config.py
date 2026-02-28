@@ -13,6 +13,7 @@ from aitf.deps.types import (
     BundleConfig,
     DepsConfigError,
     LibraryConfig,
+    RemoteDepotConfig,
     RepoConfig,
     ToolchainConfig,
 )
@@ -24,69 +25,12 @@ DEFAULT_DEPS_FILE = "deps.yaml"
 
 def detect_platform() -> str:
     """Return a platform tag such as ``linux-x86_64``."""
-    system = _platform.system().lower()
-    machine = _platform.machine()
-    return f"{system}-{machine}"
+    return f"{_platform.system().lower()}-{_platform.machine()}"
 
 
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-def _parse_acquire(raw: dict | None) -> AcquireConfig:
-    if not raw:
-        return AcquireConfig()
-    return AcquireConfig(
-        local_dir=raw.get("local_dir"),
-        script=raw.get("script"),
-    )
-
-
-def _parse_toolchain(name: str, raw: dict) -> ToolchainConfig:
-    return ToolchainConfig(
-        name=name,
-        version=str(raw.get("version", "")),
-        sha256=raw.get("sha256", {}),
-        bin_dir=raw.get("bin_dir"),
-        env=raw.get("env", {}),
-        acquire=_parse_acquire(raw.get("acquire")),
-    )
-
-
-def _parse_library(name: str, raw: dict) -> LibraryConfig:
-    return LibraryConfig(
-        name=name,
-        version=str(raw.get("version", "")),
-        sha256=str(raw.get("sha256", "")),
-        build_system=raw.get("build_system", "cmake"),
-        cmake_args=raw.get("cmake_args", []),
-        build_script=raw.get("build_script"),
-        acquire=_parse_acquire(raw.get("acquire")),
-    )
-
-
-def _parse_repo(name: str, raw: dict) -> RepoConfig:
-    return RepoConfig(
-        name=name,
-        url=raw.get("url", ""),
-        ref=str(raw.get("ref", "main")),
-        depth=raw.get("depth"),
-        sparse_checkout=raw.get("sparse_checkout", []),
-        build_script=raw.get("build_script"),
-        env=raw.get("env", {}),
-    )
-
-
-def _parse_bundle(name: str, raw: dict) -> BundleConfig:
-    return BundleConfig(
-        name=name,
-        description=raw.get("description", ""),
-        status=raw.get("status", "testing"),
-        toolchains=raw.get("toolchains", {}),
-        libraries=raw.get("libraries", {}),
-        repos=raw.get("repos", {}),
-        env=raw.get("env", {}),
-    )
+def _filtered(d: dict) -> dict:
+    """Drop None / empty / False values from a dict."""
+    return {k: v for k, v in d.items() if v}
 
 
 # ---------------------------------------------------------------------------
@@ -94,108 +38,19 @@ def _parse_bundle(name: str, raw: dict) -> BundleConfig:
 # ---------------------------------------------------------------------------
 
 class DepsConfig:
-    """Parsed representation of ``deps.yaml``.
+    """Parsed representation of ``deps.yaml``."""
 
-    Attributes:
-        toolchains: Toolchain definitions keyed by name.
-        libraries: Library definitions keyed by name.
-        repos: Repository definitions keyed by name.
-        bundles: Bundle definitions keyed by name.
-        active_bundle: Name of the currently active bundle, or ``None``.
-    """
-
-    def __init__(
-        self,
-        toolchains: dict[str, ToolchainConfig] | None = None,
-        libraries: dict[str, LibraryConfig] | None = None,
-        repos: dict[str, RepoConfig] | None = None,
-        bundles: dict[str, BundleConfig] | None = None,
-        active_bundle: str | None = None,
-    ) -> None:
-        self.toolchains: dict[str, ToolchainConfig] = toolchains or {}
-        self.libraries: dict[str, LibraryConfig] = libraries or {}
-        self.repos: dict[str, RepoConfig] = repos or {}
-        self.bundles: dict[str, BundleConfig] = bundles or {}
-        self.active_bundle: str | None = active_bundle
-
-    # -- serialisation helpers -----------------------------------------------
-
-    def to_dict(self) -> dict:
-        """Serialise back to a plain dict (for writing deps.yaml)."""
-        data: dict = {}
-        if self.toolchains:
-            data["toolchains"] = {
-                name: {
-                    "version": tc.version,
-                    **({"sha256": tc.sha256} if tc.sha256 else {}),
-                    **({"bin_dir": tc.bin_dir} if tc.bin_dir else {}),
-                    **({"env": tc.env} if tc.env else {}),
-                    **({"acquire": _acquire_dict(tc.acquire)} if _has_acquire(tc.acquire) else {}),
-                }
-                for name, tc in self.toolchains.items()
-            }
-        if self.libraries:
-            data["libraries"] = {
-                name: {
-                    "version": lib.version,
-                    **({"sha256": lib.sha256} if lib.sha256 else {}),
-                    "build_system": lib.build_system,
-                    **({"cmake_args": lib.cmake_args} if lib.cmake_args else {}),
-                    **({"build_script": lib.build_script} if lib.build_script else {}),
-                    **({"acquire": _acquire_dict(lib.acquire)} if _has_acquire(lib.acquire) else {}),
-                }
-                for name, lib in self.libraries.items()
-            }
-        if self.repos:
-            data["repos"] = {
-                name: {
-                    "url": repo.url,
-                    "ref": repo.ref,
-                    **({"depth": repo.depth} if repo.depth else {}),
-                    **({"sparse_checkout": repo.sparse_checkout} if repo.sparse_checkout else {}),
-                    **({"build_script": repo.build_script} if repo.build_script else {}),
-                    **({"env": repo.env} if repo.env else {}),
-                }
-                for name, repo in self.repos.items()
-            }
-        if self.bundles:
-            data["bundles"] = {
-                name: {
-                    "description": b.description,
-                    "status": b.status,
-                    **({"toolchains": b.toolchains} if b.toolchains else {}),
-                    **({"libraries": b.libraries} if b.libraries else {}),
-                    **({"repos": b.repos} if b.repos else {}),
-                    **({"env": b.env} if b.env else {}),
-                }
-                for name, b in self.bundles.items()
-            }
-        if self.active_bundle:
-            data["active"] = self.active_bundle
-        return data
-
-
-def _has_acquire(acq: AcquireConfig) -> bool:
-    return bool(acq.local_dir or acq.script)
-
-
-def _acquire_dict(acq: AcquireConfig) -> dict:
-    d: dict = {}
-    if acq.local_dir:
-        d["local_dir"] = acq.local_dir
-    if acq.script:
-        d["script"] = acq.script
-    return d
+    def __init__(self) -> None:
+        self.toolchains: dict[str, ToolchainConfig] = {}
+        self.libraries: dict[str, LibraryConfig] = {}
+        self.repos: dict[str, RepoConfig] = {}
+        self.bundles: dict[str, BundleConfig] = {}
+        self.remote: RemoteDepotConfig | None = None
+        self.active_bundle: str | None = None
 
 
 def load_deps_config(path: str | Path = DEFAULT_DEPS_FILE) -> DepsConfig:
     """Load and parse ``deps.yaml``.
-
-    Args:
-        path: Path to the deps configuration file.
-
-    Returns:
-        Parsed :class:`DepsConfig`.
 
     Raises:
         DepsConfigError: If the file is missing or malformed.
@@ -213,36 +68,122 @@ def load_deps_config(path: str | Path = DEFAULT_DEPS_FILE) -> DepsConfig:
     if not isinstance(data, dict):
         raise DepsConfigError(f"Expected a YAML mapping in {p}, got {type(data).__name__}")
 
-    toolchains = {
-        name: _parse_toolchain(name, raw)
-        for name, raw in data.get("toolchains", {}).items()
-    }
-    libraries = {
-        name: _parse_library(name, raw)
-        for name, raw in data.get("libraries", {}).items()
-    }
-    repos = {
-        name: _parse_repo(name, raw)
-        for name, raw in data.get("repos", {}).items()
-    }
-    bundles = {
-        name: _parse_bundle(name, raw)
-        for name, raw in data.get("bundles", {}).items()
-    }
-    active = data.get("active")
+    cfg = DepsConfig()
 
-    return DepsConfig(
-        toolchains=toolchains,
-        libraries=libraries,
-        repos=repos,
-        bundles=bundles,
-        active_bundle=active,
-    )
+    for name, raw in data.get("toolchains", {}).items():
+        acq = raw.get("acquire") or {}
+        cfg.toolchains[name] = ToolchainConfig(
+            name=name,
+            version=str(raw.get("version", "")),
+            sha256=raw.get("sha256", {}),
+            bin_dir=raw.get("bin_dir"),
+            env=raw.get("env", {}),
+            acquire=AcquireConfig(
+                local_dir=acq.get("local_dir"),
+                remote=acq.get("remote", False),
+                script=acq.get("script"),
+            ),
+        )
+
+    for name, raw in data.get("libraries", {}).items():
+        acq = raw.get("acquire") or {}
+        cfg.libraries[name] = LibraryConfig(
+            name=name,
+            version=str(raw.get("version", "")),
+            sha256=str(raw.get("sha256", "")),
+            build_system=raw.get("build_system", "cmake"),
+            cmake_args=raw.get("cmake_args", []),
+            build_script=raw.get("build_script"),
+            acquire=AcquireConfig(
+                local_dir=acq.get("local_dir"),
+                remote=acq.get("remote", False),
+                script=acq.get("script"),
+            ),
+        )
+
+    for name, raw in data.get("repos", {}).items():
+        cfg.repos[name] = RepoConfig(
+            name=name, url=raw.get("url", ""), ref=str(raw.get("ref", "main")),
+            depth=raw.get("depth"), sparse_checkout=raw.get("sparse_checkout", []),
+            build_script=raw.get("build_script"), env=raw.get("env", {}),
+        )
+
+    for name, raw in data.get("bundles", {}).items():
+        cfg.bundles[name] = BundleConfig(
+            name=name, description=raw.get("description", ""),
+            status=raw.get("status", "testing"),
+            toolchains=raw.get("toolchains", {}), libraries=raw.get("libraries", {}),
+            repos=raw.get("repos", {}), env=raw.get("env", {}),
+        )
+
+    remote_raw = data.get("remote")
+    if isinstance(remote_raw, dict):
+        auth = remote_raw.get("auth") or {}
+        cfg.remote = RemoteDepotConfig(
+            host=remote_raw["host"], user=remote_raw["user"],
+            path=remote_raw.get("path", "/"), port=remote_raw.get("port", 22),
+            key_file=auth.get("key_file"),
+        )
+
+    cfg.active_bundle = data.get("active")
+    return cfg
 
 
 def save_deps_config(cfg: DepsConfig, path: str | Path = DEFAULT_DEPS_FILE) -> None:
     """Write the config back to ``deps.yaml``."""
+    data: dict = {}
+
+    if cfg.toolchains:
+        data["toolchains"] = {
+            name: _filtered({
+                "version": tc.version, "sha256": tc.sha256, "bin_dir": tc.bin_dir,
+                "env": tc.env, "acquire": _filtered({
+                    "local_dir": tc.acquire.local_dir,
+                    "remote": tc.acquire.remote or None, "script": tc.acquire.script,
+                }),
+            })
+            for name, tc in cfg.toolchains.items()
+        }
+    if cfg.libraries:
+        data["libraries"] = {
+            name: _filtered({
+                "version": lib.version, "sha256": lib.sha256,
+                "build_system": lib.build_system, "cmake_args": lib.cmake_args,
+                "build_script": lib.build_script, "acquire": _filtered({
+                    "local_dir": lib.acquire.local_dir,
+                    "remote": lib.acquire.remote or None, "script": lib.acquire.script,
+                }),
+            })
+            for name, lib in cfg.libraries.items()
+        }
+    if cfg.repos:
+        data["repos"] = {
+            name: _filtered({
+                "url": r.url, "ref": r.ref, "depth": r.depth,
+                "sparse_checkout": r.sparse_checkout, "build_script": r.build_script,
+                "env": r.env,
+            })
+            for name, r in cfg.repos.items()
+        }
+    if cfg.bundles:
+        data["bundles"] = {
+            name: _filtered({
+                "description": b.description, "status": b.status,
+                "toolchains": b.toolchains, "libraries": b.libraries,
+                "repos": b.repos, "env": b.env,
+            })
+            for name, b in cfg.bundles.items()
+        }
+    if cfg.remote:
+        data["remote"] = _filtered({
+            "host": cfg.remote.host, "user": cfg.remote.user, "path": cfg.remote.path,
+            "port": cfg.remote.port if cfg.remote.port != 22 else None,
+            "auth": _filtered({"key_file": cfg.remote.key_file}),
+        })
+    if cfg.active_bundle:
+        data["active"] = cfg.active_bundle
+
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     with open(p, "w", encoding="utf-8") as fh:
-        yaml.dump(cfg.to_dict(), fh, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        yaml.dump(data, fh, default_flow_style=False, allow_unicode=True, sort_keys=False)

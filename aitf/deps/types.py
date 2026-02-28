@@ -3,16 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from enum import Enum
-
-
-class DepStatus(str, Enum):
-    """Installation status of a dependency."""
-
-    INSTALLED = "installed"
-    NOT_INSTALLED = "not_installed"
-    VERSION_MISMATCH = "version_mismatch"
 
 
 class BundleStatus(str, Enum):
@@ -21,13 +12,6 @@ class BundleStatus(str, Enum):
     VERIFIED = "verified"
     TESTING = "testing"
     DEPRECATED = "deprecated"
-
-
-class DiagLevel(str, Enum):
-    """Diagnostic check result level."""
-
-    PASS = "pass"
-    FAIL = "fail"
 
 
 # ---------------------------------------------------------------------------
@@ -39,7 +23,19 @@ class AcquireConfig:
     """How to obtain a toolchain or library archive."""
 
     local_dir: str | None = None
+    remote: bool = False
     script: str | None = None
+
+
+@dataclass
+class RemoteDepotConfig:
+    """SFTP remote server that hosts dependency archives."""
+
+    host: str
+    user: str
+    path: str
+    port: int = 22
+    key_file: str | None = None
 
 
 @dataclass
@@ -102,7 +98,7 @@ class DiagResult:
     """Single diagnostic check result."""
 
     check: str
-    level: DiagLevel
+    ok: bool
     message: str
 
 
