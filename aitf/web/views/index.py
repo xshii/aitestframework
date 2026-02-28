@@ -3,19 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from pathlib import Path
 
-from flask import Blueprint, current_app, render_template
+from flask import Blueprint, render_template
 
 from aitf.deps.bundle import BundleManager
 from aitf.deps.types import DepsConfigError
-from aitf.web.views import get_deps_manager, size_display
+from aitf.web.views import build_log_listing, get_deps_manager, log_root, size_display
 
 index_bp = Blueprint("index", __name__)
-
-
-def _log_root() -> Path:
-    return Path(current_app.config.get("LOG_ROOT", "build/reports")).resolve()
 
 
 @index_bp.route("/")
@@ -45,33 +40,22 @@ def index():
 
     # -- bundles --
     try:
-        cfg2 = mgr.config
         bm = BundleManager(mgr)
         bundles = [asdict(b) for b in bm.list_bundles()]
         active = bm.active()
         active_name = active.name if active else None
         available = {
-            "toolchains": {n: tc.version for n, tc in cfg2.toolchains.items()},
-            "libraries": {n: lib.version for n, lib in cfg2.libraries.items()},
-            "repos": {n: rc.ref for n, rc in cfg2.repos.items()},
-        }
+            "toolchains": {n: tc.version for n, tc in cfg.toolchains.items()},
+            "libraries": {n: lib.version for n, lib in cfg.libraries.items()},
+            "repos": {n: rc.ref for n, rc in cfg.repos.items()},
+        } if cfg else {"toolchains": {}, "libraries": {}, "repos": {}}
     except DepsConfigError:
         bundles = []
         active_name = None
         available = {"toolchains": {}, "libraries": {}, "repos": {}}
 
     # -- logs (root listing) --
-    log_root = _log_root()
-    log_entries = []
-    if log_root.is_dir():
-        for child in sorted(log_root.iterdir(), key=lambda p: (not p.is_dir(), p.name)):
-            rel = child.relative_to(log_root)
-            log_entries.append({
-                "name": child.name,
-                "path": str(rel),
-                "is_dir": child.is_dir(),
-                "size_display": size_display(child.stat().st_size) if child.is_file() else "",
-            })
+    log_entries = build_log_listing(log_root())
 
     return render_template(
         "index.html",

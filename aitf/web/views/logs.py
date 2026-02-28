@@ -13,20 +13,16 @@ from flask import (
     send_file,
 )
 
-from aitf.web.views import size_display
+from aitf.web.views import build_log_listing, log_root
 
 logs_bp = Blueprint("logs", __name__)
 
 _DEFAULT_LIMIT = 1000  # lines per page
 
 
-def _log_root() -> Path:
-    return Path(current_app.config.get("LOG_ROOT", "build/reports")).resolve()
-
-
 def _safe_path(subpath: str) -> Path:
     """Resolve *subpath* under log root; abort 404 if escapes."""
-    root = _log_root()
+    root = log_root()
     target = (root / subpath).resolve()
     if not target.is_relative_to(root):
         abort(404)
@@ -42,15 +38,7 @@ def log_index(subpath: str = ""):
     if not target.is_dir():
         abort(404)
 
-    entries = []
-    for child in sorted(target.iterdir(), key=lambda p: (not p.is_dir(), p.name)):
-        rel = child.relative_to(_log_root())
-        entries.append({
-            "name": child.name,
-            "path": str(rel),
-            "is_dir": child.is_dir(),
-            "size_display": size_display(child.stat().st_size) if child.is_file() else "",
-        })
+    entries = build_log_listing(target)
 
     parent = str(Path(subpath).parent) if subpath else ""
     if parent == ".":
