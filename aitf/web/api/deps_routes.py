@@ -101,6 +101,12 @@ def show_bundle(name):
     return jsonify(asdict(_bm().show(name)))
 
 
+@deps_bp.route("/api/bundles/<name>/install", methods=["POST"])
+def install_bundle(name):
+    _bm().install(name)
+    return jsonify({"status": "ok", "bundle": name})
+
+
 @deps_bp.route("/api/bundles/<name>/use", methods=["POST"])
 def use_bundle(name):
     force = (request.get_json(silent=True) or {}).get("force", False)
