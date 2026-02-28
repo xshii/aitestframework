@@ -9,6 +9,7 @@ from flask import Flask
 from flask.json.provider import DefaultJSONProvider
 
 from aitf.ds.manager import DataStoreManager
+from aitf.web.api.deps_routes import deps_bp
 from aitf.web.api.ds_routes import ds_bp
 
 
@@ -37,5 +38,6 @@ def create_app(config: dict | None = None) -> Flask:
     app.config["datastore_manager"] = manager
 
     app.register_blueprint(ds_bp)
+    app.register_blueprint(deps_bp)
 
     return app
