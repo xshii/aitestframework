@@ -1,0 +1,17 @@
+# Example dependency configuration for manual smoke tests.
+# Copy this file and adjust values before triggering a manual build.
+
+toolchain:
+  cmake_min_version: "3.16"
+  cc: "gcc-12"
+
+platform: "func_sim"
+
+build:
+  mode: "app"
+  models: "tdd,fdd"
+  swap_endian: true
+  pad_align: 8
+
+env:
+  CC: "gcc-12"

@@ -1,0 +1,77 @@
+// ci/Jenkinsfile — Stub framework build pipeline (REQ-8.1, 8.2, 8.6, 8.7)
+//
+// Triggers:
+//   - SCM webhook (GitHub/GitLab push events)
+//   - pollSCM as fallback
+//   - Manual "Build with Parameters"
+
+pipeline {
+    agent { label "${params.AGENT_LABEL}" }
+
+    parameters {
+        choice(name: 'PLATFORM',     choices: ['func_sim'],           description: 'Hook platform')
+        choice(name: 'BUILD_MODE',   choices: ['all', 'app', 'ut'],   description: 'Build mode')
+        string(name: 'MODELS',       defaultValue: '',                 description: 'Models to build (comma-separated, empty = all)')
+        booleanParam(name: 'SWAP_ENDIAN', defaultValue: false,        description: 'Enable endian swap on output binary')
+        string(name: 'PAD_ALIGN',    defaultValue: '0',               description: 'Pad binary to N-byte alignment (0 = disabled)')
+        string(name: 'AGENT_LABEL',  defaultValue: 'linux',           description: 'Jenkins agent label')
+    }
+
+    triggers {
+        pollSCM('H/5 * * * *')
+    }
+
+    options {
+        timestamps()
+        timeout(time: 30, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '30'))
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build') {
+            steps {
+                script {
+                    def buildArgs = "-p ${params.PLATFORM} -m ${params.BUILD_MODE}"
+                    if (params.MODELS?.trim()) {
+                        buildArgs += " -s ${params.MODELS}"
+                    }
+                    if (params.SWAP_ENDIAN) {
+                        buildArgs += " -e"
+                    }
+                    if (params.PAD_ALIGN != '0') {
+                        buildArgs += " -a ${params.PAD_ALIGN}"
+                    }
+                    sh "chmod +x stubs/build.sh && stubs/build.sh ${buildArgs}"
+                }
+            }
+        }
+
+        stage('Archive') {
+            when {
+                expression {
+                    return params.BUILD_MODE == 'app' || params.BUILD_MODE == 'all'
+                }
+            }
+            steps {
+                sh "chmod +x ci/scripts/archive_artifacts.sh && ci/scripts/archive_artifacts.sh ${params.PLATFORM}"
+                archiveArtifacts artifacts: 'build/artifacts/**', fingerprint: true
+            }
+        }
+    }
+
+    post {
+        always {
+            // Publish ctest XML results if available
+            junit allowEmptyResults: true, testResults: 'build/**/Test.xml'
+        }
+        cleanup {
+            cleanWs()
+        }
+    }
+}

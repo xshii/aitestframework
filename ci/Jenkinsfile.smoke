@@ -1,0 +1,111 @@
+// ci/Jenkinsfile.smoke — Smoke test pipeline (REQ-8.3, 8.4, 8.5)
+//
+// Triggers:
+//   - Nightly cron (2:00 AM)
+//   - Manual "Build with Parameters" with custom DEPS_CONFIG
+
+pipeline {
+    agent { label "${params.AGENT_LABEL}" }
+
+    parameters {
+        choice(name: 'DEPS_CONFIG',  choices: ['latest', 'example'],  description: 'Dependency config in ci/deps_config/')
+        choice(name: 'PLATFORM',     choices: ['func_sim'],           description: 'Hook platform')
+        string(name: 'MODELS',       defaultValue: '',                 description: 'Models (comma-separated, empty = all)')
+        string(name: 'AGENT_LABEL',  defaultValue: 'linux',           description: 'Jenkins agent label')
+    }
+
+    triggers {
+        cron('H 2 * * *')
+    }
+
+    options {
+        timestamps()
+        timeout(time: 30, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '30'))
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Load Config') {
+            steps {
+                script {
+                    def configFile = "ci/deps_config/${params.DEPS_CONFIG}.yaml"
+                    if (!fileExists(configFile)) {
+                        error "Config file not found: ${configFile}"
+                    }
+                    def config = readYaml(file: configFile)
+
+                    env.CFG_PLATFORM    = config.platform ?: params.PLATFORM
+                    env.CFG_BUILD_MODE  = config.build?.mode ?: 'all'
+                    env.CFG_MODELS      = params.MODELS ?: (config.build?.models ?: '')
+                    env.CFG_SWAP_ENDIAN = (config.build?.swap_endian == true) ? '1' : '0'
+                    env.CFG_PAD_ALIGN   = config.build?.pad_align?.toString() ?: '0'
+
+                    // Apply environment overrides from config
+                    if (config.env) {
+                        config.env.each { k, v ->
+                            env."${k}" = v
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Build') {
+            steps {
+                script {
+                    def buildArgs = "-p ${env.CFG_PLATFORM} -m ${env.CFG_BUILD_MODE}"
+                    if (env.CFG_MODELS?.trim()) {
+                        buildArgs += " -s ${env.CFG_MODELS}"
+                    }
+                    if (env.CFG_SWAP_ENDIAN == '1') {
+                        buildArgs += " -e"
+                    }
+                    if (env.CFG_PAD_ALIGN != '0') {
+                        buildArgs += " -a ${env.CFG_PAD_ALIGN}"
+                    }
+                    sh "chmod +x stubs/build.sh && stubs/build.sh ${buildArgs}"
+                }
+            }
+        }
+
+        stage('Smoke Tests') {
+            steps {
+                sh '''
+                    python3 -m venv build/.venv
+                    . build/.venv/bin/activate
+                    pip install --quiet -r tests/requirements.txt
+                    python3 -m pytest tests/ \
+                        -v \
+                        --platform="${CFG_PLATFORM}" \
+                        --deps-config="ci/deps_config/${DEPS_CONFIG}.yaml" \
+                        --junitxml=build/smoke_results.xml
+                    deactivate
+                '''
+            }
+        }
+
+        stage('Archive') {
+            steps {
+                sh "chmod +x ci/scripts/archive_artifacts.sh && ci/scripts/archive_artifacts.sh ${env.CFG_PLATFORM}"
+                archiveArtifacts artifacts: 'build/artifacts/**', fingerprint: true
+                archiveArtifacts artifacts: 'build/smoke_results.xml', allowEmptyArchive: true
+            }
+        }
+    }
+
+    post {
+        always {
+            junit allowEmptyResults: true, testResults: 'build/smoke_results.xml'
+            junit allowEmptyResults: true, testResults: 'build/**/Test.xml'
+        }
+        cleanup {
+            cleanWs()
+        }
+    }
+}

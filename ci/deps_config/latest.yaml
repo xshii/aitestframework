@@ -1,0 +1,16 @@
+# Dependency configuration for nightly smoke tests.
+# Used by ci/Jenkinsfile.smoke to parameterize builds.
+
+toolchain:
+  cmake_min_version: "3.12"
+  cc: "gcc"
+
+platform: "func_sim"
+
+build:
+  mode: "all"            # app | ut | all
+  models: ""             # empty = all models
+  swap_endian: false
+  pad_align: 0
+
+env: {}
