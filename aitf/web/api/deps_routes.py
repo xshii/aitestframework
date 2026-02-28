@@ -2,29 +2,20 @@
 
 from __future__ import annotations
 
+import io
+import tempfile
 from dataclasses import asdict
-
 from pathlib import Path
 
+import yaml as _yaml
 from flask import Blueprint, jsonify, request, send_file
+from werkzeug.utils import secure_filename
 
-from aitf.deps.bundle import BundleManager
-from aitf.deps.manager import DepsManager
 from aitf.deps.types import BundleNotFoundError, DepsConfigError, DepsError
 from aitf.web import tasks
+from aitf.web.views import get_bundle_manager, get_deps_manager
 
 deps_bp = Blueprint("deps", __name__)
-
-
-def _mgr() -> DepsManager:
-    from flask import current_app
-    if "deps_manager" not in current_app.config:
-        current_app.config["deps_manager"] = DepsManager()
-    return current_app.config["deps_manager"]
-
-
-def _bm() -> BundleManager:
-    return BundleManager(_mgr())
 
 
 # -- error handlers ----------------------------------------------------------
@@ -65,7 +56,7 @@ def list_deps():
     from aitf.deps.acquire import is_installed
     from aitf.deps.repo import is_cloned
 
-    mgr = _mgr()
+    mgr = get_deps_manager()
     cfg = mgr.config
     result = {"toolchains": {}, "libraries": {}, "repos": {}}
 
@@ -88,7 +79,7 @@ def list_deps():
 def install_dep():
     body = request.get_json(silent=True) or {}
     name = body.get("name")
-    mgr = _mgr()
+    mgr = get_deps_manager()
 
     def _run(task):
         mgr.install(name=name, on_progress=task.progress)
@@ -99,19 +90,19 @@ def install_dep():
 
 @deps_bp.route("/api/deps/clean", methods=["POST"])
 def clean_deps():
-    return jsonify({"removed": _mgr().clean()})
+    return jsonify({"removed": get_deps_manager().clean()})
 
 
 @deps_bp.route("/api/deps/doctor", methods=["GET"])
 def doctor():
-    return jsonify([asdict(r) for r in _mgr().doctor()])
+    return jsonify([asdict(r) for r in get_deps_manager().doctor()])
 
 
 # -- bundle routes -----------------------------------------------------------
 
 @deps_bp.route("/api/bundles", methods=["GET"])
 def list_bundles():
-    bm = _bm()
+    bm = get_bundle_manager()
     active = bm.active()
     return jsonify([
         {**asdict(b), "active": active is not None and b.name == active.name}
@@ -121,12 +112,12 @@ def list_bundles():
 
 @deps_bp.route("/api/bundles/<name>", methods=["GET"])
 def show_bundle(name):
-    return jsonify(asdict(_bm().show(name)))
+    return jsonify(asdict(get_bundle_manager().show(name)))
 
 
 @deps_bp.route("/api/bundles/<name>/install", methods=["POST"])
 def install_bundle(name):
-    bm = _bm()
+    bm = get_bundle_manager()
 
     def _run(task):
         bm.install(name, on_progress=task.progress)
@@ -138,7 +129,7 @@ def install_bundle(name):
 @deps_bp.route("/api/bundles/<name>/use", methods=["POST"])
 def use_bundle(name):
     force = (request.get_json(silent=True) or {}).get("force", False)
-    bm = _bm()
+    bm = get_bundle_manager()
 
     def _run(task):
         bm.use(name, force=force, on_progress=task.progress)
@@ -149,6 +140,22 @@ def use_bundle(name):
 
 # -- upload / download routes -----------------------------------------------
 
+def _upload_dir() -> Path:
+    return get_deps_manager()._root / "deps" / "uploads"
+
+
+def _safe_upload_path(filename: str) -> Path | None:
+    """Resolve filename under upload dir; return None if escapes."""
+    safe_name = secure_filename(filename)
+    if not safe_name:
+        return None
+    upload = _upload_dir().resolve()
+    target = (upload / safe_name).resolve()
+    if not str(target).startswith(str(upload)):
+        return None
+    return target
+
+
 @deps_bp.route("/api/deps/upload", methods=["POST"])
 def upload_dep():
     """Upload a .tar.gz archive to deps/uploads/."""
@@ -158,33 +165,34 @@ def upload_dep():
     if not f.filename.endswith(".tar.gz"):
         return jsonify({"error": "only .tar.gz files accepted"}), 400
 
-    mgr = _mgr()
-    upload_dir = mgr._root / "deps" / "uploads"
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    dest = upload_dir / f.filename
+    safe_name = secure_filename(f.filename)
+    if not safe_name.endswith(".tar.gz"):
+        return jsonify({"error": "invalid filename"}), 400
+
+    upload = _upload_dir()
+    upload.mkdir(parents=True, exist_ok=True)
+    dest = upload / safe_name
     f.save(dest)
-    return jsonify({"saved": f.filename, "path": str(dest), "size": dest.stat().st_size}), 201
+    return jsonify({"saved": safe_name, "size": dest.stat().st_size}), 201
 
 
 @deps_bp.route("/api/deps/uploads", methods=["GET"])
 def list_uploads():
     """List uploaded archives in deps/uploads/."""
-    mgr = _mgr()
-    upload_dir = mgr._root / "deps" / "uploads"
-    if not upload_dir.is_dir():
+    upload = _upload_dir()
+    if not upload.is_dir():
         return jsonify([])
-    files = []
-    for p in sorted(upload_dir.glob("*.tar.gz")):
-        files.append({"name": p.name, "size": p.stat().st_size})
-    return jsonify(files)
+    return jsonify([
+        {"name": p.name, "size": p.stat().st_size}
+        for p in sorted(upload.glob("*.tar.gz"))
+    ])
 
 
 @deps_bp.route("/api/deps/uploads/<filename>", methods=["DELETE"])
 def delete_upload(filename):
     """Delete an uploaded archive."""
-    mgr = _mgr()
-    target = (mgr._root / "deps" / "uploads" / filename).resolve()
-    if not target.is_file():
+    target = _safe_upload_path(filename)
+    if not target or not target.is_file():
         return jsonify({"error": "file not found"}), 404
     target.unlink()
     return jsonify({"deleted": filename})
@@ -193,25 +201,26 @@ def delete_upload(filename):
 @deps_bp.route("/api/deps/uploads/<filename>/download", methods=["GET"])
 def download_upload(filename):
     """Download an uploaded archive."""
-    mgr = _mgr()
-    target = (mgr._root / "deps" / "uploads" / filename).resolve()
-    if not target.is_file():
+    target = _safe_upload_path(filename)
+    if not target or not target.is_file():
         return jsonify({"error": "file not found"}), 404
-    return send_file(target, as_attachment=True, download_name=filename)
+    return send_file(target, as_attachment=True, download_name=target.name)
 
+
+# -- bundle create / delete / export / import --------------------------------
 
 @deps_bp.route("/api/bundles", methods=["POST"])
 def create_bundle():
     """Create or update a bundle in deps.yaml."""
+    from aitf.deps.config import save_deps_config
+    from aitf.deps.types import BundleConfig
+
     body = request.get_json(force=True)
     name = body.get("name")
     if not name:
         return jsonify({"error": "name is required"}), 400
 
-    from aitf.deps.config import save_deps_config
-    from aitf.deps.types import BundleConfig
-
-    mgr = _mgr()
+    mgr = get_deps_manager()
     cfg = mgr.config
     cfg.bundles[name] = BundleConfig(
         name=name,
@@ -232,7 +241,7 @@ def delete_bundle(name):
     """Delete a bundle from deps.yaml."""
     from aitf.deps.config import save_deps_config
 
-    mgr = _mgr()
+    mgr = get_deps_manager()
     cfg = mgr.config
     if name not in cfg.bundles:
         return jsonify({"error": "bundle not found"}), 404
@@ -244,26 +253,29 @@ def delete_bundle(name):
     return jsonify({"deleted": name})
 
 
+def _non_none(d: dict) -> dict:
+    """Strip None values for clean YAML output."""
+    return {k: v for k, v in d.items() if v is not None}
+
+
 @deps_bp.route("/api/bundles/<name>/export", methods=["GET"])
 def export_bundle(name):
     """Export bundle config as a deps.yaml file for local use."""
-    import io
-    import yaml as _yaml
-
-    mgr = _mgr()
+    mgr = get_deps_manager()
     cfg = mgr.config
-    bundle = _bm().show(name)
+    bundle = get_bundle_manager().show(name)
 
-    # Build a minimal deps.yaml containing only deps referenced by this bundle
     data: dict = {}
     tc_section = {}
     for tc_name, tc_ver in bundle.toolchains.items():
         tc = cfg.toolchains.get(tc_name)
         if tc:
-            tc_section[tc_name] = {"version": tc_ver, "sha256": tc.sha256,
-                                   "bin_dir": tc.bin_dir, "env": tc.env,
-                                   "acquire": {"local_dir": tc.acquire.local_dir,
-                                               "script": tc.acquire.script}}
+            tc_section[tc_name] = _non_none({
+                "version": tc_ver, "sha256": tc.sha256 or None,
+                "bin_dir": tc.bin_dir, "env": tc.env or None,
+                "acquire": _non_none({"local_dir": tc.acquire.local_dir,
+                                      "script": tc.acquire.script}),
+            })
     if tc_section:
         data["toolchains"] = tc_section
 
@@ -271,10 +283,12 @@ def export_bundle(name):
     for lib_name, lib_ver in bundle.libraries.items():
         lib = cfg.libraries.get(lib_name)
         if lib:
-            lib_section[lib_name] = {"version": lib_ver, "sha256": lib.sha256,
-                                     "build_system": lib.build_system,
-                                     "acquire": {"local_dir": lib.acquire.local_dir,
-                                                 "script": lib.acquire.script}}
+            lib_section[lib_name] = _non_none({
+                "version": lib_ver, "sha256": lib.sha256 or None,
+                "build_system": lib.build_system,
+                "acquire": _non_none({"local_dir": lib.acquire.local_dir,
+                                      "script": lib.acquire.script}),
+            })
     if lib_section:
         data["libraries"] = lib_section
 
@@ -282,17 +296,18 @@ def export_bundle(name):
     for repo_name, repo_ref in bundle.repos.items():
         repo = cfg.repos.get(repo_name)
         if repo:
-            repo_section[repo_name] = {"url": repo.url, "ref": repo_ref,
-                                       "depth": repo.depth,
-                                       "build_script": repo.build_script}
+            repo_section[repo_name] = _non_none({
+                "url": repo.url, "ref": repo_ref,
+                "depth": repo.depth, "build_script": repo.build_script,
+            })
     if repo_section:
         data["repos"] = repo_section
 
-    data["bundles"] = {name: {
-        "description": bundle.description, "status": bundle.status,
+    data["bundles"] = {name: _non_none({
+        "description": bundle.description or None, "status": bundle.status,
         "toolchains": bundle.toolchains, "libraries": bundle.libraries,
-        "repos": bundle.repos, "env": bundle.env,
-    }}
+        "repos": bundle.repos, "env": bundle.env or None,
+    })}
     data["active"] = name
 
     buf = io.BytesIO()
@@ -309,10 +324,9 @@ def import_bundle():
     f = request.files.get("file")
     if not f or not f.filename:
         return jsonify({"error": "file is required"}), 400
-    import tempfile
-    tmp = Path(tempfile.mkdtemp())
-    archive = tmp / f.filename
-    f.save(archive)
-    bm = _bm()
-    bundle_name = bm.import_bundle(archive)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        archive = Path(tmp) / secure_filename(f.filename)
+        f.save(archive)
+        bundle_name = get_bundle_manager().import_bundle(archive)
     return jsonify({"imported": bundle_name}), 201

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from datetime import datetime
 from typing import Any
 
@@ -26,7 +27,6 @@ class _JSONProvider(DefaultJSONProvider):
 
 def create_app(config: dict | None = None) -> Flask:
     """Create and configure the Flask application."""
-    import os
     tmpl_dir = os.path.join(os.path.dirname(__file__), "templates")
     static_dir = os.path.join(os.path.dirname(__file__), "static")
     app = Flask(__name__, template_folder=tmpl_dir, static_folder=static_dir)

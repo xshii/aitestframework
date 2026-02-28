@@ -11,9 +11,9 @@
     <div class="container-fluid">
       <a class="navbar-brand" href="/">aitestframework</a>
       <ul class="navbar-nav">
-        <li class="nav-item"><a class="nav-link" href="/deps">Deps</a></li>
-        <li class="nav-item"><a class="nav-link" href="/bundles">Bundles</a></li>
-        <li class="nav-item"><a class="nav-link" href="/logs">Logs</a></li>
+        <li class="nav-item"><a class="nav-link{% if request.path.startswith('/deps') %} active{% endif %}" href="/deps">Deps</a></li>
+        <li class="nav-item"><a class="nav-link{% if request.path.startswith('/bundles') %} active{% endif %}" href="/bundles">Bundles</a></li>
+        <li class="nav-item"><a class="nav-link{% if request.path.startswith('/logs') %} active{% endif %}" href="/logs">Logs</a></li>
       </ul>
     </div>
   </nav>

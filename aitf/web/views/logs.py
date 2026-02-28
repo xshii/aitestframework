@@ -13,6 +13,8 @@ from flask import (
     send_file,
 )
 
+from aitf.web.views import size_display
+
 logs_bp = Blueprint("logs", __name__)
 
 _DEFAULT_LIMIT = 1000  # lines per page
@@ -31,14 +33,6 @@ def _safe_path(subpath: str) -> Path:
     return target
 
 
-def _size_display(size: int) -> str:
-    for unit in ("B", "KB", "MB", "GB"):
-        if size < 1024:
-            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
-        size /= 1024
-    return f"{size:.1f} TB"
-
-
 # -- routes ------------------------------------------------------------------
 
 @logs_bp.route("/logs")
@@ -55,7 +49,7 @@ def log_index(subpath: str = ""):
             "name": child.name,
             "path": str(rel),
             "is_dir": child.is_dir(),
-            "size_display": _size_display(child.stat().st_size) if child.is_file() else "",
+            "size_display": size_display(child.stat().st_size) if child.is_file() else "",
         })
 
     parent = str(Path(subpath).parent) if subpath else ""

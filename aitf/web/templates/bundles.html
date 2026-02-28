@@ -39,15 +39,15 @@
 <form id="createBundleForm">
   <div class="mb-2">
     <label class="form-label form-label-sm">Name</label>
-    <input type="text" name="name" class="form-control form-control-sm" required placeholder="e.g. npu-v2.2">
+    <input type="text" id="bundleName" class="form-control form-control-sm" required placeholder="e.g. npu-v2.2">
   </div>
   <div class="mb-2">
     <label class="form-label form-label-sm">Description</label>
-    <input type="text" name="description" class="form-control form-control-sm" placeholder="Optional description">
+    <input type="text" id="bundleDesc" class="form-control form-control-sm" placeholder="Optional description">
   </div>
   <div class="mb-2">
     <label class="form-label form-label-sm">Status</label>
-    <select name="status" class="form-select form-select-sm">
+    <select id="bundleStatus" class="form-select form-select-sm">
       <option value="testing">testing</option>
       <option value="verified">verified</option>
       <option value="deprecated">deprecated</option>
@@ -60,10 +60,10 @@
     {% for name, ver in available.toolchains.items() %}
     <div class="input-group input-group-sm mb-1">
       <div class="input-group-text">
-        <input type="checkbox" class="form-check-input mt-0" name="tc_check_{{ name }}" checked>
+        <input type="checkbox" class="form-check-input mt-0" id="tc_check_{{ name }}" checked>
       </div>
       <span class="input-group-text">{{ name }}</span>
-      <input type="text" name="tc_ver_{{ name }}" class="form-control" value="{{ ver }}" placeholder="version">
+      <input type="text" id="tc_ver_{{ name }}" class="form-control" value="{{ ver }}" placeholder="version">
     </div>
     {% endfor %}
   </fieldset>
@@ -75,10 +75,10 @@
     {% for name, ver in available.libraries.items() %}
     <div class="input-group input-group-sm mb-1">
       <div class="input-group-text">
-        <input type="checkbox" class="form-check-input mt-0" name="lib_check_{{ name }}" checked>
+        <input type="checkbox" class="form-check-input mt-0" id="lib_check_{{ name }}" checked>
       </div>
       <span class="input-group-text">{{ name }}</span>
-      <input type="text" name="lib_ver_{{ name }}" class="form-control" value="{{ ver }}" placeholder="version">
+      <input type="text" id="lib_ver_{{ name }}" class="form-control" value="{{ ver }}" placeholder="version">
     </div>
     {% endfor %}
   </fieldset>
@@ -90,10 +90,10 @@
     {% for name, ref in available.repos.items() %}
     <div class="input-group input-group-sm mb-1">
       <div class="input-group-text">
-        <input type="checkbox" class="form-check-input mt-0" name="repo_check_{{ name }}" checked>
+        <input type="checkbox" class="form-check-input mt-0" id="repo_check_{{ name }}" checked>
       </div>
       <span class="input-group-text">{{ name }}</span>
-      <input type="text" name="repo_ref_{{ name }}" class="form-control" value="{{ ref }}" placeholder="branch / tag / commit">
+      <input type="text" id="repo_ref_{{ name }}" class="form-control" value="{{ ref }}" placeholder="branch / tag / commit">
     </div>
     {% endfor %}
   </fieldset>
@@ -105,12 +105,13 @@
 
 <div class="col-md-6">
 <h5>Import Bundle</h5>
-<form action="/api/bundles/import" method="post" enctype="multipart/form-data" class="mb-3">
+<form id="importBundleForm">
   <div class="input-group input-group-sm" style="max-width:400px">
-    <input type="file" name="file" accept=".tar.gz,.gz" class="form-control" required>
+    <input type="file" id="importFile" accept=".tar.gz,.gz" class="form-control" required>
     <button type="submit" class="btn btn-primary">Import</button>
   </div>
   <small class="text-muted">Upload a bundle .tar.gz exported from another machine</small>
+  <div id="importMsg" class="small mt-1"></div>
 </form>
 </div>
 </div>
@@ -118,24 +119,23 @@
 <script>
 document.getElementById('createBundleForm').addEventListener('submit', function(e) {
   e.preventDefault();
-  var f = this;
   var body = {
-    name: f.name.value,
-    description: f.description.value,
-    status: f.status.value,
+    name: document.getElementById('bundleName').value,
+    description: document.getElementById('bundleDesc').value,
+    status: document.getElementById('bundleStatus').value,
     toolchains: {}, libraries: {}, repos: {}
   };
   {% for name in available.toolchains %}
-  if (f['tc_check_{{ name }}'] && f['tc_check_{{ name }}'].checked)
-    body.toolchains['{{ name }}'] = f['tc_ver_{{ name }}'].value;
+  if (document.getElementById('tc_check_{{ name }}').checked)
+    body.toolchains['{{ name }}'] = document.getElementById('tc_ver_{{ name }}').value;
   {% endfor %}
   {% for name in available.libraries %}
-  if (f['lib_check_{{ name }}'] && f['lib_check_{{ name }}'].checked)
-    body.libraries['{{ name }}'] = f['lib_ver_{{ name }}'].value;
+  if (document.getElementById('lib_check_{{ name }}').checked)
+    body.libraries['{{ name }}'] = document.getElementById('lib_ver_{{ name }}').value;
   {% endfor %}
   {% for name in available.repos %}
-  if (f['repo_check_{{ name }}'] && f['repo_check_{{ name }}'].checked)
-    body.repos['{{ name }}'] = f['repo_ref_{{ name }}'].value;
+  if (document.getElementById('repo_check_{{ name }}').checked)
+    body.repos['{{ name }}'] = document.getElementById('repo_ref_{{ name }}').value;
   {% endfor %}
 
   fetch('/api/bundles', {
@@ -146,6 +146,22 @@ document.getElementById('createBundleForm').addEventListener('submit', function(
     if (d.error) alert('Error: ' + d.error);
     else location.reload();
   }).catch(e => alert('Failed: ' + e));
+});
+
+document.getElementById('importBundleForm').addEventListener('submit', function(e) {
+  e.preventDefault();
+  var file = document.getElementById('importFile').files[0];
+  if (!file) return;
+  var fd = new FormData();
+  fd.append('file', file);
+  var msg = document.getElementById('importMsg');
+  msg.textContent = 'Importing...';
+  fetch('/api/bundles/import', {method: 'POST', body: fd})
+    .then(r => r.json())
+    .then(d => {
+      if (d.error) { msg.textContent = 'Error: ' + d.error; }
+      else { location.reload(); }
+    }).catch(e => { msg.textContent = 'Failed: ' + e; });
 });
 
 function bundleDelete(name) {

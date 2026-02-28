@@ -9,15 +9,13 @@
 
 {% if deps %}
 <table class="table table-striped table-sm">
-  <thead><tr><th>Name</th><th>Type</th><th>Version</th><th>Cached</th><th>Upload Dir</th></tr></thead>
+  <thead><tr><th>Name</th><th>Type</th><th>Version / Ref</th></tr></thead>
   <tbody>
   {% for d in deps %}
   <tr>
     <td>{{ d.name }}</td>
     <td><span class="badge bg-{{ 'primary' if d.type == 'toolchain' else ('info' if d.type == 'library' else 'secondary') }}">{{ d.type }}</span></td>
-    <td>{{ d.get('version', d.get('ref', '')) }}</td>
-    <td>{% if d.installed %}<span class="text-success">Yes</span>{% else %}<span class="text-muted">No</span>{% endif %}</td>
-    <td><code>{{ d.local_dir or '-' }}</code></td>
+    <td><code>{{ d.version }}</code></td>
   </tr>
   {% endfor %}
   </tbody>
@@ -27,12 +25,13 @@
 <hr>
 <h5>Uploaded Archives <small class="text-muted">(deps/uploads/)</small></h5>
 
-<form action="/api/deps/upload" method="post" enctype="multipart/form-data" class="mb-3">
+<form id="uploadForm" class="mb-3">
   <div class="input-group" style="max-width:500px">
-    <input type="file" name="file" accept=".tar.gz,.gz" class="form-control form-control-sm" required>
+    <input type="file" id="uploadFile" accept=".tar.gz,.gz" class="form-control form-control-sm" required>
     <button type="submit" class="btn btn-sm btn-primary">Upload</button>
   </div>
   <small class="text-muted">Upload a .tar.gz archive (e.g. npu-compiler-2.1.0-linux-x86_64.tar.gz)</small>
+  <div id="uploadMsg" class="small mt-1"></div>
 </form>
 
 {% if uploads %}
@@ -45,10 +44,7 @@
     <td>{{ u.size }}</td>
     <td>
       <a href="/api/deps/uploads/{{ u.name }}/download" class="btn btn-sm btn-outline-primary">Download</a>
-      <form action="/api/deps/uploads/{{ u.name }}" method="post" style="display:inline" onsubmit="
-        fetch(this.action, {method:'DELETE'}).then(()=>location.reload()); return false;">
-        <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
-      </form>
+      <button class="btn btn-sm btn-outline-danger" onclick="deleteDep('{{ u.name }}')">Delete</button>
     </td>
   </tr>
   {% endfor %}
@@ -57,4 +53,32 @@
 {% else %}
 <p class="text-muted">No archives uploaded yet.</p>
 {% endif %}
+
+<script>
+document.getElementById('uploadForm').addEventListener('submit', function(e) {
+  e.preventDefault();
+  var file = document.getElementById('uploadFile').files[0];
+  if (!file) return;
+  var fd = new FormData();
+  fd.append('file', file);
+  var msg = document.getElementById('uploadMsg');
+  msg.textContent = 'Uploading...';
+  fetch('/api/deps/upload', {method: 'POST', body: fd})
+    .then(r => r.json())
+    .then(d => {
+      if (d.error) { msg.textContent = 'Error: ' + d.error; }
+      else { location.reload(); }
+    }).catch(e => { msg.textContent = 'Failed: ' + e; });
+});
+
+function deleteDep(name) {
+  if (!confirm('Delete "' + name + '"?')) return;
+  fetch('/api/deps/uploads/' + name, {method: 'DELETE'})
+    .then(r => r.json())
+    .then(d => {
+      if (d.error) alert('Error: ' + d.error);
+      else location.reload();
+    }).catch(e => alert('Failed: ' + e));
+}
+</script>
 {% endblock %}
