@@ -78,28 +78,17 @@ class TestLoadDepsConfig:
         assert len(cfg.toolchains) == 1
         assert cfg.toolchains["cc"].version == "1.0"
 
-    def test_load_with_remote(self, tmp_path):
+    def test_load_with_acquire_script(self, tmp_path):
         cfg_data = {
-            "remote": {
-                "host": "10.0.0.1",
-                "user": "deploy",
-                "path": "/data/deps",
-                "port": 2222,
-                "auth": {"key_file": "~/.ssh/id_rsa"},
-            },
             "toolchains": {
-                "cc": {"version": "1.0", "acquire": {"remote": True}},
+                "cc": {"version": "1.0", "acquire": {"script": "fetch.sh"}},
             },
         }
         p = tmp_path / "deps.yaml"
         with open(p, "w") as fh:
             yaml.dump(cfg_data, fh)
         cfg = load_deps_config(p)
-        assert cfg.remote is not None
-        assert cfg.remote.host == "10.0.0.1"
-        assert cfg.remote.port == 2222
-        assert cfg.remote.key_file == "~/.ssh/id_rsa"
-        assert cfg.toolchains["cc"].acquire.remote is True
+        assert cfg.toolchains["cc"].acquire.script == "fetch.sh"
 
 
 class TestSaveDepsConfig:

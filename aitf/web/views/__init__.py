@@ -6,20 +6,6 @@ from pathlib import Path
 
 from flask import current_app
 
-from aitf.deps.bundle import BundleManager
-from aitf.deps.manager import DepsManager
-
-
-def get_deps_manager() -> DepsManager:
-    """Return the shared DepsManager instance, creating on first call."""
-    if "deps_manager" not in current_app.config:
-        current_app.config["deps_manager"] = DepsManager()
-    return current_app.config["deps_manager"]
-
-
-def get_bundle_manager() -> BundleManager:
-    return BundleManager(get_deps_manager())
-
 
 def size_display(size: int) -> str:
     """Human-readable file size."""

@@ -1,1 +1,1 @@
-"""Core infrastructure: database engine and ORM models."""
+"""Common infrastructure."""

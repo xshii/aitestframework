@@ -13,7 +13,6 @@ from aitf.deps.types import (
     BundleConfig,
     DepsConfigError,
     LibraryConfig,
-    RemoteDepotConfig,
     RepoConfig,
     ToolchainConfig,
 )
@@ -36,7 +35,6 @@ def _parse_acquire(raw: dict) -> AcquireConfig:
     acq = raw.get("acquire") or {}
     return AcquireConfig(
         local_dir=acq.get("local_dir"),
-        remote=acq.get("remote", False),
         script=acq.get("script"),
     )
 
@@ -44,7 +42,6 @@ def _parse_acquire(raw: dict) -> AcquireConfig:
 def _serialize_acquire(acq: AcquireConfig) -> dict:
     return strip_none({
         "local_dir": acq.local_dir,
-        "remote": acq.remote or None,
         "script": acq.script,
     })
 
@@ -57,11 +54,11 @@ class DepsConfig:
     """Parsed representation of ``deps.yaml``."""
 
     def __init__(self) -> None:
+        self.server: str | None = None
         self.toolchains: dict[str, ToolchainConfig] = {}
         self.libraries: dict[str, LibraryConfig] = {}
         self.repos: dict[str, RepoConfig] = {}
         self.bundles: dict[str, BundleConfig] = {}
-        self.remote: RemoteDepotConfig | None = None
         self.active_bundle: str | None = None
 
 
@@ -86,6 +83,8 @@ def load_deps_config(path: str | Path = DEFAULT_DEPS_FILE) -> DepsConfig:
             name=name, version=str(raw.get("version", "")),
             sha256=raw.get("sha256", {}), bin_dir=raw.get("bin_dir"),
             env=raw.get("env", {}), acquire=_parse_acquire(raw),
+            install_dir=raw.get("install_dir"),
+            order=int(raw.get("order", 0)),
         )
 
     for name, raw in data.get("libraries", {}).items():
@@ -95,6 +94,8 @@ def load_deps_config(path: str | Path = DEFAULT_DEPS_FILE) -> DepsConfig:
             build_system=raw.get("build_system", "cmake"),
             cmake_args=raw.get("cmake_args", []),
             build_script=raw.get("build_script"), acquire=_parse_acquire(raw),
+            install_dir=raw.get("install_dir"),
+            order=int(raw.get("order", 0)),
         )
 
     for name, raw in data.get("repos", {}).items():
@@ -102,6 +103,8 @@ def load_deps_config(path: str | Path = DEFAULT_DEPS_FILE) -> DepsConfig:
             name=name, url=raw.get("url", ""), ref=str(raw.get("ref", "main")),
             depth=raw.get("depth"), sparse_checkout=raw.get("sparse_checkout", []),
             build_script=raw.get("build_script"), env=raw.get("env", {}),
+            install_dir=raw.get("install_dir"),
+            order=int(raw.get("order", 0)),
         )
 
     for name, raw in data.get("bundles", {}).items():
@@ -112,16 +115,13 @@ def load_deps_config(path: str | Path = DEFAULT_DEPS_FILE) -> DepsConfig:
             repos=raw.get("repos", {}), env=raw.get("env", {}),
         )
 
-    remote_raw = data.get("remote")
-    if isinstance(remote_raw, dict):
-        auth = remote_raw.get("auth") or {}
-        cfg.remote = RemoteDepotConfig(
-            host=remote_raw["host"], user=remote_raw["user"],
-            path=remote_raw.get("path", "/"), port=remote_raw.get("port", 22),
-            key_file=auth.get("key_file"),
-        )
-
     cfg.active_bundle = data.get("active")
+    cfg.server = data.get("server")
+    if cfg.server:
+        logger.warning(
+            "'server' field in deps.yaml is deprecated — "
+            "please move it to config.yaml instead."
+        )
     return cfg
 
 
@@ -133,6 +133,8 @@ def save_deps_config(cfg: DepsConfig, path: str | Path = DEFAULT_DEPS_FILE) -> N
             name: strip_none({
                 "version": tc.version, "sha256": tc.sha256, "bin_dir": tc.bin_dir,
                 "env": tc.env, "acquire": _serialize_acquire(tc.acquire),
+                "install_dir": tc.install_dir,
+                "order": tc.order or None,
             })
             for name, tc in cfg.toolchains.items()
         }
@@ -143,6 +145,8 @@ def save_deps_config(cfg: DepsConfig, path: str | Path = DEFAULT_DEPS_FILE) -> N
                 "build_system": lib.build_system, "cmake_args": lib.cmake_args,
                 "build_script": lib.build_script,
                 "acquire": _serialize_acquire(lib.acquire),
+                "install_dir": lib.install_dir,
+                "order": lib.order or None,
             })
             for name, lib in cfg.libraries.items()
         }
@@ -152,6 +156,8 @@ def save_deps_config(cfg: DepsConfig, path: str | Path = DEFAULT_DEPS_FILE) -> N
                 "url": r.url, "ref": r.ref, "depth": r.depth,
                 "sparse_checkout": r.sparse_checkout, "build_script": r.build_script,
                 "env": r.env,
+                "install_dir": r.install_dir,
+                "order": r.order or None,
             })
             for name, r in cfg.repos.items()
         }
@@ -164,14 +170,9 @@ def save_deps_config(cfg: DepsConfig, path: str | Path = DEFAULT_DEPS_FILE) -> N
             })
             for name, b in cfg.bundles.items()
         }
-    if cfg.remote:
-        data["remote"] = strip_none({
-            "host": cfg.remote.host, "user": cfg.remote.user, "path": cfg.remote.path,
-            "port": cfg.remote.port if cfg.remote.port != 22 else None,
-            "auth": strip_none({"key_file": cfg.remote.key_file}),
-        })
     if cfg.active_bundle:
         data["active"] = cfg.active_bundle
+    # server field is deprecated in deps.yaml — no longer written out
 
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)

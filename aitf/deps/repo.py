@@ -21,13 +21,14 @@ def _git(args: list[str], *, cwd: str | None = None, timeout: int = 300) -> str:
     return result.stdout.strip()
 
 
-def clone_repo(repo: RepoConfig, dest: Path) -> Path:
-    """Clone or update a repository into *dest/<name>*."""
-    repo_dir = dest / repo.name
+def clone_repo(repo: RepoConfig, dest: Path,
+               repo_dir: Path | None = None) -> Path:
+    """Clone or update a repository into *repo_dir* (default: *dest/<name>*)."""
+    repo_dir = repo_dir if repo_dir else dest / repo.name
     if repo_dir.is_dir():
         return update_repo(repo, repo_dir)
 
-    dest.mkdir(parents=True, exist_ok=True)
+    repo_dir.parent.mkdir(parents=True, exist_ok=True)
 
     clone_args = ["clone"]
     if repo.depth:
@@ -82,9 +83,10 @@ def get_head_commit(repo_dir: Path) -> str:
     return _git(["rev-parse", "HEAD"], cwd=str(repo_dir))
 
 
-def is_cloned(name: str, repos_dir: Path) -> bool:
-    repo_dir = repos_dir / name
-    return repo_dir.is_dir() and (repo_dir / ".git").exists()
+def is_cloned(name: str, repos_dir: Path,
+              repo_dir: Path | None = None) -> bool:
+    target = repo_dir if repo_dir else repos_dir / name
+    return target.is_dir() and (target / ".git").exists()
 
 
 def build_repo(repo: RepoConfig, repo_dir: Path, install_dir: Path, *, project_root: Path) -> None:

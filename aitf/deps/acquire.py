@@ -1,4 +1,4 @@
-"""Dependency acquisition — local dir, SFTP remote, or fetch script."""
+"""Dependency acquisition — local dir or fetch script."""
 
 from __future__ import annotations
 
@@ -15,7 +15,6 @@ from aitf.deps.types import (
     AcquireConfig,
     AcquireError,
     LibraryConfig,
-    RemoteDepotConfig,
     ToolchainConfig,
 )
 
@@ -48,7 +47,7 @@ def run_script(script: str, args: list[str], *, project_root: Path, timeout: int
         )
 
 
-def _archive_candidates(name: str, version: str, plat: str) -> tuple[str, str]:
+def archive_candidates(name: str, version: str, plat: str) -> tuple[str, str]:
     return (f"{name}-{version}-{plat}.tar.gz", f"{name}-{version}.tar.gz")
 
 
@@ -59,48 +58,45 @@ def _archive_candidates(name: str, version: str, plat: str) -> tuple[str, str]:
 def _install_dep(
     name: str, version: str, acq: AcquireConfig, *,
     cache_dir: Path, project_root: Path,
-    remote: RemoteDepotConfig | None, remote_subdir: str,
     expected_sha: str,
+    install_dir: Path | None = None,
     post_install: Callable[[Path], None] | None = None,
 ) -> Path:
-    install_dir = cache_dir / f"{name}-{version}"
-    if install_dir.is_dir():
-        return install_dir
+    target = install_dir if install_dir else cache_dir / name
+    if target.is_dir():
+        return target
 
-    archive = _locate_archive(
-        name, version, acq, project_root, cache_dir,
-        remote=remote, remote_subdir=remote_subdir,
-    )
+    archive = _locate_archive(name, version, acq, project_root, cache_dir)
     if expected_sha:
         _verify_sha256(archive, expected_sha, f"{name}-{version}")
 
-    _unpack(archive, install_dir)
+    _unpack(archive, target)
     if post_install:
-        post_install(install_dir)
-    return install_dir
+        post_install(target)
+    return target
 
 
 def install_toolchain(
     tc: ToolchainConfig, *, cache_dir: Path, project_root: Path,
-    remote: RemoteDepotConfig | None = None,
+    install_dir: Path | None = None,
 ) -> Path:
     return _install_dep(
         tc.name, tc.version, tc.acquire,
         cache_dir=cache_dir, project_root=project_root,
-        remote=remote, remote_subdir="toolchains",
         expected_sha=tc.sha256.get(detect_platform(), ""),
+        install_dir=install_dir,
     )
 
 
 def install_library(
     lib: LibraryConfig, *, cache_dir: Path, project_root: Path,
-    remote: RemoteDepotConfig | None = None,
+    install_dir: Path | None = None,
 ) -> Path:
     return _install_dep(
         lib.name, lib.version, lib.acquire,
         cache_dir=cache_dir, project_root=project_root,
-        remote=remote, remote_subdir="libraries",
         expected_sha=lib.sha256,
+        install_dir=install_dir,
         post_install=(lambda d: run_script(
             lib.build_script, [str(d), str(d)],
             project_root=project_root, timeout=1800,
@@ -116,13 +112,12 @@ def _verify_sha256(archive: Path, expected: str, label: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Archive location (3-tier: local -> remote SFTP -> script)
+# Archive location (2-tier: local -> script)
 # ---------------------------------------------------------------------------
 
 def _locate_archive(
     name: str, version: str, acquire: AcquireConfig,
     project_root: Path, cache_dir: Path,
-    *, remote: RemoteDepotConfig | None = None, remote_subdir: str = "",
 ) -> Path:
     downloads = cache_dir / ".downloads"
     downloads.mkdir(parents=True, exist_ok=True)
@@ -132,11 +127,6 @@ def _locate_archive(
         found = _find_archive(project_root / acquire.local_dir, name, version, plat)
         if found:
             return found
-
-    if acquire.remote and remote:
-        fetched = _fetch_from_remote(remote, remote_subdir, name, version, plat, downloads)
-        if fetched:
-            return fetched
 
     if acquire.script:
         run_script(acquire.script, [version, str(downloads)], project_root=project_root)
@@ -151,51 +141,10 @@ def _locate_archive(
 
 
 def _find_archive(directory: Path, name: str, version: str, plat: str) -> Path | None:
-    for candidate in _archive_candidates(name, version, plat):
+    for candidate in archive_candidates(name, version, plat):
         p = directory / candidate
         if p.is_file():
             return p
-    return None
-
-
-def _fetch_from_remote(
-    remote: RemoteDepotConfig, subdir: str,
-    name: str, version: str, plat: str,
-    downloads: Path,
-) -> Path | None:
-    try:
-        import paramiko
-    except ImportError:
-        logger.warning("paramiko not available, skipping remote fetch")
-        return None
-
-    remote_base = f"{remote.path.rstrip('/')}/{subdir}" if subdir else remote.path.rstrip("/")
-
-    try:
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.WarningPolicy())
-        connect_kw: dict = {"hostname": remote.host, "port": remote.port, "username": remote.user}
-        if remote.key_file:
-            connect_kw["key_filename"] = remote.key_file
-        ssh.connect(**connect_kw)
-        sftp = ssh.open_sftp()
-        try:
-            for filename in _archive_candidates(name, version, plat):
-                remote_path = f"{remote_base}/{filename}"
-                local_path = downloads / filename
-                try:
-                    sftp.stat(remote_path)
-                    logger.info("Downloading %s:%s", remote.host, remote_path)
-                    sftp.get(remote_path, str(local_path))
-                    return local_path
-                except FileNotFoundError:
-                    continue
-        finally:
-            sftp.close()
-            ssh.close()
-    except (OSError, paramiko.SSHException) as exc:
-        logger.warning("Remote fetch failed: %s", exc)
-
     return None
 
 
@@ -209,8 +158,10 @@ def _unpack(archive: Path, dest: Path) -> None:
         raise
 
 
-def is_installed(name: str, version: str, cache_dir: Path) -> bool:
-    return (cache_dir / f"{name}-{version}").is_dir()
+def is_installed(name: str, version: str, cache_dir: Path,
+                  install_dir: Path | None = None) -> bool:
+    target = install_dir if install_dir else cache_dir / name
+    return target.is_dir()
 
 
 def clean_cache(cache_dir: Path) -> int:

@@ -32,6 +32,13 @@ class DepsManager:
         self._repos_dir.mkdir(parents=True, exist_ok=True)
         self._cfg: DepsConfig | None = None
 
+    def _resolve_dir(self, dep, default_base: Path) -> Path | None:
+        """Resolve custom ``install_dir`` (relative to build_root) or *None*."""
+        if dep.install_dir:
+            p = Path(dep.install_dir)
+            return p if p.is_absolute() else (self._build_dir / p)
+        return None
+
     @property
     def config(self) -> DepsConfig:
         if self._cfg is None:
@@ -53,34 +60,68 @@ class DepsManager:
             if on_progress:
                 on_progress(1, 1, name)
         else:
-            kw = dict(cache_dir=self._cache_dir, project_root=self._root, remote=cfg.remote)
-            steps = [
-                *((f"toolchain {tc.name}", lambda t=tc: acquire.install_toolchain(t, **kw)) for tc in cfg.toolchains.values()),
-                *((f"library {lib.name}", lambda l=lib: acquire.install_library(l, **kw)) for lib in cfg.libraries.values()),
-                *((f"repo {rc.name}", lambda r=rc: self._clone_and_build(r)) for rc in cfg.repos.values()),
+            kw = dict(cache_dir=self._cache_dir, project_root=self._root)
+            steps: list[tuple[int, str, Callable[[], None]]] = [
+                *(
+                    (tc.order, f"toolchain {tc.name}",
+                     lambda t=tc: acquire.install_toolchain(
+                         t, **kw, install_dir=self._resolve_dir(t, self._cache_dir)))
+                    for tc in cfg.toolchains.values()
+                ),
+                *(
+                    (lib.order, f"library {lib.name}",
+                     lambda l=lib: acquire.install_library(
+                         l, **kw, install_dir=self._resolve_dir(l, self._cache_dir)))
+                    for lib in cfg.libraries.values()
+                ),
+                *(
+                    (rc.order, f"repo {rc.name}",
+                     lambda r=rc: self._clone_and_build(r))
+                    for rc in cfg.repos.values()
+                ),
             ]
-            for i, (label, fn) in enumerate(steps):
+            steps.sort(key=lambda s: s[0])
+            for i, (_, label, fn) in enumerate(steps):
                 if on_progress:
                     on_progress(i + 1, len(steps), label)
                 self._try(fn, label)
 
-        lock = generate_lock(cfg, self._cache_dir, self._repos_dir)
+        lock = generate_lock(
+            cfg, self._cache_dir, self._repos_dir,
+            dir_overrides=self._dir_overrides(cfg),
+        )
         save_lock(lock, self._lock_path)
 
     def _install_one(self, name: str, cfg: DepsConfig) -> None:
-        kw = dict(cache_dir=self._cache_dir, project_root=self._root, remote=cfg.remote)
+        kw = dict(cache_dir=self._cache_dir, project_root=self._root)
         if name in cfg.toolchains:
-            acquire.install_toolchain(cfg.toolchains[name], **kw)
+            tc = cfg.toolchains[name]
+            acquire.install_toolchain(tc, **kw, install_dir=self._resolve_dir(tc, self._cache_dir))
         elif name in cfg.libraries:
-            acquire.install_library(cfg.libraries[name], **kw)
+            lib = cfg.libraries[name]
+            acquire.install_library(lib, **kw, install_dir=self._resolve_dir(lib, self._cache_dir))
         elif name in cfg.repos:
             self._clone_and_build(cfg.repos[name])
         else:
             raise DepsError(f"Unknown dependency: {name}")
 
     def _clone_and_build(self, rc: RepoConfig) -> None:
-        repo_dir = repo.clone_repo(rc, self._repos_dir)
+        custom = self._resolve_dir(rc, self._repos_dir)
+        repo_dir = repo.clone_repo(rc, self._repos_dir, repo_dir=custom)
         repo.build_repo(rc, repo_dir, repo_dir, project_root=self._root)
+
+    def _dir_overrides(self, cfg: DepsConfig) -> dict[str, Path]:
+        """Build a name→Path mapping for deps with custom install_dir."""
+        out: dict[str, Path] = {}
+        for name, dep in {**cfg.toolchains, **cfg.libraries}.items():
+            d = self._resolve_dir(dep, self._cache_dir)
+            if d:
+                out[name] = d
+        for name, dep in cfg.repos.items():
+            d = self._resolve_dir(dep, self._repos_dir)
+            if d:
+                out[name] = d
+        return out
 
     @staticmethod
     def _try(fn: Callable[[], None], label: str) -> None:
@@ -107,15 +148,17 @@ class DepsManager:
             self.config, cache_dir=self._cache_dir, repos_dir=self._repos_dir,
             project_root=self._root,
             lock_path=self._lock_path if self._lock_path.exists() else None,
+            dir_overrides=self._dir_overrides(self.config),
         )
 
     def get_env(self) -> dict[str, str]:
         cfg = self.config
         env: dict[str, str] = {}
-        # Collect (dir, env_dict) pairs from toolchains + repos
         entries = [
-            *(( self._cache_dir / f"{n}-{tc.version}", tc.env) for n, tc in cfg.toolchains.items()),
-            *((self._repos_dir / n, rc.env) for n, rc in cfg.repos.items()),
+            *((self._resolve_dir(tc, self._cache_dir) or self._cache_dir / n, tc.env)
+              for n, tc in cfg.toolchains.items()),
+            *((self._resolve_dir(rc, self._repos_dir) or self._repos_dir / n, rc.env)
+              for n, rc in cfg.repos.items()),
         ]
         for d, dep_env in entries:
             if d.is_dir():
@@ -145,9 +188,10 @@ class DepsManager:
         cfg = self.config
         for section, base in [(cfg.toolchains, self._cache_dir), (cfg.libraries, self._cache_dir)]:
             if name in section:
-                d = base / f"{name}-{section[name].version}"
+                d = self._resolve_dir(section[name], base) or base / name
                 return d if d.is_dir() else None
         if name in cfg.repos:
-            d = self._repos_dir / name
+            dep = cfg.repos[name]
+            d = self._resolve_dir(dep, self._repos_dir) or self._repos_dir / name
             return d if d.is_dir() else None
         return None

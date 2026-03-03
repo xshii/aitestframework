@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+import importlib
+import logging
 import os
 from datetime import datetime
 from typing import Any
 
+import pkgutil
+
 from flask import Flask
 from flask.json.provider import DefaultJSONProvider
 
-from aitf.ds.manager import DataStoreManager
-from aitf.web.api.deps_routes import deps_bp
-from aitf.web.api.ds_routes import ds_bp
+import aitf
 from aitf.web.views.index import index_bp
 from aitf.web.views.logs import logs_bp
 
@@ -25,8 +27,37 @@ class _JSONProvider(DefaultJSONProvider):
         return super().default(o)
 
 
-def create_app(config: dict | None = None) -> Flask:
+_log = logging.getLogger(__name__)
+
+
+def _discover_blueprints() -> list:
+    """Scan ``aitf.*`` packages for ``routes.py`` exposing a ``bp`` attribute."""
+    blueprints = []
+    for info in pkgutil.iter_modules(aitf.__path__, aitf.__name__ + "."):
+        if not info.ispkg:
+            continue
+        mod_name = info.name + ".routes"
+        spec = importlib.util.find_spec(mod_name)
+        if spec is None:
+            continue
+        try:
+            mod = importlib.import_module(mod_name)
+            bp = getattr(mod, "bp", None)
+            if bp is not None:
+                blueprints.append(bp)
+                _log.debug("discovered blueprint: %s", mod_name)
+        except Exception:
+            _log.warning("failed to import plugin routes: %s", mod_name, exc_info=True)
+    return blueprints
+
+
+def create_app(config: dict | None = None, aitf_config=None) -> Flask:
     """Create and configure the Flask application."""
+    from aitf.config import AitfConfig
+
+    if aitf_config is None:
+        aitf_config = AitfConfig()
+
     tmpl_dir = os.path.join(os.path.dirname(__file__), "templates")
     static_dir = os.path.join(os.path.dirname(__file__), "static")
     app = Flask(__name__, template_folder=tmpl_dir, static_folder=static_dir)
@@ -34,18 +65,21 @@ def create_app(config: dict | None = None) -> Flask:
     app.json = _JSONProvider(app)
 
     app.config['MAX_CONTENT_LENGTH'] = 512 * 1024 * 1024  # 512 MB
+    app.config["AITF_CONFIG"] = aitf_config
+    app.config.setdefault("DATASTORE_BASE_DIR", str(aitf_config.datastore_dir))
 
     if config:
         app.config.update(config)
 
-    base_dir = app.config.get("DATASTORE_BASE_DIR", "datastore")
-    db_path = app.config.get("DATASTORE_DB_PATH", "data/aitf.db")
+    @app.context_processor
+    def inject_aitf_globals():
+        return {"aitf_mode": aitf_config.mode.value, "aitf_server": aitf_config.server}
 
-    manager = DataStoreManager(base_dir=base_dir, db_path=db_path)
-    app.config["datastore_manager"] = manager
+    # Auto-discover blueprints from aitf/*/routes.py
+    for bp in _discover_blueprints():
+        app.register_blueprint(bp)
 
-    app.register_blueprint(ds_bp)
-    app.register_blueprint(deps_bp)
+    # Explicitly registered blueprints (web-layer only)
     app.register_blueprint(logs_bp)
     app.register_blueprint(index_bp)
 

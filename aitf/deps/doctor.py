@@ -15,7 +15,9 @@ from aitf.deps.types import DiagResult
 def run_diagnostics(
     cfg: DepsConfig, *, cache_dir: Path, repos_dir: Path,
     project_root: Path, lock_path: Path | None = None,
+    dir_overrides: dict[str, Path] | None = None,
 ) -> list[DiagResult]:
+    overrides = dir_overrides or {}
     results: list[DiagResult] = [
         DiagResult(check="config", ok=True, message="deps.yaml parsed successfully"),
     ]
@@ -23,17 +25,17 @@ def run_diagnostics(
     # Toolchains & libraries — identical check pattern, table-driven
     for dep_type, deps in [("toolchain", cfg.toolchains), ("library", cfg.libraries)]:
         for name, dep in deps.items():
-            ok = is_installed(name, dep.version, cache_dir)
+            ok = is_installed(name, dep.version, cache_dir, install_dir=overrides.get(name))
             msg = (f"{name} {dep.version} installed" if ok
                    else f"{name} {dep.version} not installed — run: aitf deps install {name}")
             results.append(DiagResult(check=f"{dep_type}:{name}", ok=ok, message=msg))
 
     # Repos
     for name, repo in cfg.repos.items():
-        cloned = is_cloned(name, repos_dir)
+        cloned = is_cloned(name, repos_dir, repo_dir=overrides.get(name))
         if cloned:
             try:
-                commit = get_head_commit(repos_dir / name)
+                commit = get_head_commit(overrides.get(name, repos_dir / name))
                 results.append(DiagResult(
                     check=f"repo:{name}", ok=True,
                     message=f"{name} HEAD={commit[:8]} ref={repo.ref}",

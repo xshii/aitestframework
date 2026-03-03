@@ -24,21 +24,24 @@ _LOCK_FIELDS: dict[str, tuple[str, ...]] = {
 }
 
 
-def generate_lock(cfg: DepsConfig, cache_dir: Path, repos_dir: Path) -> LockFile:
+def generate_lock(cfg: DepsConfig, cache_dir: Path, repos_dir: Path,
+                   dir_overrides: dict[str, Path] | None = None) -> LockFile:
+    overrides = dir_overrides or {}
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
     lock = LockFile(generated_at=now, platform=detect_platform())
 
     # Toolchains & libraries — same pattern, different sha256 access
     for section, cfg_section in [("toolchains", cfg.toolchains), ("libraries", cfg.libraries)]:
         for name, dep in cfg_section.items():
-            if (cache_dir / f"{name}-{dep.version}").is_dir():
+            target = overrides.get(name, cache_dir / name)
+            if target.is_dir():
                 sha = dep.sha256.get(detect_platform(), "") if isinstance(dep.sha256, dict) else dep.sha256
                 getattr(lock, section)[name] = LockEntry(
                     name=name, version=dep.version, sha256=sha, installed_at=now,
                 )
 
     for name, repo in cfg.repos.items():
-        repo_dir = repos_dir / name
+        repo_dir = overrides.get(name, repos_dir / name)
         if repo_dir.is_dir() and (repo_dir / ".git").exists():
             lock.repos[name] = LockEntry(
                 name=name, ref=repo.ref,

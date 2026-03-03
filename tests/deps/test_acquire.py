@@ -81,11 +81,11 @@ class TestInstallToolchain:
 
         result = install_toolchain(tc, cache_dir=cache_dir, project_root=project_root)
         assert result.is_dir()
-        assert (result).name == "test-cc-1.0"
+        assert (result).name == "test-cc"
 
     def test_already_cached(self, project_root):
         cache_dir = project_root / "build" / "cache"
-        (cache_dir / "test-cc-1.0").mkdir(parents=True)
+        (cache_dir / "test-cc").mkdir(parents=True)
 
         tc = ToolchainConfig(name="test-cc", version="1.0")
         result = install_toolchain(tc, cache_dir=cache_dir, project_root=project_root)
@@ -147,7 +147,7 @@ class TestInstallLibrary:
 
         result = install_library(lib, cache_dir=cache_dir, project_root=project_root)
         assert result.is_dir()
-        assert result.name == "test-lib-0.5"
+        assert result.name == "test-lib"
 
     def test_sha256_check(self, project_root):
         lib, sha = _make_library_archive(project_root, "checked-lib", "1.0")
@@ -168,7 +168,7 @@ class TestInstallLibrary:
 
 class TestIsInstalled:
     def test_installed(self, tmp_path):
-        (tmp_path / "cc-1.0").mkdir()
+        (tmp_path / "cc").mkdir()
         assert is_installed("cc", "1.0", tmp_path) is True
 
     def test_not_installed(self, tmp_path):
@@ -177,8 +177,8 @@ class TestIsInstalled:
 
 class TestCleanCache:
     def test_clean(self, tmp_path):
-        (tmp_path / "cc-1.0").mkdir()
-        (tmp_path / "lib-2.0").mkdir()
+        (tmp_path / "cc").mkdir()
+        (tmp_path / "lib").mkdir()
         count = clean_cache(tmp_path)
         assert count == 2
         assert list(tmp_path.iterdir()) == []

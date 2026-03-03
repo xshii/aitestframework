@@ -1,0 +1,75 @@
+{# Golden 数据管理 — Data tab content (provided by aitf.ds plugin) #}
+<p class="text-muted small mb-3">管理模型的 Golden 基准数据。每个 <strong>模型/版本</strong> 对应一个文件，支持 .pth / .bin / .zip / .tar / .tar.gz 格式。重复上传会覆盖旧文件。</p>
+
+<h6>上传文件</h6>
+<form id="goldenUpload" class="row g-2 align-items-end mb-3" style="max-width:700px">
+  <div class="col-auto">
+    <label class="form-label small mb-0">模型</label>
+    <input class="form-control form-control-sm" id="gUpModel" placeholder="tdd" required>
+  </div>
+  <div class="col-auto">
+    <label class="form-label small mb-0">版本</label>
+    <input class="form-control form-control-sm" id="gUpVer" placeholder="v1" required>
+  </div>
+  <div class="col">
+    <label class="form-label small mb-0">文件</label>
+    <input type="file" id="gUpFile" class="form-control form-control-sm" accept=".pth,.bin,.zip,.tar,.tar.gz" required>
+  </div>
+  <div class="col-auto">
+    <button class="btn btn-sm btn-primary">上传</button>
+  </div>
+</form>
+<div id="gUpMsg" class="small mb-2"></div>
+
+<h6 class="d-inline-block">已有数据 <span class="badge bg-secondary" id="gCount">0</span></h6>
+<a id="gDownloadAll" href="/api/golden/download-all" class="btn btn-sm btn-outline-primary ms-2 d-none">全部下载 (zip)</a>
+<table class="table table-sm table-striped table-hover">
+  <thead><tr><th>模型</th><th>版本</th><th>文件</th><th>大小</th><th></th></tr></thead>
+  <tbody id="gTbody"></tbody>
+</table>
+<p id="gEmpty" class="text-muted d-none">暂无数据，请上传文件。</p>
+
+<script>
+function _gFmt(b) { return b<1024?b+' B':b<1048576?(b/1024).toFixed(1)+' KB':(b/1048576).toFixed(1)+' MB'; }
+
+function gLoad() {
+  fetch('/api/golden').then(r=>r.json()).then(function(items) {
+    var tb = document.getElementById('gTbody'), em = document.getElementById('gEmpty'), dl = document.getElementById('gDownloadAll');
+    document.getElementById('gCount').textContent = items.length;
+    if(!items.length) { tb.innerHTML=''; em.classList.remove('d-none'); dl.classList.add('d-none'); return; }
+    dl.classList.remove('d-none');
+    em.classList.add('d-none');
+    var rows = '';
+    items.forEach(function(it) {
+      rows += '<tr>'
+        + '<td>'+it.model+'</td><td>'+it.version+'</td>'
+        + '<td><a href="/api/golden/'+it.model+'/'+it.version+'/download">'+it.file+'</a></td>'
+        + '<td>'+_gFmt(it.size)+'</td>'
+        + '<td><button class="btn btn-sm btn-outline-danger py-0" onclick="gDel(\''+it.model+'\',\''+it.version+'\')">删除</button></td>'
+        + '</tr>';
+    });
+    tb.innerHTML = rows;
+  });
+}
+
+document.getElementById('goldenUpload').addEventListener('submit', function(e) {
+  e.preventDefault();
+  var model = document.getElementById('gUpModel').value.trim();
+  var ver = document.getElementById('gUpVer').value.trim();
+  var file = document.getElementById('gUpFile').files[0];
+  if(!model||!ver||!file) return;
+  var fd = new FormData(); fd.append('model',model); fd.append('version',ver); fd.append('file',file);
+  document.getElementById('gUpMsg').textContent = '上传中...';
+  fetch('/api/golden/upload', {method:'POST', body:fd}).then(r=>r.json()).then(function(d) {
+    if(d.error) { document.getElementById('gUpMsg').textContent = '失败: '+d.error; }
+    else { document.getElementById('gUpMsg').textContent = ''; document.getElementById('gUpFile').value=''; gLoad(); }
+  });
+});
+
+function gDel(model,ver) {
+  if(!confirm('删除 '+model+'/'+ver+' ?')) return;
+  fetch('/api/golden/'+model+'/'+ver, {method:'DELETE'}).then(r=>r.json()).then(function(d){ if(d.error) alert(d.error); else gLoad(); });
+}
+
+gLoad();
+</script>

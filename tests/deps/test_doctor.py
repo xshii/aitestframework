@@ -34,7 +34,7 @@ class TestRunDiagnostics:
     def test_installed_toolchain_passes(self, deps_yaml, project_root):
         cfg = load_deps_config(deps_yaml)
         cache = project_root / "build" / "cache"
-        (cache / "npu-compiler-2.1.0").mkdir(parents=True)
+        (cache / "npu-compiler").mkdir(parents=True)
 
         results = run_diagnostics(
             cfg,

@@ -2,35 +2,35 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "[stub] 01-build app",
+            "label": "[stub] 01-构建桩代码 (app)",
             "type": "shell",
             "command": "stubs/build.sh -p func_sim -m app",
             "group": {"kind": "build", "isDefault": true},
             "problemMatcher": "$gcc"
         },
         {
-            "label": "[stub] 02-build ut",
+            "label": "[stub] 02-构建单元测试 (ut)",
             "type": "shell",
             "command": "stubs/build.sh -p func_sim -m ut",
             "group": "build",
             "problemMatcher": "$gcc"
         },
         {
-            "label": "[stub] 03-run",
+            "label": "[stub] 03-运行桩代码",
             "type": "shell",
             "command": "build/func_sim/stub_runner",
-            "dependsOn": "[stub] 01-build app",
+            "dependsOn": "[stub] 01-构建桩代码 (app)",
             "problemMatcher": []
         },
         {
-            "label": "[web] 01-start",
+            "label": "[web] 01-启动 Web 服务",
             "type": "shell",
             "command": "./scripts/start.sh",
             "problemMatcher": [],
             "isBackground": true
         },
         {
-            "label": "[web] 02-start (debug)",
+            "label": "[web] 02-启动 Web 服务 (调试模式，热重载)",
             "type": "shell",
             "command": "./scripts/start.sh --debug",
             "problemMatcher": [],

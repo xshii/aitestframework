@@ -1,0 +1,299 @@
+{% if aitf_mode == 'client' %}
+<div class="alert alert-info py-1 mb-2 d-flex align-items-center">
+  <span class="me-2">服务器: <strong>{{ aitf_server }}</strong></span>
+  <button class="btn btn-sm btn-primary" onclick="syncFromServer()">从服务器同步</button>
+  <span id="syncMsg" class="ms-2 small"></span>
+</div>
+{% endif %}
+<ul class="nav nav-pills mb-2" id="depsSubTabs">
+  <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#sub-deps">依赖项</button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#sub-bundles">配置集</button></li>
+</ul>
+<div class="tab-content">
+
+{# ===== 依赖项 ===== #}
+<div class="tab-pane show active" id="sub-deps">
+  <form id="addDepForm" class="row g-1 align-items-end mb-2" style="max-width:900px">
+    <div class="col"><input type="text" id="adName" class="form-control form-control-sm" placeholder="名称" required></div>
+    <div class="col"><input type="text" id="adVersion" class="form-control form-control-sm" placeholder="版本 / 分支" required></div>
+    <div class="col-auto">
+      <select id="adType" class="form-select form-select-sm" onchange="adTypeChanged()">
+        <option value="toolchain">工具链</option>
+        <option value="library">库</option>
+        <option value="repo">Git 仓库</option>
+      </select>
+    </div>
+    <div class="col-auto"><input type="number" id="adOrder" class="form-control form-control-sm" placeholder="序号" style="width:70px" value="0"></div>
+    <div class="col-auto" id="adArchiveFields"><input type="file" id="adFile" accept=".tar.gz,.gz,.sh" class="form-control form-control-sm"></div>
+    <div class="col-auto d-none" id="adRepoFields"><input type="text" id="adUrl" class="form-control form-control-sm" placeholder="Git URL" style="min-width:200px"></div>
+    <div class="col-auto"><button class="btn btn-sm btn-primary">添加</button></div>
+    <div class="col-auto"><span id="adMsg" class="small text-danger"></span></div>
+  </form>
+
+  <div class="d-flex align-items-center mb-1">
+    <span class="fw-bold me-1">依赖列表</span><span class="badge bg-secondary" id="dCount">0</span>
+    <a href="/api/deps/export" class="btn btn-sm btn-outline-primary ms-auto py-0">导出全部</a>
+  </div>
+  <table class="table table-sm table-striped table-hover mb-1">
+    <thead><tr><th>名称</th><th>版本</th><th>序号</th><th></th></tr></thead>
+    <tbody id="dTbody"></tbody>
+  </table>
+  <p id="dEmpty" class="text-muted small d-none">暂无依赖项。</p>
+</div>
+
+{# ===== 配置集 ===== #}
+<div class="tab-pane" id="sub-bundles">
+  <form id="bImportForm" class="d-flex gap-1 align-items-center mb-2" style="max-width:400px">
+    <span class="text-nowrap small fw-bold me-1">导入:</span>
+    <input type="file" id="bImportFile" accept=".tar.gz,.gz" class="form-control form-control-sm" required>
+    <button class="btn btn-sm btn-primary text-nowrap">导入</button>
+    <span id="bImportMsg" class="small text-danger"></span>
+  </form>
+
+  <div class="d-flex align-items-center mb-1">
+    <span class="fw-bold me-2">配置集</span>
+    <select id="bSelect" class="form-select form-select-sm d-inline-block" style="width:auto;min-width:180px" onchange="bSelected()">
+      <option value="">-- 选择 --</option>
+    </select>
+    <button class="btn btn-sm btn-outline-primary ms-2 py-0" onclick="bNewPrompt()">新建</button>
+    <a id="bExportBtn" href="#" class="btn btn-sm btn-outline-primary ms-1 py-0 d-none">导出 YAML</a>
+    <button id="bDelBtn" class="btn btn-sm btn-outline-danger ms-1 py-0 d-none" onclick="bDel()">删除</button>
+  </div>
+
+  <div id="bContents" class="d-none mt-2">
+    <div class="row g-1 mb-1" style="max-width:500px">
+      <div class="col"><input type="text" id="bDesc" class="form-control form-control-sm" placeholder="描述"></div>
+      <div class="col-auto">
+        <select id="bStatus" class="form-select form-select-sm">
+          <option value="testing">测试中</option><option value="verified">已验证</option><option value="deprecated">已废弃</option>
+        </select>
+      </div>
+    </div>
+    <table class="table table-sm table-bordered mb-1">
+      <thead><tr><th>依赖项</th><th>版本</th><th>序号</th><th></th></tr></thead>
+      <tbody id="bItemsTbody"></tbody>
+    </table>
+    <div class="d-flex gap-1 align-items-center mb-1" style="max-width:350px">
+      <select id="bAddDep" class="form-select form-select-sm"><option value="">-- 添加依赖 --</option></select>
+      <button class="btn btn-sm btn-outline-primary text-nowrap py-0" onclick="bAddItem()">添加</button>
+    </div>
+    <div class="d-flex gap-1 align-items-center">
+      <button class="btn btn-sm btn-primary" onclick="bSave()">保存</button>
+      <button class="btn btn-sm btn-outline-secondary" onclick="bSaveAs()">另存为...</button>
+      <span id="bMsg" class="small text-success"></span>
+    </div>
+  </div>
+  <p id="bEmpty" class="text-muted small">请选择配置集或新建。</p>
+</div>
+
+</div>
+
+<script>
+function _esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+var _allDeps=[];
+
+function dLoad(){
+  fetch('/api/deps').then(function(r){return r.json();}).then(function(items){
+    _allDeps=items;
+    document.getElementById('dCount').textContent=items.length;
+    var tb=document.getElementById('dTbody');
+    if(!items.length){tb.innerHTML='';document.getElementById('dEmpty').classList.remove('d-none');return;}
+    document.getElementById('dEmpty').classList.add('d-none');
+    items.sort(function(a,b){return a.order-b.order;});
+    var rows='';
+    items.forEach(function(dep){
+      var sel='<select class="form-select form-select-sm d-inline-block" style="width:auto;min-width:90px" id="ver-'+_esc(dep.name)+'">';
+      dep.versions.forEach(function(v){sel+='<option value="'+_esc(v)+'"'+(v===dep.version?' selected':'')+'>'+_esc(v)+'</option>';});
+      sel+='</select>';
+      rows+='<tr><td><strong>'+_esc(dep.name)+'</strong></td><td>'+sel+'</td>'
+        +'<td><span class="text-muted small">'+dep.order+'</span></td>'
+        +'<td class="text-nowrap">'
+        +'<button class="btn btn-sm btn-outline-primary py-0" onclick="dlYaml(\''+_esc(dep.name).replace(/'/g,"\\'")+'\')">导出</button> '
+        +'<button class="btn btn-sm btn-outline-danger py-0" onclick="dDel(\''+_esc(dep.name).replace(/'/g,"\\'")+'\',\''+_esc(dep.version).replace(/'/g,"\\'")+'\')">删除</button>'
+        +'</td></tr>';
+    });
+    tb.innerHTML=rows;
+    _refreshBundleAddOptions();
+  });
+}
+
+function dlYaml(name){
+  var sel=document.getElementById('ver-'+name);
+  var ver=sel?sel.value:'';
+  var url='/api/deps/'+encodeURIComponent(name)+'/export';
+  if(ver) url+='?version='+encodeURIComponent(ver);
+  window.location.href=url;
+}
+
+function dDel(name,version){
+  var input=prompt('确认删除「'+name+'」及其所有归档？\n请输入当前版本号 ('+version+') 确认：');
+  if(input===null) return;
+  if(input!==version){alert('版本号不匹配，取消删除。');return;}
+  fetch('/api/deps/'+encodeURIComponent(name),{method:'DELETE'}).then(function(r){return r.json();}).then(function(d){
+    if(d.error) alert(d.error); else dLoad();
+  });
+}
+
+function adTypeChanged(){
+  var t=document.getElementById('adType').value;
+  document.getElementById('adArchiveFields').classList.toggle('d-none',t==='repo');
+  document.getElementById('adRepoFields').classList.toggle('d-none',t!=='repo');
+  document.getElementById('adVersion').placeholder=t==='repo'?'分支 / commit':'版本号';
+}
+document.getElementById('addDepForm').addEventListener('submit',function(e){
+  e.preventDefault();
+  var fd=new FormData();
+  fd.append('name',document.getElementById('adName').value.trim());
+  fd.append('version',document.getElementById('adVersion').value.trim());
+  fd.append('type',document.getElementById('adType').value);
+  fd.append('order',document.getElementById('adOrder').value||'0');
+  var f=document.getElementById('adFile').files[0]; if(f) fd.append('file',f);
+  fd.append('url',document.getElementById('adUrl').value.trim());
+  document.getElementById('adMsg').textContent='添加中...';
+  fetch('/api/deps',{method:'POST',body:fd}).then(function(r){return r.json();}).then(function(d){
+    if(d.error){document.getElementById('adMsg').textContent=d.error;}
+    else{document.getElementById('adMsg').textContent='';document.getElementById('adName').value='';document.getElementById('adVersion').value='';document.getElementById('adFile').value='';document.getElementById('adUrl').value='';dLoad();}
+  });
+});
+
+var _curBundle=null,_bundleItems={};
+
+function bLoadList(){
+  fetch('/api/bundles').then(function(r){return r.json();}).then(function(items){
+    var sel=document.getElementById('bSelect'),prev=sel.value;
+    var opts='<option value="">-- 选择 --</option>';
+    items.forEach(function(b){
+      opts+='<option value="'+_esc(b.name)+'">'+_esc(b.name+(b.active?' *':''))+'</option>';
+    });
+    sel.innerHTML=opts;
+    if(prev) sel.value=prev;
+    bSelected();
+  });
+}
+
+function bSelected(){
+  var name=document.getElementById('bSelect').value;
+  if(!name){
+    document.getElementById('bContents').classList.add('d-none');
+    document.getElementById('bEmpty').classList.remove('d-none');
+    document.getElementById('bExportBtn').classList.add('d-none');
+    document.getElementById('bDelBtn').classList.add('d-none');
+    _curBundle=null; return;
+  }
+  fetch('/api/bundles/'+encodeURIComponent(name)).then(function(r){return r.json();}).then(function(b){
+    _curBundle=b;
+    document.getElementById('bDesc').value=b.description||'';
+    document.getElementById('bStatus').value=b.status;
+    _bundleItems={};
+    ['toolchains','libraries','repos'].forEach(function(cat){
+      var items=b[cat]||{}; Object.keys(items).forEach(function(k){_bundleItems[k]=items[k];});
+    });
+    _renderBundleItems();
+    document.getElementById('bContents').classList.remove('d-none');
+    document.getElementById('bEmpty').classList.add('d-none');
+    document.getElementById('bExportBtn').href='/api/bundles/'+encodeURIComponent(name)+'/export';
+    document.getElementById('bExportBtn').classList.remove('d-none');
+    document.getElementById('bDelBtn').classList.remove('d-none');
+  });
+}
+
+function _renderBundleItems(){
+  var tb=document.getElementById('bItemsTbody'),rows='';
+  var names=Object.keys(_bundleItems);
+  names.sort(function(a,b){
+    var da=_allDeps.find(function(d){return d.name===a;}),db=_allDeps.find(function(d){return d.name===b;});
+    return (da?da.order:0)-(db?db.order:0);
+  });
+  names.forEach(function(dn){
+    var cv=_bundleItems[dn],dep=_allDeps.find(function(d){return d.name===dn;}),vs=dep?dep.versions:[cv];
+    if(vs.indexOf(cv)<0) vs.push(cv);
+    var ord=dep?dep.order:0;
+    var sel='<select class="form-select form-select-sm" style="width:auto;min-width:90px" onchange="_bundleItems[\''+_esc(dn).replace(/'/g,"\\'")+'\']'+'=this.value">';
+    vs.forEach(function(v){sel+='<option value="'+_esc(v)+'"'+(v===cv?' selected':'')+'>'+_esc(v)+'</option>';});
+    sel+='</select>';
+    rows+='<tr><td>'+_esc(dn)+'</td><td>'+sel+'</td><td><span class="text-muted small">'+ord+'</span></td><td><button class="btn btn-sm btn-outline-danger py-0" onclick="bRemoveItem(\''+_esc(dn).replace(/'/g,"\\'")+'\')">移除</button></td></tr>';
+  });
+  tb.innerHTML=rows||'<tr><td colspan="4" class="text-muted">此配置集暂无依赖项。</td></tr>';
+  _refreshBundleAddOptions();
+}
+
+function _refreshBundleAddOptions(){
+  var sel=document.getElementById('bAddDep'); if(!sel) return;
+  var opts='<option value="">-- 添加依赖 --</option>';
+  _allDeps.forEach(function(dep){
+    if(!_bundleItems||!(dep.name in _bundleItems)) opts+='<option value="'+_esc(dep.name)+'">'+_esc(dep.name)+'</option>';
+  });
+  sel.innerHTML=opts;
+}
+
+function bAddItem(){var sel=document.getElementById('bAddDep'),name=sel.value;if(!name)return;var dep=_allDeps.find(function(d){return d.name===name;});_bundleItems[name]=dep?dep.version:'';_renderBundleItems();}
+function bRemoveItem(name){delete _bundleItems[name];_renderBundleItems();}
+
+function _buildBundleBody(){
+  var tc={},lib={},repos={};
+  Object.keys(_bundleItems).forEach(function(name){
+    var dep=_allDeps.find(function(d){return d.name===name;}),type=dep?dep.type:'toolchain';
+    if(type==='toolchain') tc[name]=_bundleItems[name];
+    else if(type==='library') lib[name]=_bundleItems[name];
+    else repos[name]=_bundleItems[name];
+  });
+  return {description:document.getElementById('bDesc').value,status:document.getElementById('bStatus').value,toolchains:tc,libraries:lib,repos:repos};
+}
+
+function bSave(){
+  if(!_curBundle) return;
+  fetch('/api/bundles/'+encodeURIComponent(_curBundle.name),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(_buildBundleBody())})
+    .then(function(r){return r.json();}).then(function(d){
+      if(d.error) alert(d.error);
+      else{document.getElementById('bMsg').textContent='已保存';setTimeout(function(){document.getElementById('bMsg').textContent='';},2000);bLoadList();}
+    });
+}
+
+function bSaveAs(){
+  var name=prompt('新配置集名称：');if(!name)return;
+  var body=_buildBundleBody();body.name=name;
+  fetch('/api/bundles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(function(r){return r.json();}).then(function(d){
+      if(d.error) alert(d.error);
+      else{document.getElementById('bSelect').value='';bLoadList();setTimeout(function(){document.getElementById('bSelect').value=name;bSelected();},300);}
+    });
+}
+
+function bNewPrompt(){
+  var name=prompt('新配置集名称：');if(!name)return;
+  fetch('/api/bundles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,description:'',status:'testing',toolchains:{},libraries:{},repos:{}})})
+    .then(function(r){return r.json();}).then(function(d){
+      if(d.error) alert(d.error);
+      else{bLoadList();setTimeout(function(){document.getElementById('bSelect').value=name;bSelected();},300);}
+    });
+}
+
+function bDel(){
+  if(!_curBundle) return;
+  if(!confirm('确认删除配置集「'+_curBundle.name+'」？')) return;
+  fetch('/api/bundles/'+encodeURIComponent(_curBundle.name),{method:'DELETE'}).then(function(r){return r.json();}).then(function(d){
+    if(d.error) alert(d.error); else{document.getElementById('bSelect').value='';bLoadList();}
+  });
+}
+
+document.getElementById('bImportForm').addEventListener('submit',function(e){
+  e.preventDefault();var f=document.getElementById('bImportFile').files[0];if(!f)return;
+  var fd=new FormData();fd.append('file',f);
+  document.getElementById('bImportMsg').textContent='导入中...';
+  fetch('/api/bundles/import',{method:'POST',body:fd}).then(function(r){return r.json();}).then(function(d){
+    if(d.error){document.getElementById('bImportMsg').textContent=d.error;}
+    else{document.getElementById('bImportMsg').textContent='';bLoadList();}
+  });
+});
+
+function syncFromServer(){
+  var msg=document.getElementById('syncMsg');
+  if(msg) msg.textContent='同步中...';
+  fetch('/api/deps/sync',{method:'POST'}).then(function(r){return r.json();}).then(function(d){
+    if(d.error){if(msg) msg.textContent=d.error;}
+    else{if(msg) msg.textContent='同步完成';dLoad();bLoadList();setTimeout(function(){if(msg) msg.textContent='';},3000);}
+  }).catch(function(e){if(msg) msg.textContent='同步失败: '+e;});
+}
+
+dLoad(); bLoadList();
+</script>

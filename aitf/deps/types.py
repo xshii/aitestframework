@@ -23,19 +23,7 @@ class AcquireConfig:
     """How to obtain a toolchain or library archive."""
 
     local_dir: str | None = None
-    remote: bool = False
     script: str | None = None
-
-
-@dataclass
-class RemoteDepotConfig:
-    """SFTP remote server that hosts dependency archives."""
-
-    host: str
-    user: str
-    path: str
-    port: int = 22
-    key_file: str | None = None
 
 
 @dataclass
@@ -48,6 +36,8 @@ class ToolchainConfig:
     bin_dir: str | None = None
     env: dict[str, str] = field(default_factory=dict)
     acquire: AcquireConfig = field(default_factory=AcquireConfig)
+    install_dir: str | None = None
+    order: int = 0
 
 
 @dataclass
@@ -61,6 +51,8 @@ class LibraryConfig:
     cmake_args: list[str] = field(default_factory=list)
     build_script: str | None = None
     acquire: AcquireConfig = field(default_factory=AcquireConfig)
+    install_dir: str | None = None
+    order: int = 0
 
 
 @dataclass
@@ -74,6 +66,8 @@ class RepoConfig:
     sparse_checkout: list[str] = field(default_factory=list)
     build_script: str | None = None
     env: dict[str, str] = field(default_factory=dict)
+    install_dir: str | None = None
+    order: int = 0
 
 
 @dataclass

@@ -60,9 +60,9 @@ class TestGenerateLock:
         repos_dir = project_root / "build" / "repos"
 
         # Simulate installed toolchain
-        (cache_dir / "npu-compiler-2.1.0").mkdir(parents=True)
+        (cache_dir / "npu-compiler").mkdir(parents=True)
         # Simulate installed library
-        (cache_dir / "json-c-0.17").mkdir(parents=True)
+        (cache_dir / "json-c").mkdir(parents=True)
 
         lock = generate_lock(cfg, cache_dir, repos_dir)
         assert lock.platform

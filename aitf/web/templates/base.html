@@ -11,10 +11,20 @@
     <div class="container-fluid">
       <a class="navbar-brand" href="/">aitestframework</a>
       <ul class="navbar-nav">
+        <li class="nav-item"><a class="nav-link" href="/#tab-data">Data</a></li>
         <li class="nav-item"><a class="nav-link" href="/#tab-deps">Deps</a></li>
-        <li class="nav-item"><a class="nav-link" href="/#tab-bundles">Bundles</a></li>
         <li class="nav-item"><a class="nav-link" href="/#tab-logs">Logs</a></li>
       </ul>
+      <span class="navbar-text ms-auto small">
+        {% if aitf_mode == 'server' %}
+          <span class="badge bg-success">服务器</span>
+        {% elif aitf_mode == 'client' %}
+          <span class="badge bg-info text-dark">客户端</span>
+          <span class="text-muted ms-1">{{ aitf_server }}</span>
+        {% else %}
+          <span class="badge bg-secondary">单机</span>
+        {% endif %}
+      </span>
     </div>
   </nav>
   <div class="container-fluid">{% block content %}{% endblock %}</div>

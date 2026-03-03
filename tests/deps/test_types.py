@@ -14,7 +14,6 @@ from aitf.deps.types import (
     LibraryConfig,
     LockEntry,
     LockFile,
-    RemoteDepotConfig,
     RepoConfig,
     ToolchainConfig,
 )
@@ -57,17 +56,10 @@ class TestDataClasses:
         assert lf.libraries == {}
         assert lf.repos == {}
 
-    def test_acquire_config_remote_flag(self):
-        acq = AcquireConfig(remote=True)
-        assert acq.remote is True
+    def test_acquire_config_defaults(self):
+        acq = AcquireConfig()
         assert acq.local_dir is None
         assert acq.script is None
-
-    def test_remote_depot_config(self):
-        rdc = RemoteDepotConfig(host="10.0.0.1", user="deploy", path="/data/deps")
-        assert rdc.host == "10.0.0.1"
-        assert rdc.port == 22
-        assert rdc.key_file is None
 
 
 class TestExceptions:

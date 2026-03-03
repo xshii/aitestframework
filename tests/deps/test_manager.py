@@ -58,7 +58,7 @@ class TestDepsManagerInstall:
     def test_install_one(self, manager, project_root):
         self._setup_toolchain_archive(project_root)
         manager.install(name="npu-compiler")
-        assert (project_root / "build" / "cache" / "npu-compiler-2.1.0").is_dir()
+        assert (project_root / "build" / "cache" / "npu-compiler").is_dir()
 
     def test_install_unknown_raises(self, manager):
         with pytest.raises(DepsError, match="Unknown dependency"):
@@ -87,10 +87,10 @@ class TestDepsManagerList:
 class TestDepsManagerClean:
     def test_clean_removes_cache(self, manager, project_root):
         cache = project_root / "build" / "cache"
-        (cache / "dummy-1.0").mkdir()
+        (cache / "dummy").mkdir()
         count = manager.clean()
         assert count == 1
-        assert not (cache / "dummy-1.0").exists()
+        assert not (cache / "dummy").exists()
 
 
 class TestDepsManagerDoctor:
@@ -111,12 +111,12 @@ class TestDepsManagerEnv:
     def test_env_with_installed_toolchain(self, manager, project_root):
         # Simulate installed toolchain
         cache = project_root / "build" / "cache"
-        tc_dir = cache / "npu-compiler-2.1.0"
+        tc_dir = cache / "npu-compiler"
         tc_dir.mkdir(parents=True)
 
         env = manager.get_env()
         assert "NPU_CC" in env
-        assert "npu-compiler-2.1.0" in env["NPU_CC"]
+        assert "npu-compiler" in env["NPU_CC"]
 
 
 class TestDepsManagerGetInstallDir:
@@ -124,10 +124,10 @@ class TestDepsManagerGetInstallDir:
         assert manager.get_install_dir("npu-compiler") is None
 
     def test_installed(self, manager, project_root):
-        (project_root / "build" / "cache" / "npu-compiler-2.1.0").mkdir(parents=True)
+        (project_root / "build" / "cache" / "npu-compiler").mkdir(parents=True)
         d = manager.get_install_dir("npu-compiler")
         assert d is not None
-        assert d.name == "npu-compiler-2.1.0"
+        assert d.name == "npu-compiler"
 
     def test_unknown_dep(self, manager):
         assert manager.get_install_dir("unknown") is None
@@ -142,6 +142,6 @@ class TestDepsManagerGetInstallDir:
 class TestDepsManagerLock:
     def test_lock_creates_file(self, manager, project_root):
         # Simulate installed deps
-        (project_root / "build" / "cache" / "npu-compiler-2.1.0").mkdir(parents=True)
+        (project_root / "build" / "cache" / "npu-compiler").mkdir(parents=True)
         manager.lock()
         assert (project_root / "deps.lock.yaml").exists()

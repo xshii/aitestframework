@@ -8,3 +8,4 @@ data/
 deps/uploads/
 deps.yaml
 deps.lock.yaml
+config.yaml

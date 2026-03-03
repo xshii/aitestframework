@@ -7,8 +7,6 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VENV="$ROOT/.venv"
-HOST="${AITF_HOST:-0.0.0.0}"
-PORT="${AITF_PORT:-5000}"
 DEBUG=false
 
 if [ "${1:-}" = "--debug" ]; then
@@ -33,18 +31,11 @@ pip install -q -e "$ROOT[dev]"
 mkdir -p "$ROOT/datastore/registry" "$ROOT/datastore/store" "$ROOT/data"
 
 # --- 启动 ---
-if [ "$DEBUG" = true ]; then
-    echo "==> 启动 (debug): http://${HOST}:${PORT}"
-    exec python -c "
-from aitf.web.app import create_app
-app = create_app()
-app.run(host='${HOST}', port=${PORT}, debug=True)
-"
-else
-    echo "==> 启动: http://${HOST}:${PORT}"
-    exec python -c "
-from aitf.web.app import create_app
-app = create_app()
-app.run(host='${HOST}', port=${PORT}, debug=False)
-"
-fi
+# Host/port: env vars AITF_HOST / AITF_PORT override config.yaml
+EXTRA_ARGS=""
+if [ -n "${AITF_HOST:-}" ]; then EXTRA_ARGS="$EXTRA_ARGS --host $AITF_HOST"; fi
+if [ -n "${AITF_PORT:-}" ]; then EXTRA_ARGS="$EXTRA_ARGS --port $AITF_PORT"; fi
+if [ "$DEBUG" = true ]; then EXTRA_ARGS="$EXTRA_ARGS --debug"; fi
+
+echo "==> 启动 Web 服务 ..."
+exec aitf web $EXTRA_ARGS
