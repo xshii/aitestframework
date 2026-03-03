@@ -83,10 +83,9 @@ def get_head_commit(repo_dir: Path) -> str:
     return _git(["rev-parse", "HEAD"], cwd=str(repo_dir))
 
 
-def is_cloned(name: str, repos_dir: Path,
-              repo_dir: Path | None = None) -> bool:
-    target = repo_dir if repo_dir else repos_dir / name
-    return target.is_dir() and (target / ".git").exists()
+def is_cloned(name: str, repos_dir: Path) -> bool:
+    repo_dir = repos_dir / name
+    return repo_dir.is_dir() and (repo_dir / ".git").exists()
 
 
 def build_repo(repo: RepoConfig, repo_dir: Path, install_dir: Path, *, project_root: Path) -> None:

@@ -158,10 +158,8 @@ def _unpack(archive: Path, dest: Path) -> None:
         raise
 
 
-def is_installed(name: str, version: str, cache_dir: Path,
-                  install_dir: Path | None = None) -> bool:
-    target = install_dir if install_dir else cache_dir / name
-    return target.is_dir()
+def is_installed(name: str, version: str, cache_dir: Path) -> bool:
+    return (cache_dir / name).is_dir()
 
 
 def clean_cache(cache_dir: Path) -> int:

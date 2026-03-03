@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 
 
 class BundleStatus(str, Enum):
@@ -122,6 +123,18 @@ class LockFile:
 # ---------------------------------------------------------------------------
 # Exceptions
 # ---------------------------------------------------------------------------
+
+def resolve_dep_dir(dep, default_base: Path, build_dir: Path) -> Path:
+    """Resolve a dependency's install directory.
+
+    If *dep.install_dir* is set, resolve it (relative to *build_dir*).
+    Otherwise fall back to ``default_base / dep.name``.
+    """
+    if dep.install_dir:
+        p = Path(dep.install_dir)
+        return p if p.is_absolute() else build_dir / p
+    return default_base / dep.name
+
 
 class DepsError(Exception):
     """Base exception for dependency operations."""

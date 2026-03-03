@@ -10,7 +10,7 @@ import yaml
 
 from aitf.deps.config import DepsConfig, detect_platform
 from aitf.deps.repo import get_head_commit
-from aitf.deps.types import LockEntry, LockFile
+from aitf.deps.types import LockEntry, LockFile, resolve_dep_dir
 
 logger = logging.getLogger(__name__)
 
@@ -25,15 +25,14 @@ _LOCK_FIELDS: dict[str, tuple[str, ...]] = {
 
 
 def generate_lock(cfg: DepsConfig, cache_dir: Path, repos_dir: Path,
-                   dir_overrides: dict[str, Path] | None = None) -> LockFile:
-    overrides = dir_overrides or {}
+                   build_dir: Path | None = None) -> LockFile:
+    bdir = build_dir or cache_dir.parent
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
     lock = LockFile(generated_at=now, platform=detect_platform())
 
-    # Toolchains & libraries — same pattern, different sha256 access
     for section, cfg_section in [("toolchains", cfg.toolchains), ("libraries", cfg.libraries)]:
         for name, dep in cfg_section.items():
-            target = overrides.get(name, cache_dir / name)
+            target = resolve_dep_dir(dep, cache_dir, bdir)
             if target.is_dir():
                 sha = dep.sha256.get(detect_platform(), "") if isinstance(dep.sha256, dict) else dep.sha256
                 getattr(lock, section)[name] = LockEntry(
@@ -41,7 +40,7 @@ def generate_lock(cfg: DepsConfig, cache_dir: Path, repos_dir: Path,
                 )
 
     for name, repo in cfg.repos.items():
-        repo_dir = overrides.get(name, repos_dir / name)
+        repo_dir = resolve_dep_dir(repo, repos_dir, bdir)
         if repo_dir.is_dir() and (repo_dir / ".git").exists():
             lock.repos[name] = LockEntry(
                 name=name, ref=repo.ref,

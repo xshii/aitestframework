@@ -9,36 +9,37 @@ from aitf.deps.acquire import is_installed
 from aitf.deps.config import DepsConfig
 from aitf.deps.lock import load_lock
 from aitf.deps.repo import get_head_commit, is_cloned
-from aitf.deps.types import DiagResult
+from aitf.deps.types import DiagResult, resolve_dep_dir
 
 
 def run_diagnostics(
     cfg: DepsConfig, *, cache_dir: Path, repos_dir: Path,
-    project_root: Path, lock_path: Path | None = None,
-    dir_overrides: dict[str, Path] | None = None,
+    project_root: Path, build_dir: Path | None = None,
+    lock_path: Path | None = None,
 ) -> list[DiagResult]:
-    overrides = dir_overrides or {}
+    bdir = build_dir or cache_dir.parent
     results: list[DiagResult] = [
         DiagResult(check="config", ok=True, message="deps.yaml parsed successfully"),
     ]
 
-    # Toolchains & libraries — identical check pattern, table-driven
+    # Toolchains & libraries
     for dep_type, deps in [("toolchain", cfg.toolchains), ("library", cfg.libraries)]:
         for name, dep in deps.items():
-            ok = is_installed(name, dep.version, cache_dir, install_dir=overrides.get(name))
+            target = resolve_dep_dir(dep, cache_dir, bdir)
+            ok = target.is_dir()
             msg = (f"{name} {dep.version} installed" if ok
                    else f"{name} {dep.version} not installed — run: aitf deps install {name}")
             results.append(DiagResult(check=f"{dep_type}:{name}", ok=ok, message=msg))
 
     # Repos
-    for name, repo in cfg.repos.items():
-        cloned = is_cloned(name, repos_dir, repo_dir=overrides.get(name))
-        if cloned:
+    for name, rc in cfg.repos.items():
+        target = resolve_dep_dir(rc, repos_dir, bdir)
+        if target.is_dir() and (target / ".git").exists():
             try:
-                commit = get_head_commit(overrides.get(name, repos_dir / name))
+                commit = get_head_commit(target)
                 results.append(DiagResult(
                     check=f"repo:{name}", ok=True,
-                    message=f"{name} HEAD={commit[:8]} ref={repo.ref}",
+                    message=f"{name} HEAD={commit[:8]} ref={rc.ref}",
                 ))
             except Exception as exc:
                 results.append(DiagResult(
@@ -50,7 +51,7 @@ def run_diagnostics(
                 message=f"{name} not cloned — run: aitf deps install {name}",
             ))
 
-    # Scripts — collect from all deps in one pass
+    # Scripts
     scripts: set[str] = set()
     for dep in (*cfg.toolchains.values(), *cfg.libraries.values()):
         if dep.acquire.script:
@@ -73,7 +74,7 @@ def run_diagnostics(
             message=f"{tool} {'available' if avail else 'not found on PATH'}",
         ))
 
-    # Lock file sync — table-driven mismatch check
+    # Lock file sync
     if lock_path:
         lock = load_lock(lock_path)
         if lock is None:
