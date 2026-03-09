@@ -173,7 +173,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     p.add_argument("--n", type=int, default=64, help="n (默认 64)")
     p.add_argument("--k", type=int, default=64, help="k (默认 64)")
     p.add_argument("--layout", default="NCHW", help="分型格式 (默认 NCHW)")
-    p.add_argument("--precision", default="fp16", help="数据格式 (默认 fp16)")
+    p.add_argument("--precision", default="FP16", help="数据格式 (默认 FP16)")
 
     p = data_sub.add_parser("upload", help="上传文件到算子")
     p.add_argument("model"); p.add_argument("version"); p.add_argument("operator")

@@ -67,13 +67,19 @@ def create_app(config: dict | None = None, aitf_config=None) -> Flask:
     app.config['MAX_CONTENT_LENGTH'] = 512 * 1024 * 1024  # 512 MB
     app.config["AITF_CONFIG"] = aitf_config
     app.config.setdefault("DATASTORE_BASE_DIR", str(aitf_config.datastore_dir))
+    app.config.setdefault("DBOX_SERVER", aitf_config.dbox_server)
+    app.config.setdefault("DBOX_UPLOAD_PATH", aitf_config.dbox_upload_path)
 
     if config:
         app.config.update(config)
 
     @app.context_processor
     def inject_aitf_globals():
-        return {"aitf_mode": aitf_config.mode.value, "aitf_server": aitf_config.server}
+        return {
+            "aitf_mode": aitf_config.mode.value,
+            "aitf_server": aitf_config.server,
+            "dbox_enabled": aitf_config.dbox_enabled,
+        }
 
     # Auto-discover blueprints from aitf/*/routes.py
     for bp in _discover_blueprints():

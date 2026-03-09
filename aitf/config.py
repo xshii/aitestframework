@@ -65,6 +65,9 @@ class AitfConfig:
     port: int = 5000
     mode: Mode = field(default=Mode.STANDALONE, init=False)
     project_root: Path = field(default_factory=lambda: Path(".").resolve())
+    dbox_enabled: bool = False
+    dbox_server: str = ""
+    dbox_upload_path: str = "/api/upload"
     # None → derive from project_root at access time
     _build_root: Path | None = field(default=None, repr=False)
     _datastore_dir: Path | None = field(default=None, repr=False)
@@ -123,6 +126,7 @@ def load_config(
     port = 5000
     build_root: Path | None = None
     datastore_dir: Path | None = None
+    data: dict = {}
 
     if path.is_file():
         try:
@@ -148,7 +152,13 @@ def load_config(
     else:
         logger.debug("Config file not found: %s — using defaults", path)
 
+    dbox_enabled = bool(data.get("dbox_enabled", False)) if isinstance(data, dict) else False
+    dbox_server = str(data.get("dbox_server", "") or "") if isinstance(data, dict) else ""
+    dbox_upload_path = str(data.get("dbox_upload_path", "/api/upload") or "/api/upload") if isinstance(data, dict) else "/api/upload"
+
     return AitfConfig(
         server=server, port=port, project_root=project_root,
+        dbox_enabled=dbox_enabled, dbox_server=dbox_server,
+        dbox_upload_path=dbox_upload_path,
         _build_root=build_root, _datastore_dir=datastore_dir,
     )

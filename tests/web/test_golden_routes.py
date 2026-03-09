@@ -324,5 +324,5 @@ class TestChoices:
     def test_choices(self, client):
         d = client.get("/api/golden/choices").get_json()
         assert "input" in d["category"]
-        assert "fp16" in d["precision"]
+        assert "FP16" in d["precision"]
         assert "NCHW" in d["layout"]

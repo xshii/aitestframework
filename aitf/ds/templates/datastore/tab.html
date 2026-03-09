@@ -11,21 +11,24 @@
 <ul class="nav nav-pills mb-2" id="dataSubTabs">
   <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#sub-overview">数据总览</button></li>
   <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#sub-model">模型管理</button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#sub-convert">数据转换</button></li>
   <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#sub-migrate">迁移同步</button></li>
 </ul>
 <div class="tab-content">
 
 {# ==================== 数据总览 ==================== #}
 <div class="tab-pane show active" id="sub-overview">
-  <div class="d-flex align-items-center mb-2">
-    <span class="fw-bold me-2">模型数据状态</span>
+  <div class="d-flex align-items-center mb-2 gap-2 flex-wrap">
+    <span class="fw-bold me-1">模型数据状态</span>
     <span class="badge bg-secondary" id="gOvStat">0</span>
-    <a href="/api/golden/download-all" class="btn btn-sm btn-outline-primary ms-auto py-0 d-none" id="gOvExportBtn">导出全部</a>
+    <button class="btn btn-sm btn-outline-secondary py-0 ms-2" id="gOvRefreshBtn" onclick="gRefreshOverviewStats(this)">刷新统计</button>
+    <small class="text-muted ms-1" id="gOvStatsTime"></small>
+    <input class="form-control form-control-sm ms-auto" id="gOvFilter" placeholder="筛选模型名..." style="width:160px" oninput="gRenderOverview()">
+    <input class="form-control form-control-sm" id="gOvSearch" placeholder="搜索算子名..." style="width:180px" onkeydown="if(event.key==='Enter')gSearchOp()">
+    <button class="btn btn-sm btn-outline-secondary" onclick="gSearchOp()" title="搜索">🔍</button>
   </div>
-  <table class="table table-sm table-striped table-hover">
-    <thead><tr><th>模型</th><th>版本</th><th>算子</th><th>数据条目</th><th>文件数</th><th>大小</th></tr></thead>
-    <tbody id="gOvTbody"></tbody>
-  </table>
+  <div id="gSearchResult" class="mb-2 d-none"></div>
+  <div id="gOvContent"></div>
   <p id="gOvEmpty" class="text-muted small d-none">暂无数据。通过「模型管理」创建模型并上传数据。</p>
 </div>
 
@@ -47,7 +50,7 @@
     </select>
     <button id="gNewVerBtn" class="btn btn-sm btn-outline-primary py-0 d-none" onclick="gNewVer()">新建版本</button>
     <button id="gDelVerBtn" class="btn btn-sm btn-outline-danger py-0 d-none" onclick="gDelVer()">删除版本</button>
-    <button id="gExportVerBtn" class="btn btn-sm btn-outline-success py-0 d-none" onclick="gExportVer()">导出此版本</button>
+    <button id="gExportVerBtn" class="btn btn-sm btn-success py-0 d-none" onclick="gExportVer()">📥 导出此版本</button>
   </div>
 
   {# ===== 算子管理面板 ===== #}
@@ -61,22 +64,23 @@
       </div>
       <div class="collapse" id="gcCreateBody">
         <div class="card-body py-2">
-          <div class="d-flex align-items-end gap-2 mb-2">
-            <div>
-              <label class="form-label small mb-0">算子名 <span class="text-danger">*</span></label>
-              <input class="form-control form-control-sm" id="gcOpName" placeholder="matmul">
-            </div>
-            <button type="button" class="btn btn-sm btn-primary" onclick="gcSubmit()">创建算子</button>
-            <span id="gcMsg" class="small"></span>
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <label class="form-label small mb-0 text-nowrap">算子名 <span class="text-danger">*</span></label>
+            <input class="form-control form-control-sm" id="gcOpName" placeholder="matmul" style="max-width:200px">
           </div>
           <h6 class="mb-1">数据条目</h6>
           <div style="overflow-x:auto">
-            <table class="table table-sm table-bordered mb-1" style="font-size:0.8rem;white-space:nowrap">
+            <table class="table table-sm table-bordered mb-1" style="font-size:0.8rem;white-space:nowrap;min-width:800px">
               <thead><tr id="gcItemHead"></tr></thead>
               <tbody id="gcItemBody"></tbody>
             </table>
           </div>
-          <button type="button" class="btn btn-sm btn-outline-secondary py-0" onclick="gcAddRow()">+ 添加数据条目</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary py-0 mb-2" onclick="gcAddRow()">+ 添加数据条目</button>
+          <div class="d-flex gap-2 align-items-center">
+            <button type="button" class="btn btn-sm btn-primary" onclick="gcSubmit()">创建算子</button>
+            <button type="button" class="btn btn-sm btn-outline-danger" onclick="gcReset()">重置</button>
+            <span id="gcMsg" class="small"></span>
+          </div>
         </div>
       </div>
     </div>
@@ -96,7 +100,7 @@
             </div>
             <div style="font-size:0.72rem;color:#6c757d;line-height:1.4">
               <strong>命名规范:</strong> <code>{算子名}_{种类}{序号}_{分型}_{格式}_{shape}.ext</code><br>
-              示例: <code>matmul_input0_NCHW_fp16_128x96.bin</code><br>
+              示例: <code>matmul_input0_NCHW_FP16_128x96.bin</code><br>
               shape: 4维 LxMxNxK · 3维 MxNxK · 2维 NxK<br>
               符合规范的文件自动创建数据条目
             </div>
@@ -110,6 +114,7 @@
     <div class="d-flex align-items-center mb-1">
       <span class="fw-bold me-1">算子列表</span>
       <span class="badge bg-secondary" id="gOpCount">0</span>
+      <button class="btn btn-sm btn-outline-danger py-0 ms-2 d-none" id="gClearOpsBtn" onclick="gClearOps()">清空算子</button>
     </div>
 
     <div class="accordion mb-2" id="gOpAccordion"></div>
@@ -118,6 +123,91 @@
   </div>
 
   <p id="gModelHint" class="text-muted small mt-2">请选择或新建模型，再选择版本以管理算子和数据。</p>
+</div>
+
+{# ==================== 数据转换 ==================== #}
+<div class="tab-pane" id="sub-convert">
+  <p class="text-muted small mb-2">拖放文件或文件夹，自动匹配算子信息进行分型/格式转换。支持 bin↔txt(hex) 互转。</p>
+
+  <div class="row mb-3">
+    <div class="col-md-6">
+      <div class="card">
+        <div class="card-header py-1"><strong>批量转换（拖拽上传）</strong></div>
+        <div class="card-body py-2">
+          <div id="gCvtDropZone" class="d-flex flex-column align-items-center justify-content-center" style="border:2px dashed #adb5bd;border-radius:6px;padding:16px;text-align:center;cursor:pointer;min-height:80px;transition:all .2s" onclick="document.getElementById('gCvtDropInput').click()">
+            <div class="text-muted">拖放文件到此处</div>
+            <small class="text-muted">自动解析文件名匹配算子，支持批量转换</small>
+            <input type="file" id="gCvtDropInput" class="d-none" multiple>
+          </div>
+          <div class="d-flex gap-2 mt-2 align-items-center flex-wrap">
+            <label class="small text-nowrap mb-0">目标分型:</label>
+            <select id="gCvtDstLayout" class="form-select form-select-sm" style="width:auto;min-width:120px">
+              <option value="">不转换分型</option>
+            </select>
+            <label class="small text-nowrap mb-0 ms-2">目标格式:</label>
+            <select id="gCvtDstPrec" class="form-select form-select-sm" style="width:auto;min-width:90px">
+              <option value="">不转换格式</option>
+            </select>
+            <label class="small text-nowrap mb-0 ms-2">输出:</label>
+            <select id="gCvtOutFmt" class="form-select form-select-sm" style="width:auto;min-width:80px">
+              <option value="bin">bin</option>
+              <option value="txt">txt (hex)</option>
+            </select>
+          </div>
+          <div id="gCvtMsg" class="small mt-2"></div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <div class="card">
+        <div class="card-header py-1"><strong>单文件转换</strong></div>
+        <div class="card-body py-2">
+          <div class="mb-2">
+            <input type="file" id="gCvtSingleFile" class="form-control form-control-sm" accept=".bin,.txt,.pth">
+          </div>
+          <div class="d-flex gap-2 align-items-center flex-wrap mb-2">
+            <label class="small mb-0">源分型:</label>
+            <select id="gCvtSrcLayout" class="form-select form-select-sm" style="width:auto;min-width:110px"></select>
+            <label class="small mb-0 ms-1">→</label>
+            <select id="gCvtSingleDstLayout" class="form-select form-select-sm" style="width:auto;min-width:110px"></select>
+          </div>
+          <div class="d-flex gap-2 align-items-center flex-wrap mb-2">
+            <label class="small mb-0">源格式:</label>
+            <select id="gCvtSrcPrec" class="form-select form-select-sm" style="width:auto;min-width:80px"></select>
+            <label class="small mb-0 ms-1">→</label>
+            <select id="gCvtSingleDstPrec" class="form-select form-select-sm" style="width:auto;min-width:80px"></select>
+          </div>
+          <div class="d-flex gap-2 align-items-center flex-wrap mb-2">
+            <label class="small mb-0">Shape (JSON):</label>
+            <input class="form-control form-control-sm" id="gCvtShape" value='{"loop":1,"m":64,"n":64,"k":64}' style="width:250px">
+          </div>
+          <div class="d-flex gap-2">
+            <button class="btn btn-sm btn-primary" onclick="gCvtSingle()">转换并下载</button>
+            <button class="btn btn-sm btn-outline-secondary" onclick="gCvtBinTxt()">bin↔txt</button>
+          </div>
+          <div id="gCvtSingleMsg" class="small mt-1"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header py-1"><strong>支持的转换路径</strong></div>
+    <div class="card-body py-2">
+      <div class="row">
+        <div class="col-md-6">
+          <h6 class="small fw-bold">分型 (Layout) 转换</h6>
+          <div id="gCvtLayoutPaths" class="small"></div>
+        </div>
+        <div class="col-md-6">
+          <h6 class="small fw-bold">格式 (Precision/DType) 转换</h6>
+          <p class="small text-muted">BFP8↔FP16/FP32, BFP16↔FP16/FP32, FP16↔FP32, FP16↔BF16, FP32↔BF16, INT8↔INT16↔INT32, FP16↔INT8, FP32↔INT8/INT32, BOOL↔INT8/UINT8</p>
+          <h6 class="small fw-bold mt-2">文件格式</h6>
+          <p class="small text-muted">bin↔txt (hex): txt 每行1字节16进制，不含0x前缀</p>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 {# ==================== 迁移同步 ==================== #}
@@ -129,7 +219,8 @@
       <div class="card h-100">
         <div class="card-header py-1"><strong>导出</strong></div>
         <div class="card-body py-2">
-          <p class="small text-muted mb-2">将所有模型数据打包为 zip（含数据条目元数据），用于备份或迁移到其他服务器。</p>
+          <p class="small text-muted mb-1">将所有模型数据打包为 zip（含数据条目元数据），用于备份或迁移到其他服务器。</p>
+          <p class="small text-warning mb-2">⚠️ 全量导出包含所有模型的全部文件，数据量可能较大，请谨慎操作。建议优先使用「数据总览」中的单模型导出。</p>
           <a href="/api/golden/download-all" class="btn btn-sm btn-outline-primary" id="gMigExportBtn">导出全部 (zip)</a>
         </div>
       </div>
@@ -138,7 +229,9 @@
       <div class="card h-100">
         <div class="card-header py-1"><strong>导入</strong></div>
         <div class="card-body py-2">
-          <p class="small text-muted mb-2">从之前导出的 zip 包恢复数据，会合并到现有数据中。</p>
+          <p class="small text-muted mb-1">从之前导出的 zip 包恢复数据，会合并到现有数据中。</p>
+          <p class="small text-muted mb-1">格式要求: zip 内目录结构为 <code>模型/版本/算子/文件</code>，含 <code>golden_meta.json</code> 可自动恢复数据条目配置。</p>
+          <p class="small text-muted mb-2">文件命名规范: <code>{算子名}_{种类}{序号}_{分型}_{格式}_{shape}.ext</code>，如 <code>matmul_input0_NCHW_FP16_128x96.bin</code></p>
           <div class="d-flex gap-1 align-items-center">
             <input type="file" id="gImportFile" accept=".zip" class="form-control form-control-sm">
             <button class="btn btn-sm btn-success text-nowrap" onclick="gImport()">导入</button>
@@ -158,6 +251,23 @@
           </div>
           <div id="gSyncResMsg" class="small mt-1"></div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  {# 操作日志 #}
+  <div class="card mt-3">
+    <div class="card-header py-1 d-flex align-items-center" role="button" data-bs-toggle="collapse" data-bs-target="#gLogBody">
+      <strong>📋 操作日志</strong>
+      <small class="ms-auto text-muted">点击展开/收起</small>
+    </div>
+    <div class="collapse" id="gLogBody">
+      <div class="card-body py-2">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <button class="btn btn-sm btn-outline-secondary" onclick="gLoadLog()">刷新日志</button>
+          <small class="text-muted">最近 50 条</small>
+        </div>
+        <div id="gLogContent" style="max-height:400px;overflow-y:auto;font-size:0.8rem"></div>
       </div>
     </div>
   </div>
@@ -184,25 +294,77 @@ function _parseGoldenName(fname){
   while(ci>0&&catSeq[ci-1]>='0'&&catSeq[ci-1]<='9') ci--;
   if(ci===0||ci===catSeq.length) return null;
   var op=parts.slice(0,-4).join('_');
-  return op?{op:op,category:catSeq.slice(0,ci),seq:parseInt(catSeq.slice(ci))}:null;
+  if(!op) return null;
+  return {op:op,category:catSeq.slice(0,ci),seq:parseInt(catSeq.slice(ci)),
+          layout:parts[parts.length-3].toUpperCase(),precision:parts[parts.length-2].toUpperCase()};
 }
 
 /* 统一的文件下载链接 HTML */
 function _fileLink(model,ver,op,fname,cls){
-  return '<a href="/api/golden/'+encodeURIComponent(model)+'/'+encodeURIComponent(ver)+'/'+encodeURIComponent(op)+'/'+encodeURIComponent(fname)+'/download" class="badge '+cls+' text-decoration-none me-1" title="下载">'+_gEsc(fname)+'</a>';
+  var base='/api/golden/'+encodeURIComponent(model)+'/'+encodeURIComponent(ver)+'/'+encodeURIComponent(op)+'/'+encodeURIComponent(fname);
+  var h='<a href="'+base+'/download" class="badge '+cls+' text-decoration-none me-1" title="下载">'+_gEsc(fname)+'</a>';
+  if(fname.endsWith('.txt'))
+    h+='<a href="#" class="badge bg-info text-white text-decoration-none me-1" title="预览" onclick="gPreviewFile(\''+_gEsc(model)+'\',\''+_gEsc(ver)+'\',\''+_gEsc(op)+'\',\''+_gEsc(fname)+'\');return false;">👁</a>';
+  var p=_parseGoldenName(fname);
+  if(p) h+='<a href="#" class="badge bg-warning text-dark text-decoration-none me-1" title="分型转换" onclick="gConvertFile(\''+_gEsc(model)+'\',\''+_gEsc(ver)+'\',\''+_gEsc(op)+'\',\''+_gEsc(fname)+'\');return false;">⇄</a>';
+  return h;
 }
 
-/* 统一的上传函数 */
+/* 统一的上传函数（含分型/格式不一致检测） */
 function _uploadFiles(opName,fileInput,cb){
   var mv=_curMV();
   if(!fileInput||!fileInput.files.length){if(cb)cb();return;}
-  var fd=new FormData();
-  fd.append('model',mv.model);fd.append('version',mv.ver);fd.append('operator',opName);
-  for(var i=0;i<fileInput.files.length;i++) fd.append('file',fileInput.files[i]);
-  fetch('/api/golden/upload',{method:'POST',body:fd}).then(function(r){return r.json()}).then(function(d){
-    if(d.error) alert(d.error);
-    if(cb) cb();
-  });
+  /* 先解析上传文件名，收集 layout/precision 信息 */
+  var fileParsed=[];
+  for(var i=0;i<fileInput.files.length;i++){
+    var p=_parseGoldenName(fileInput.files[i].name);
+    if(p) fileParsed.push(p);
+  }
+  /* 获取算子已有 meta，比较分型/格式 */
+  fetch('/api/golden/'+encodeURIComponent(mv.model)+'/'+encodeURIComponent(mv.ver)+'/'+encodeURIComponent(opName)+'/meta')
+    .then(function(r){return r.ok?r.json():null})
+    .then(function(meta){
+      var mismatches=[];
+      if(meta&&meta.data&&fileParsed.length){
+        fileParsed.forEach(function(fp){
+          (meta.data||[]).forEach(function(d,di){
+            if(d.category===fp.category&&d.seq===fp.seq){
+              var diffs=[];
+              if(fp.layout&&d.layout&&fp.layout!==d.layout) diffs.push('分型: '+d.layout+' → '+fp.layout);
+              if(fp.precision&&d.precision&&fp.precision!==d.precision) diffs.push('格式: '+d.precision+' → '+fp.precision);
+              if(diffs.length) mismatches.push({di:di,category:d.category,seq:d.seq,layout:fp.layout,precision:fp.precision,desc:d.category+d.seq+' ('+diffs.join(', ')+')'});
+            }
+          });
+        });
+      }
+      /* 有不一致项，弹窗确认是否更新 */
+      var doUpdate=false;
+      if(mismatches.length){
+        doUpdate=confirm('以下数据条目的分型/格式与上传文件不一致：\n\n'+mismatches.map(function(m){return '• '+m.desc;}).join('\n')+'\n\n点击「确定」自动更新数据条目，点击「取消」保持原有配置。');
+      }
+      /* 执行上传 */
+      var fd=new FormData();
+      fd.append('model',mv.model);fd.append('version',mv.ver);fd.append('operator',opName);
+      for(var j=0;j<fileInput.files.length;j++) fd.append('file',fileInput.files[j]);
+      fetch('/api/golden/upload',{method:'POST',body:fd}).then(function(r){return r.json()}).then(function(d){
+        if(d.error){alert(d.error);if(cb)cb();return;}
+        if(doUpdate&&meta&&mismatches.length){
+          /* 更新 meta 中不一致的数据条目 */
+          var items=meta.data.slice();
+          mismatches.forEach(function(m){
+            if(items[m.di]){
+              if(m.layout) items[m.di].layout=m.layout;
+              if(m.precision) items[m.di].precision=m.precision;
+            }
+          });
+          fetch('/api/golden/'+encodeURIComponent(mv.model)+'/'+encodeURIComponent(mv.ver)+'/'+encodeURIComponent(opName)+'/meta',
+            {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:opName,data:items})})
+            .then(function(){if(cb)cb();});
+        } else {
+          if(cb) cb();
+        }
+      });
+    });
 }
 
 /* 统一的数据条目行 HTML（不含文件列和操作列，由调用方补充） */
@@ -215,7 +377,7 @@ function _dataItemCells(prefix,idx,defaults){
     +'<td><input type="number" class="form-control form-control-sm" id="'+prefix+'N-'+idx+'" value="'+(d.n||64)+'" style="width:55px"></td>'
     +'<td><input type="number" class="form-control form-control-sm" id="'+prefix+'K-'+idx+'" value="'+(d.k||64)+'" style="width:55px"></td>'
     +'<td><select class="form-select form-select-sm" id="'+prefix+'Lay-'+idx+'" style="min-width:110px">'+_optionsHtml(_gChoices.layout,d.layout||'NCHW')+'</select></td>'
-    +'<td><select class="form-select form-select-sm" id="'+prefix+'Prec-'+idx+'" style="min-width:75px">'+_optionsHtml(_gChoices.precision,d.precision||'fp16')+'</select></td>';
+    +'<td><select class="form-select form-select-sm" id="'+prefix+'Prec-'+idx+'" style="min-width:75px">'+_optionsHtml(_gChoices.precision,d.precision||'FP16')+'</select></td>';
 }
 
 /* 从表单读取数据条目 */
@@ -242,27 +404,146 @@ function _addSelOption(selId,label){
 }
 
 var _gChoices={category:[],precision:[],layout:[]};
+var _gDboxEnabled={{ 'true' if dbox_enabled else 'false' }};
 var _gOpenOp='';
 var _DATA_ITEM_THEAD='<th>序号</th><th>种类</th><th>loop</th><th>m</th><th>n</th><th>k</th><th>分型</th><th>格式</th><th style="width:100%">文件</th><th></th>';
 
 /* ========== 总览 ========== */
+var _gOvData=[];
+var _gVerInfo={};
+var _gOvStats={ts:0,data:{}};
+function _fmtTime(ts){if(!ts)return'-';var d=new Date(ts*1000);return d.toLocaleDateString()+' '+d.toLocaleTimeString();}
 function gLoadOverview(){
-  fetch('/api/golden').then(function(r){return r.json()}).then(function(items){
-    var tb=document.getElementById('gOvTbody'),em=document.getElementById('gOvEmpty'),ex=document.getElementById('gOvExportBtn');
-    var models=new Set(); items.forEach(function(it){models.add(it.model)});
-    document.getElementById('gOvStat').textContent=models.size+' 模型 / '+items.length+' 算子';
-    if(!items.length){tb.innerHTML='';em.classList.remove('d-none');ex.classList.add('d-none');return;}
-    em.classList.add('d-none'); ex.classList.remove('d-none');
-    var rows='';
-    items.forEach(function(it){
-      var dLen=it.meta.data?it.meta.data.length:0;
-      var summary=dLen?it.meta.data.map(function(d){return d.category;}).join(', '):'';
-      rows+='<tr><td>'+_gEsc(it.model)+'</td><td>'+_gEsc(it.version)+'</td>'
-        +'<td>'+_gEsc(it.operator)+'</td>'
-        +'<td><span class="badge bg-info text-dark">'+dLen+'</span> '+_gEsc(summary)+'</td>'
-        +'<td>'+it.files.length+'</td><td>'+_gFmt(it.total_size)+'</td></tr>';
+  /* 并行加载数据列表和缓存统计 */
+  Promise.all([
+    fetch('/api/golden').then(function(r){return r.json()}),
+    fetch('/api/golden/overview-stats').then(function(r){return r.json()})
+  ]).then(function(results){
+    _gOvData=results[0];
+    if(results[1].ts) _gOvStats=results[1];
+    var items=_gOvData;
+    /* 加载版本时间信息 */
+    var verKeys={};
+    items.forEach(function(it){verKeys[it.model+'||'+it.version]={m:it.model,v:it.version};});
+    var keys=Object.keys(verKeys);
+    if(!keys.length){_gVerInfo={};gRenderOverview();return;}
+    var done=0;
+    keys.forEach(function(k){
+      var mv=verKeys[k];
+      fetch('/api/golden/'+encodeURIComponent(mv.m)+'/'+encodeURIComponent(mv.v)+'/info')
+        .then(function(r){return r.json()}).then(function(info){
+          _gVerInfo[k]=info;
+          if(++done===keys.length){gRenderOverview();}
+        });
     });
-    tb.innerHTML=rows;
+  });
+}
+var _gOvRefreshTimer=null;
+function gRefreshOverviewStats(btn){
+  /* 前端 60s 冷却，防止频繁点击 */
+  if(_gOvStats.ts){
+    var elapsed=(Date.now()/1000)-_gOvStats.ts;
+    if(elapsed<60){
+      var remain=Math.ceil(60-elapsed);
+      var stEl=document.getElementById('gOvStatsTime');
+      stEl.textContent='冷却中，'+remain+'秒后可刷新';
+      setTimeout(function(){stEl.textContent=_gOvStats.ts?'统计于 '+_fmtTime(_gOvStats.ts):'';},3000);
+      return;
+    }
+  }
+  btn.disabled=true;btn.textContent='统计中...';
+  fetch('/api/golden/overview-stats',{method:'POST'}).then(function(r){return r.json().then(function(d){return{ok:r.ok,data:d};})}).then(function(res){
+    btn.disabled=false;btn.textContent='刷新统计';
+    if(res.data.error){
+      var stEl=document.getElementById('gOvStatsTime');
+      stEl.textContent=res.data.error;
+      setTimeout(function(){stEl.textContent=_gOvStats.ts?'统计于 '+_fmtTime(_gOvStats.ts):'';},3000);
+      if(res.data.data) {_gOvStats={ts:res.data.ts,data:res.data.data};gRenderOverview();}
+      return;
+    }
+    _gOvStats=res.data;
+    gRenderOverview();
+  });
+}
+function gRenderOverview(){
+  var items=_gOvData;
+  var filter=(document.getElementById('gOvFilter').value||'').trim().toLowerCase();
+  var em=document.getElementById('gOvEmpty'),ct=document.getElementById('gOvContent');
+  var modelMap={},modelOrder=[];
+  items.forEach(function(it){
+    if(filter&&it.model.toLowerCase().indexOf(filter)<0) return;
+    if(!modelMap[it.model]){modelMap[it.model]={versions:{},verOrder:[]};modelOrder.push(it.model);}
+    var mm=modelMap[it.model];
+    if(!mm.versions[it.version]){mm.versions[it.version]={ops:0,files:0,totalSize:0,nonOutputSize:0};mm.verOrder.push(it.version);}
+    var vs=mm.versions[it.version];
+    vs.ops++;
+    vs.files+=it.files.length;
+    vs.totalSize+=it.total_size;
+    var fileSizes=it.file_sizes||{};
+    it.files.forEach(function(f){
+      var p=_parseGoldenName(f);
+      var sz=fileSizes[f]||0;
+      if(!p||p.category!=='output') vs.nonOutputSize+=sz;
+    });
+  });
+  var totalModels=modelOrder.length;
+  var totalOps=items.filter(function(it){return !filter||it.model.toLowerCase().indexOf(filter)>=0;}).length;
+  document.getElementById('gOvStat').textContent=totalModels+' 模型 / '+totalOps+' 算子';
+  if(!totalModels){ct.innerHTML='';em.classList.remove('d-none');return;}
+  em.classList.add('d-none');
+  /* 显示统计时间 */
+  var stEl=document.getElementById('gOvStatsTime');
+  if(_gOvStats.ts) stEl.textContent='统计于 '+_fmtTime(_gOvStats.ts);
+  else stEl.textContent='';
+  var html='';
+  modelOrder.forEach(function(model,mi){
+    var mm=modelMap[model];
+    var verCount=mm.verOrder.length;
+    var colId='gOvCollapse-'+mi;
+    html+='<div class="card mb-2"><div class="card-header py-1 d-flex align-items-center" style="cursor:pointer" data-bs-toggle="collapse" data-bs-target="#'+colId+'">'
+      +'<strong>'+_gEsc(model)+'</strong>'
+      +'<span class="badge bg-primary ms-2">'+verCount+' 版本</span>'
+      +'<a class="btn btn-sm btn-outline-primary ms-auto py-0" href="/api/golden/'+encodeURIComponent(model)+'/download" onclick="event.stopPropagation()">📥 导出此模型</a>'
+      +'</div><div class="collapse show" id="'+colId+'"><div class="card-body py-2">'
+      +'<table class="table table-sm table-striped mb-0" style="font-size:0.85rem">'
+      +'<thead><tr><th>版本</th><th>算子数</th><th>文件数</th><th>缺失文件</th><th>总大小</th><th>创建时间</th><th>更新时间</th><th class="text-end"></th></tr></thead><tbody>';
+    mm.verOrder.forEach(function(ver){
+      var vs=mm.versions[ver];
+      var vi=_gVerInfo[model+'||'+ver]||{};
+      var statsKey=model+'||'+ver;
+      var missing=(_gOvStats.data&&_gOvStats.data[statsKey])?_gOvStats.data[statsKey].missing:'-';
+      var missingCls=(missing&&missing>0)?'text-danger fw-bold':'text-muted';
+      html+='<tr><td>'+_gEsc(ver)+'</td><td>'+vs.ops+'</td><td>'+vs.files+'</td>'
+        +'<td class="'+missingCls+'">'+(missing==='-'?'<span class="text-muted small" title="点击「刷新统计」获取">-</span>':missing)+'</td>'
+        +'<td>'+_gFmt(vs.totalSize)+'</td>'
+        +'<td class="text-muted small">'+_fmtTime(vi.created_at)+'</td>'
+        +'<td class="text-muted small">'+_fmtTime(vi.updated_at)+'</td>'
+        +'<td class="text-nowrap text-end">'
+        +'<a class="btn btn-sm btn-outline-primary py-0 me-1" href="/api/golden/'+encodeURIComponent(model)+'/'+encodeURIComponent(ver)+'/download">📥 导出</a>'
+        +(_gDboxEnabled?'<button class="btn btn-sm btn-outline-warning py-0 me-1" onclick="gExportDbox(\''+_gEsc(model)+'\',\''+_gEsc(ver)+'\',this)">📤 DBox</button>':'')
+        +'<button class="btn btn-sm btn-outline-secondary py-0" onclick="gJumpToVer(\''+_gEsc(model)+'\',\''+_gEsc(ver)+'\')">✏️ 编辑</button>'
+        +'</td></tr>';
+    });
+    html+='</tbody></table></div></div></div>';
+  });
+  ct.innerHTML=html;
+}
+
+/* ========== 搜索算子 ========== */
+function gSearchOp(){
+  var q=(document.getElementById('gOvSearch').value||'').trim();
+  var box=document.getElementById('gSearchResult');
+  if(!q){box.classList.add('d-none');box.innerHTML='';return;}
+  fetch('/api/golden/search?q='+encodeURIComponent(q)).then(function(r){return r.json()}).then(function(results){
+    if(!results.length){box.innerHTML='<span class="text-muted small">无匹配算子</span>';box.classList.remove('d-none');return;}
+    var h='<div class="list-group list-group-flush" style="font-size:0.85rem">';
+    results.forEach(function(r){
+      h+='<a class="list-group-item list-group-item-action py-1 d-flex align-items-center" href="#" onclick="gJumpToVer(\''+_gEsc(r.model)+'\',\''+_gEsc(r.version)+'\');return false;">'
+        +'<strong>'+_gEsc(r.operator)+'</strong>'
+        +'<span class="text-muted small ms-2">'+_gEsc(r.model)+' / '+_gEsc(r.version)+'</span></a>';
+    });
+    h+='</div>';
+    box.innerHTML=h;box.classList.remove('d-none');
   });
 }
 
@@ -304,10 +585,51 @@ function gOnVerChange(){
   else{document.getElementById('gOpPanel').classList.add('d-none');document.getElementById('gModelHint').classList.remove('d-none');}
 }
 function gNewModel(){var n=_addSelOption('gModelSel','新模型名称:');if(n){document.getElementById('gModelSel').value=n;gOnModelChange();}}
-function gNewVer(){var n=_addSelOption('gVerSel','新版本名称:');if(n){document.getElementById('gVerSel').value=n;gOnVerChange();}}
+function gNewVer(){
+  var model=document.getElementById('gModelSel').value;if(!model)return;
+  var n=_addSelOption('gVerSel','新版本名称:');if(!n)return;
+  document.getElementById('gVerSel').value=n;
+  /* 获取已有版本列表，自动复制上一个版本的算子结构 */
+  var sel=document.getElementById('gVerSel'),versions=[];
+  for(var i=0;i<sel.options.length;i++){var v=sel.options[i].value;if(v&&v!==n)versions.push(v);}
+  if(versions.length){
+    var prev=versions[versions.length-1];
+    if(confirm('是否从版本「'+prev+'」复制算子结构？')){
+      fetch('/api/golden/'+encodeURIComponent(model)+'/'+encodeURIComponent(n)+'/copy-from/'+encodeURIComponent(prev),{method:'POST'})
+        .then(function(r){return r.json()}).then(function(d){
+          if(d.error) alert(d.error);
+          gOnVerChange();
+        });
+      return;
+    }
+  }
+  gOnVerChange();
+}
 function gDelModel(){var m=document.getElementById('gModelSel').value;if(!m||!confirm('确认删除模型「'+m+'」及其所有数据？'))return;fetch('/api/golden/'+encodeURIComponent(m),{method:'DELETE'}).then(function(r){return r.json()}).then(function(d){if(d.error)alert(d.error);else{gLoadModels();gLoadOverview();}});}
 function gDelVer(){var m=document.getElementById('gModelSel').value,v=document.getElementById('gVerSel').value;if(!m||!v||!confirm('确认删除版本「'+m+'/'+v+'」？'))return;fetch('/api/golden/'+encodeURIComponent(m)+'/'+encodeURIComponent(v),{method:'DELETE'}).then(function(r){return r.json()}).then(function(d){if(d.error)alert(d.error);else{gOnModelChange();gLoadOverview();}});}
 function gExportVer(){var m=document.getElementById('gModelSel').value,v=document.getElementById('gVerSel').value;if(!m||!v)return;window.location.href='/api/golden/'+encodeURIComponent(m)+'/'+encodeURIComponent(v)+'/download';}
+function gJumpToVer(model,ver){
+  /* 切换到模型管理 tab 并选中指定模型/版本 */
+  var pill=document.querySelector('[data-bs-target="#sub-model"]');
+  if(pill) new bootstrap.Tab(pill).show();
+  gLoadModels(model,ver);
+}
+
+/* ========== DBox 导出 ========== */
+function gExportDbox(model,ver,btn){
+  var origText=btn.textContent;
+  btn.disabled=true; btn.textContent='上传中...';
+  fetch('/api/golden/'+encodeURIComponent(model)+'/'+encodeURIComponent(ver)+'/export-dbox',
+    {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})})
+    .then(function(r){return r.json()}).then(function(d){
+      btn.disabled=false; btn.textContent=origText;
+      if(d.error) alert('DBox 导出失败: '+d.error);
+      else alert('已成功导出到 DBox\n文件: '+d.filename);
+    }).catch(function(e){
+      btn.disabled=false; btn.textContent=origText;
+      alert('DBox 导出异常: '+e);
+    });
+}
 
 /* ========== 算子列表 (accordion) ========== */
 function gLoadOps(keepOpen){
@@ -315,6 +637,7 @@ function gLoadOps(keepOpen){
   fetch('/api/golden?model='+encodeURIComponent(mv.model)).then(function(r){return r.json()}).then(function(items){
     var ops=items.filter(function(it){return it.version===mv.ver;});
     document.getElementById('gOpCount').textContent=ops.length;
+    document.getElementById('gClearOpsBtn').classList.toggle('d-none',!ops.length);
     var acc=document.getElementById('gOpAccordion'),em=document.getElementById('gOpEmpty');
     if(!ops.length){acc.innerHTML='';em.classList.remove('d-none');_gOpenOp='';return;}
     em.classList.add('d-none');
@@ -348,11 +671,11 @@ function gLoadOps(keepOpen){
           +'<td><button class="btn btn-sm btn-outline-danger py-0" onclick="gDelDataItem(\''+_gEsc(it.operator)+'\','+di+')">×</button></td></tr>';
       });
       var dataCnt=(it.meta.data||[]).length;
-      var unmatchedLinks=unmatchedFiles.map(function(f){return _fileLink(it.model,it.version,it.operator,f,'bg-light text-dark border');}).join('');
 
       var isOpen=(it.operator===openTarget);
-      html+='<div class="accordion-item">'
+      html+='<div class="accordion-item" draggable="true" data-op-name="'+_gEsc(it.operator)+'" ondragstart="gDragStart(event)" ondragover="gDragOver(event)" ondrop="gDrop(event)" ondragend="gDragEnd(event)">'
         +'<h2 class="accordion-header"><button class="accordion-button '+(isOpen?'':'collapsed')+' py-1 px-2" type="button" data-bs-toggle="collapse" data-bs-target="#'+id+'">'
+        +'<span class="me-1" style="cursor:grab;opacity:0.4" title="拖拽排序">⠿</span>'
         +'<strong>'+_gEsc(it.operator)+'</strong>'
         +'<span class="badge bg-info text-dark ms-2">'+dataCnt+' 条数据</span>'
         +'<span class="badge bg-secondary ms-1">'+it.files.length+' 文件</span>'
@@ -368,7 +691,24 @@ function gLoadOps(keepOpen){
         +'<tbody id="aiBody-'+idx+'">'+dataRows+'</tbody></table></div>'
         +'<button type="button" class="btn btn-sm btn-outline-secondary py-0 mb-2" onclick="gAddItemRow(\''+_gEsc(it.operator)+'\','+idx+')">+ 添加数据条目</button>';
 
-      if(unmatchedLinks) html+='<div class="mb-2"><span class="small text-muted me-1">其他文件:</span>'+unmatchedLinks+'</div>';
+      /* 数据条目与文件匹配度检查 */
+      var missingFile=[],extraFile=[];
+      (it.meta.data||[]).forEach(function(d){
+        var key=d.category+'_'+d.seq;
+        if(!matchedFiles[key]||!matchedFiles[key].length) missingFile.push(d.category+d.seq);
+      });
+      unmatchedFiles.forEach(function(f){extraFile.push(f);});
+      if(missingFile.length||extraFile.length){
+        html+='<div class="alert alert-warning py-1 mb-2" style="font-size:0.8rem">';
+        if(missingFile.length) html+='<div>⚠️ 缺少文件的数据条目: <strong>'+missingFile.join(', ')+'</strong></div>';
+        if(extraFile.length) html+='<div>⚠️ 未匹配数据条目的文件: <strong>'+extraFile.join(', ')+'</strong></div>';
+        html+='</div>';
+      }
+
+      if(unmatchedFiles.length){
+        var unmatchedLinks=unmatchedFiles.map(function(f){return _fileLink(it.model,it.version,it.operator,f,'bg-light text-dark border');}).join('');
+        html+='<div class="mb-2"><span class="small text-muted me-1">其他文件:</span>'+unmatchedLinks+'</div>';
+      }
       html+='<div class="d-flex gap-2 align-items-center">'
         +'<button type="button" class="btn btn-sm btn-primary" onclick="gSaveOp(\''+_gEsc(it.operator)+'\','+idx+')">保存算子</button>'
         +'<a class="btn btn-sm btn-outline-success" href="/api/golden/'+encodeURIComponent(it.model)+'/'+encodeURIComponent(it.version)+'/'+encodeURIComponent(it.operator)+'/download">下载算子</a>'
@@ -462,6 +802,13 @@ function gDelOp(opName){
     .then(function(r){return r.json()}).then(function(d){if(d.error)alert(d.error);else{gLoadOps();gLoadOverview();}});
 }
 
+function gClearOps(){
+  var mv=_curMV();
+  if(!confirm('确认清空版本「'+mv.model+'/'+mv.ver+'」下的所有算子？此操作不可恢复。'))return;
+  fetch('/api/golden/'+encodeURIComponent(mv.model)+'/'+encodeURIComponent(mv.ver)+'/clear',{method:'DELETE'})
+    .then(function(r){return r.json()}).then(function(d){if(d.error)alert(d.error);else{gLoadOps();gLoadOverview();}});
+}
+
 /* ========== 新建算子 ========== */
 var _gcRowIdx=0;
 
@@ -472,6 +819,13 @@ function gcAddRow(defaults){
     +'<td><input type="file" class="form-control form-control-sm" id="gcFile-'+i+'" accept=".txt,.pth,.bin,.zip,.tar,.tar.gz" multiple "></td>'
     +'<td><button type="button" class="btn btn-sm btn-outline-danger py-0" onclick="this.closest(\'tr\').remove()">×</button></td>';
   document.getElementById('gcItemBody').appendChild(tr);
+}
+
+function gcReset(){
+  document.getElementById('gcOpName').value='';
+  document.getElementById('gcItemBody').innerHTML='';
+  document.getElementById('gcMsg').textContent='';
+  _gcRowIdx=0;
 }
 
 function gcSubmit(){
@@ -493,12 +847,7 @@ function gcSubmit(){
   fetch('/api/golden/create',{method:'POST',body:fd}).then(function(r){return r.json().then(function(d){return{ok:r.ok,data:d};})}).then(function(res){
     var d=res.data;
     if(d.error){document.getElementById('gcMsg').textContent='失败: '+d.error;}
-    else{
-      document.getElementById('gcMsg').textContent='';
-      document.getElementById('gcOpName').value='';
-      document.getElementById('gcItemBody').innerHTML='';_gcRowIdx=0;
-      gLoadOps();gLoadModels(mv.model,mv.ver);gLoadOverview();
-    }
+    else{gcReset();gLoadOps();gLoadModels(mv.model,mv.ver);gLoadOverview();}
   });
 }
 
@@ -506,8 +855,10 @@ function gcSubmit(){
 function _batchUploadFiles(allFiles){
   var mv=_curMV(),msg=document.getElementById('gDropMsg');
   if(!mv.model||!mv.ver){msg.textContent='请先选择模型和版本';return;}
-  var groups={},unparsed=[];
+  var groups={},unparsed=[],skipped=[];
   allFiles.forEach(function(f){
+    /* 静默跳过 .json 等非数据文件 */
+    if(f.name.endsWith('.json')){skipped.push(f.name);return;}
     var p=_parseGoldenName(f.name);
     if(p){if(!groups[p.op])groups[p.op]=[];groups[p.op].push(f);}
     else unparsed.push(f.name);
@@ -515,22 +866,69 @@ function _batchUploadFiles(allFiles){
   if(unparsed.length){msg.textContent='以下文件名无法解析算子: '+unparsed.join(', ');if(!Object.keys(groups).length)return;}
   var keys=Object.keys(groups);
   if(!keys.length){msg.textContent='无可上传内容（文件名不符合命名规范）';return;}
-  msg.textContent='上传中... 0/'+keys.length;
-  var uploaded=0,errors=[];
-  keys.forEach(function(opName){
-    var fd=new FormData();
-    fd.append('model',mv.model);fd.append('version',mv.ver);fd.append('operator',opName);
-    groups[opName].forEach(function(f){fd.append('file',f);});
-    fetch('/api/golden/upload',{method:'POST',body:fd}).then(function(r){return r.json()}).then(function(d){
-      uploaded++;
-      if(d.error) errors.push(opName+': '+d.error);
-      if(uploaded===keys.length){
-        msg.textContent=errors.length?'部分失败: '+errors.join('; '):'上传完成: '+keys.length+' 个算子, '+(unparsed.length?unparsed.length+' 个跳过':'全部成功');
-        gLoadOps();gLoadModels(mv.model,mv.ver);gLoadOverview();
-        setTimeout(function(){msg.textContent='';},6000);
-      } else {
-        msg.textContent='上传中... '+uploaded+'/'+keys.length;
-      }
+  /* 批量上传前检测分型/格式不一致 */
+  var fileParsedByOp={};
+  allFiles.forEach(function(f){
+    var p=_parseGoldenName(f.name);
+    if(p){if(!fileParsedByOp[p.op])fileParsedByOp[p.op]=[];fileParsedByOp[p.op].push(p);}
+  });
+  /* 拉取所有相关算子的 meta */
+  var metaFetches=keys.map(function(opName){
+    return fetch('/api/golden/'+encodeURIComponent(mv.model)+'/'+encodeURIComponent(mv.ver)+'/'+encodeURIComponent(opName)+'/meta')
+      .then(function(r){return r.ok?r.json():null}).then(function(m){return {op:opName,meta:m};});
+  });
+  Promise.all(metaFetches).then(function(metas){
+    /* 汇总所有不一致项 */
+    var allMismatches=[];
+    metas.forEach(function(item){
+      if(!item.meta||!item.meta.data) return;
+      var fps=fileParsedByOp[item.op]||[];
+      fps.forEach(function(fp){
+        (item.meta.data||[]).forEach(function(d,di){
+          if(d.category===fp.category&&d.seq===fp.seq){
+            var diffs=[];
+            if(fp.layout&&d.layout&&fp.layout!==d.layout) diffs.push('分型: '+d.layout+'→'+fp.layout);
+            if(fp.precision&&d.precision&&fp.precision!==d.precision) diffs.push('格式: '+d.precision+'→'+fp.precision);
+            if(diffs.length) allMismatches.push({op:item.op,di:di,layout:fp.layout,precision:fp.precision,desc:item.op+'/'+d.category+d.seq+' ('+diffs.join(', ')+')'});
+          }
+        });
+      });
+    });
+    var doUpdate=false;
+    if(allMismatches.length){
+      doUpdate=confirm('以下数据条目的分型/格式与上传文件不一致：\n\n'+allMismatches.map(function(m){return '• '+m.desc;}).join('\n')+'\n\n点击「确定」自动更新数据条目，点击「取消」保持原有配置。');
+    }
+    /* 执行上传 */
+    msg.textContent='上传中... 0/'+keys.length;
+    var uploaded=0,errors=[];
+    keys.forEach(function(opName){
+      var fd=new FormData();
+      fd.append('model',mv.model);fd.append('version',mv.ver);fd.append('operator',opName);
+      groups[opName].forEach(function(f){fd.append('file',f);});
+      fetch('/api/golden/upload',{method:'POST',body:fd}).then(function(r){return r.json()}).then(function(d){
+        uploaded++;
+        if(d.error) errors.push(opName+': '+d.error);
+        if(uploaded===keys.length){
+          msg.textContent=errors.length?'部分失败: '+errors.join('; '):'上传完成: '+keys.length+' 个算子, '+(unparsed.length?unparsed.length+' 个跳过':'全部成功');
+          /* 批量更新不一致的 meta */
+          if(doUpdate&&allMismatches.length){
+            var byOp={};
+            allMismatches.forEach(function(m){if(!byOp[m.op])byOp[m.op]=[];byOp[m.op].push(m);});
+            var metaMap={};metas.forEach(function(item){if(item.meta)metaMap[item.op]=item.meta;});
+            Object.keys(byOp).forEach(function(op){
+              var meta=metaMap[op];if(!meta)return;
+              var items=meta.data.slice();
+              byOp[op].forEach(function(m){if(items[m.di]){if(m.layout)items[m.di].layout=m.layout;if(m.precision)items[m.di].precision=m.precision;}});
+              fetch('/api/golden/'+encodeURIComponent(mv.model)+'/'+encodeURIComponent(mv.ver)+'/'+encodeURIComponent(op)+'/meta',
+                {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:op,data:items})});
+            });
+          }
+          gLoadOps();gLoadModels(mv.model,mv.ver);gLoadOverview();
+          setTimeout(function(){msg.textContent='';},6000);
+        } else {
+          msg.textContent='上传中... '+uploaded+'/'+keys.length;
+        }
+      });
     });
   });
 }
@@ -584,7 +982,281 @@ function gSync(){
 }
 function gSyncFromServer(){var msg=document.getElementById('gSyncMsg');if(msg)msg.textContent='同步中...';fetch('/api/golden/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source:''})}).then(function(r){return r.json()}).then(function(d){if(d.error){if(msg)msg.textContent=d.error;}else{if(msg)msg.textContent='同步完成';gLoadModels();gLoadOverview();setTimeout(function(){if(msg)msg.textContent='';},3000);}});}
 
+/* ========== 分型转换 ========== */
+var _gConversions=null;
+function gConvertFile(model,ver,op,fname){
+  function doConvert(conversions){
+    var p=_parseGoldenName(fname);
+    if(!p){alert('无法解析文件名');return;}
+    /* 过滤出当前文件 layout 可用的目标格式 */
+    var srcLay=null;
+    /* 从文件名解析 layout: 取倒数第3段 */
+    var base=fname;
+    ['.tar.gz','.txt','.pth','.bin','.zip','.tar'].forEach(function(ext){if(base.endsWith(ext))base=base.slice(0,-ext.length);});
+    var parts=base.split('_');
+    if(parts.length>=5) srcLay=parts[parts.length-3];
+    if(!srcLay){alert('无法确定源分型');return;}
+    var targets=conversions.filter(function(c){return c.src===srcLay;}).map(function(c){return c.dst;});
+    if(!targets.length){alert('当前分型「'+srcLay+'」暂无可用转换');return;}
+    var dst=prompt('当前分型: '+srcLay+'\n可转换到: '+targets.join(', ')+'\n\n请输入目标分型:');
+    if(!dst||!dst.trim()) return;
+    dst=dst.trim();
+    if(targets.indexOf(dst)<0){alert('不支持的转换目标: '+dst);return;}
+    fetch('/api/golden/'+encodeURIComponent(model)+'/'+encodeURIComponent(ver)+'/'+encodeURIComponent(op)+'/convert',
+      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filename:fname,dst_layout:dst})})
+      .then(function(r){return r.json()}).then(function(d){
+        if(d.error) alert('转换失败: '+d.error);
+        else{alert('转换成功!\n新文件: '+d.converted);gLoadOps(op);gLoadOverview();}
+      });
+  }
+  if(_gConversions){doConvert(_gConversions);return;}
+  fetch('/api/golden/conversions').then(function(r){return r.json()}).then(function(c){_gConversions=c;doConvert(c);});
+}
+
+/* ========== 拖拽排序 ========== */
+var _gDragItem=null;
+function gDragStart(e){
+  _gDragItem=e.currentTarget;
+  e.currentTarget.style.opacity='0.4';
+  e.dataTransfer.effectAllowed='move';
+}
+function gDragOver(e){
+  e.preventDefault();e.dataTransfer.dropEffect='move';
+  var target=e.currentTarget;
+  if(target!==_gDragItem&&target.classList.contains('accordion-item')){
+    target.style.borderTop='2px solid #0d6efd';
+  }
+}
+function gDrop(e){
+  e.preventDefault();
+  var target=e.currentTarget;
+  target.style.borderTop='';
+  if(!_gDragItem||target===_gDragItem) return;
+  var acc=document.getElementById('gOpAccordion');
+  acc.insertBefore(_gDragItem,target);
+  /* 保存新顺序 */
+  var order=[];
+  acc.querySelectorAll('.accordion-item[data-op-name]').forEach(function(el){order.push(el.getAttribute('data-op-name'));});
+  var mv=_curMV();
+  fetch('/api/golden/'+encodeURIComponent(mv.model)+'/'+encodeURIComponent(mv.ver)+'/reorder',
+    {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({order:order})});
+}
+function gDragEnd(e){
+  e.currentTarget.style.opacity='';
+  document.querySelectorAll('.accordion-item').forEach(function(el){el.style.borderTop='';});
+  _gDragItem=null;
+}
+
+/* ========== 文件预览 (hex) ========== */
+function gPreviewFile(model,ver,op,fname){
+  fetch('/api/golden/'+encodeURIComponent(model)+'/'+encodeURIComponent(ver)+'/'+encodeURIComponent(op)+'/'+encodeURIComponent(fname)+'/preview')
+    .then(function(r){return r.json()}).then(function(d){
+      if(d.error){alert(d.error);return;}
+      /* 创建模态框 */
+      var m=document.getElementById('gPreviewModal');
+      if(!m){
+        m=document.createElement('div');m.id='gPreviewModal';m.className='modal fade';m.tabIndex=-1;
+        m.innerHTML='<div class="modal-dialog modal-lg"><div class="modal-content">'
+          +'<div class="modal-header py-2"><h6 class="modal-title" id="gPreviewTitle"></h6><button class="btn-close" data-bs-dismiss="modal"></button></div>'
+          +'<div class="modal-body py-2"><pre id="gPreviewBody" style="max-height:400px;overflow:auto;font-size:0.75rem;background:#f8f9fa;padding:8px;border-radius:4px"></pre>'
+          +'<div id="gPreviewInfo" class="small text-muted mt-1"></div></div></div></div>';
+        document.body.appendChild(m);
+      }
+      document.getElementById('gPreviewTitle').textContent=fname;
+      document.getElementById('gPreviewBody').textContent=d.hex;
+      document.getElementById('gPreviewInfo').textContent='文件大小: '+_gFmt(d.total_size)+'　预览前 '+_gFmt(d.preview_bytes);
+      new bootstrap.Modal(m).show();
+    });
+}
+
+/* ========== 操作日志 ========== */
+var _gLogActions={'create_operator':'创建算子','delete_operator':'删除算子','delete_version':'删除版本',
+  'delete_model':'删除模型','upload_files':'上传文件','update_meta':'更新元数据',
+  'reorder_operators':'排序算子','convert_layout':'分型转换'};
+var _gLogLoaded=false;
+function gLoadLog(){
+  fetch('/api/golden/log?limit=50').then(function(r){return r.json()}).then(function(entries){
+    _gLogLoaded=true;
+    var ct=document.getElementById('gLogContent');
+    if(!entries.length){ct.innerHTML='<span class="text-muted">暂无操作记录</span>';return;}
+    var h='<table class="table table-sm mb-0"><thead><tr><th>时间</th><th>操作</th><th>详情</th><th>IP</th></tr></thead><tbody>';
+    entries.forEach(function(e){
+      var t=_fmtTime(e.ts);
+      var act=_gLogActions[e.action]||e.action;
+      var detail=[];
+      if(e.model) detail.push('模型:'+e.model);
+      if(e.version) detail.push('版本:'+e.version);
+      if(e.operator) detail.push('算子:'+e.operator);
+      if(e.files) detail.push(e.files.length+'个文件');
+      if(e.data_items!=null) detail.push(e.data_items+'条数据');
+      h+='<tr><td class="text-nowrap">'+t+'</td><td>'+_gEsc(act)+'</td><td class="text-muted">'+_gEsc(detail.join(', '))+'</td><td class="text-muted text-nowrap">'+(e.ip||'-')+'</td></tr>';
+    });
+    h+='</tbody></table>';
+    ct.innerHTML=h;
+  });
+}
+/* 展开日志面板时自动加载 */
+(function(){
+  var el=document.getElementById('gLogBody');
+  if(el) el.addEventListener('show.bs.collapse',function(){if(!_gLogLoaded)gLoadLog();});
+})();
+
+/* ========== 数据转换 ========== */
+function gInitConvertTab(){
+  /* 填充下拉 */
+  var layouts=_gChoices.layout||[];
+  var precs=_gChoices.precision||[];
+  ['gCvtDstLayout','gCvtSrcLayout','gCvtSingleDstLayout'].forEach(function(id){
+    var sel=document.getElementById(id);
+    if(id==='gCvtDstLayout') sel.innerHTML='<option value="">不转换分型</option>';
+    else sel.innerHTML='';
+    layouts.forEach(function(l){sel.innerHTML+='<option value="'+l+'">'+l+'</option>';});
+  });
+  ['gCvtDstPrec','gCvtSrcPrec','gCvtSingleDstPrec'].forEach(function(id){
+    var sel=document.getElementById(id);
+    if(id==='gCvtDstPrec') sel.innerHTML='<option value="">不转换格式</option>';
+    else sel.innerHTML='';
+    precs.forEach(function(p){sel.innerHTML+='<option value="'+p+'">'+p+'</option>';});
+  });
+  /* 加载转换路径 */
+  fetch('/api/golden/conversions').then(function(r){return r.json()}).then(function(c){
+    var h='';
+    (c.layout||[]).forEach(function(p){h+='<span class="badge bg-light text-dark border me-1 mb-1">'+p.src+' → '+p.dst+'</span>';});
+    document.getElementById('gCvtLayoutPaths').innerHTML=h;
+  });
+}
+
+function gCvtSingle(){
+  var fi=document.getElementById('gCvtSingleFile');
+  if(!fi.files.length){alert('请选择文件');return;}
+  var fd=new FormData();
+  fd.append('file',fi.files[0]);
+  fd.append('src_layout',document.getElementById('gCvtSrcLayout').value);
+  fd.append('dst_layout',document.getElementById('gCvtSingleDstLayout').value);
+  fd.append('src_precision',document.getElementById('gCvtSrcPrec').value);
+  fd.append('dst_precision',document.getElementById('gCvtSingleDstPrec').value);
+  fd.append('shape',document.getElementById('gCvtShape').value);
+  var msg=document.getElementById('gCvtSingleMsg');msg.textContent='转换中...';
+  fetch('/api/golden/convert-txt',{method:'POST',body:fd}).then(function(r){
+    if(!r.ok) return r.json().then(function(d){throw new Error(d.error||'转换失败');});
+    return r.blob().then(function(blob){
+      var name=r.headers.get('content-disposition');
+      name=name?name.split('filename=')[1].replace(/"/g,''):'converted.txt';
+      var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();
+      msg.textContent='转换完成';
+    });
+  }).catch(function(e){msg.textContent='失败: '+e.message;});
+}
+
+function gCvtBinTxt(){
+  var fi=document.getElementById('gCvtSingleFile');
+  if(!fi.files.length){alert('请选择文件');return;}
+  var f=fi.files[0];
+  var msg=document.getElementById('gCvtSingleMsg');
+  if(f.name.endsWith('.txt')){
+    /* txt -> bin: read hex text, convert to binary */
+    var reader=new FileReader();
+    reader.onload=function(e){
+      var lines=e.target.result.trim().split('\n');
+      var arr=new Uint8Array(lines.length);
+      for(var i=0;i<lines.length;i++) arr[i]=parseInt(lines[i].trim(),16)||0;
+      var blob=new Blob([arr]);
+      var a=document.createElement('a');a.href=URL.createObjectURL(blob);
+      a.download=f.name.replace('.txt','.bin');a.click();
+      msg.textContent='txt→bin 完成';
+    };
+    reader.readAsText(f);
+  } else {
+    /* bin -> txt: read binary, convert to hex lines */
+    var reader=new FileReader();
+    reader.onload=function(e){
+      var arr=new Uint8Array(e.target.result);
+      var lines=[];
+      for(var i=0;i<arr.length;i++) lines.push(arr[i].toString(16).toUpperCase().padStart(2,'0'));
+      var blob=new Blob([lines.join('\n')],{type:'text/plain'});
+      var a=document.createElement('a');a.href=URL.createObjectURL(blob);
+      a.download=f.name.replace(/\.[^.]+$/,'.txt');a.click();
+      msg.textContent='bin→txt 完成';
+    };
+    reader.readAsArrayBuffer(f);
+  }
+}
+
+/* 转换 tab drop zone */
+(function(){
+  var zone=document.getElementById('gCvtDropZone');
+  if(!zone) return;
+  zone.addEventListener('dragover',function(e){e.preventDefault();zone.style.borderColor='#0d6efd';zone.style.background='#e8f0fe';});
+  zone.addEventListener('dragleave',function(e){e.preventDefault();zone.style.borderColor='#adb5bd';zone.style.background='';});
+  zone.addEventListener('drop',function(e){
+    e.preventDefault();zone.style.borderColor='#adb5bd';zone.style.background='';
+    var files=[];
+    var items=e.dataTransfer.items;
+    if(items){
+      var pending=0,done=0;
+      function checkDone(){if(done>=pending) gCvtBatch(files);}
+      function readEntry(entry){
+        if(entry.isFile){pending++;entry.file(function(f){files.push(f);done++;checkDone();});}
+        else if(entry.isDirectory){entry.createReader().readEntries(function(entries){entries.forEach(readEntry);});}
+      }
+      for(var i=0;i<items.length;i++){
+        var entry=items[i].webkitGetAsEntry&&items[i].webkitGetAsEntry();
+        if(entry) readEntry(entry);
+        else{var f=items[i].getAsFile();if(f){files.push(f);pending++;done++;}}
+      }
+      if(!pending) checkDone();
+    }
+  });
+  document.getElementById('gCvtDropInput').addEventListener('change',function(e){
+    var a=[];for(var i=0;i<e.target.files.length;i++) a.push(e.target.files[i]);
+    gCvtBatch(a);e.target.value='';
+  });
+})();
+
+function gCvtBatch(files){
+  var dstLayout=document.getElementById('gCvtDstLayout').value;
+  var dstPrec=document.getElementById('gCvtDstPrec').value;
+  var outFmt=document.getElementById('gCvtOutFmt').value;
+  var msg=document.getElementById('gCvtMsg');
+  if(!dstLayout&&!dstPrec){msg.textContent='请至少选择一个转换目标（分型或格式）';return;}
+  var txtFiles=files.filter(function(f){return f.name.endsWith('.txt')||f.name.endsWith('.bin');});
+  if(!txtFiles.length){msg.textContent='无可转换文件（仅支持 .txt / .bin）';return;}
+  msg.textContent='转换中... 0/'+txtFiles.length;
+  var done=0,ok=0;
+  txtFiles.forEach(function(f){
+    var p=_parseGoldenName(f.name);
+    var fd=new FormData();fd.append('file',f);
+    if(p){
+      fd.append('src_layout',p.category?'':''); /* 从文件名解析 */
+      /* 尝试从文件名提取 layout 和 precision */
+      var base=f.name;
+      ['.tar.gz','.txt','.pth','.bin','.zip','.tar'].forEach(function(ext){if(base.endsWith(ext))base=base.slice(0,-ext.length);});
+      var parts=base.split('_');
+      if(parts.length>=5){
+        fd.append('src_layout',parts[parts.length-3]);
+        fd.append('src_precision',parts[parts.length-2]);
+        fd.append('shape',JSON.stringify({loop:1,m:parseInt(parts[parts.length-1].split('x')[0])||64,n:64,k:64}));
+      }
+    }
+    if(dstLayout) fd.append('dst_layout',dstLayout);
+    if(dstPrec) fd.append('dst_precision',dstPrec);
+    fetch('/api/golden/convert-txt',{method:'POST',body:fd}).then(function(r){
+      if(r.ok){
+        r.blob().then(function(blob){
+          var name=r.headers.get('content-disposition');
+          name=name?name.split('filename=')[1].replace(/"/g,''):'converted.txt';
+          var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();
+          ok++;
+        });
+      }
+      if(++done===txtFiles.length) msg.textContent='完成: '+ok+'/'+txtFiles.length+' 文件已转换';
+    });
+  });
+}
+
 /* ========== 初始化 ========== */
 document.getElementById('gcItemHead').innerHTML=_DATA_ITEM_THEAD;
 gLoadChoices(); gLoadModels(); gLoadOverview();
+/* 延迟初始化转换 tab */
+setTimeout(function(){if(_gChoices.layout)gInitConvertTab();else setTimeout(function(){gInitConvertTab();},1000);},500);
 </script>
