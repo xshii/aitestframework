@@ -232,7 +232,7 @@ class GoldenStore:
         d = self._root / model / version
         if not d.is_dir():
             return []
-        return sorted(o.name for o in d.iterdir() if o.is_dir())
+        return [o.name for o in sorted((o for o in d.iterdir() if o.is_dir()), key=lambda p: p.stat().st_ctime)]
 
     def list(self, model: str | None = None) -> list[GoldenEntry]:
         if not self._root.is_dir():
@@ -246,7 +246,7 @@ class GoldenStore:
             for ver_dir in sorted(model_dir.iterdir()):
                 if not ver_dir.is_dir():
                     continue
-                for op_dir in sorted(ver_dir.iterdir()):
+                for op_dir in sorted(ver_dir.iterdir(), key=lambda p: p.stat().st_ctime):
                     if not op_dir.is_dir():
                         continue
                     meta = self.load_meta(model_dir.name, ver_dir.name, op_dir.name)
@@ -278,13 +278,28 @@ class GoldenStore:
             return []
         return sorted(f for f in d.iterdir() if f.is_file() and f.name != META_FILE)
 
+    def export_operator(self, model: str, version: str, operator: str) -> io.BytesIO:
+        """Export a single operator as a zip."""
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            op_dir = self._root / model / version / operator
+            if op_dir.is_dir():
+                meta_path = op_dir / META_FILE
+                if meta_path.is_file():
+                    zf.write(meta_path, f"{model}/{version}/{operator}/{META_FILE}")
+                for f in sorted(op_dir.iterdir()):
+                    if f.is_file() and f.name != META_FILE:
+                        zf.write(f, f"{model}/{version}/{operator}/{f.name}")
+        buf.seek(0)
+        return buf
+
     def export_version(self, model: str, version: str) -> io.BytesIO:
         """Export all operators under a specific model/version as a zip."""
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
             ver_dir = self._root / model / version
             if ver_dir.is_dir():
-                for op_dir in sorted(ver_dir.iterdir()):
+                for op_dir in sorted(ver_dir.iterdir(), key=lambda p: p.stat().st_ctime):
                     if not op_dir.is_dir():
                         continue
                     meta_path = op_dir / META_FILE

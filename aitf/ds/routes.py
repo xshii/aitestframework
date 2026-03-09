@@ -110,13 +110,18 @@ def update_meta(model, version, operator):
 
 @bp.route("/api/golden/<model>/<version>/<operator>/data-item", methods=["POST"])
 def add_data_item(model, version, operator):
-    """Append a data item to the operator (auto-assign seq)."""
+    """Append a data item to the operator. Uses provided seq, or auto-assigns."""
     raw = request.get_json(silent=True) or {}
     item = DataItem.from_dict(raw)
     store = _store()
     meta = store.load_meta(model, version, operator)
-    next_seq = max((d.seq for d in meta.data), default=-1) + 1
-    item.seq = next_seq
+    if "seq" not in raw:
+        next_seq = max((d.seq for d in meta.data), default=-1) + 1
+        item.seq = next_seq
+    # 同一算子同一种类下序号不能重复
+    for d in meta.data:
+        if d.category == item.category and d.seq == item.seq:
+            return jsonify({"error": f"序号重复: {item.category}{item.seq} 已存在"}), 409
     meta.data.append(item)
     store.save_meta(model, version, operator, meta)
     return jsonify(meta.to_dict()), 201
@@ -156,6 +161,14 @@ def create_golden():
                 data_items.append(item)
         except (json.JSONDecodeError, TypeError):
             return jsonify({"error": "data_items must be a JSON array"}), 400
+
+    # 检查 data_items 内部 category+seq 重复
+    seen = set()
+    for item in data_items:
+        key = (item.category, item.seq)
+        if key in seen:
+            return jsonify({"error": f"序号重复: {item.category}{item.seq}"}), 409
+        seen.add(key)
 
     store = _store()
     # 算子名在同一模型/版本下不能重复
@@ -245,6 +258,17 @@ def upload_golden():
 
 
 # -- download ---------------------------------------------------------------
+
+@bp.route("/api/golden/<model>/<version>/<operator>/download", methods=["GET"])
+def download_operator(model, version, operator):
+    store = _store()
+    if operator not in store.list_operators(model, version):
+        return jsonify({"error": "not found"}), 404
+    buf = store.export_operator(model, version, operator)
+    name = f"{model}_{version}_{operator}.zip"
+    return send_file(buf, as_attachment=True, download_name=name,
+                     mimetype="application/zip")
+
 
 @bp.route("/api/golden/<model>/<version>/download", methods=["GET"])
 def download_version(model, version):

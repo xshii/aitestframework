@@ -53,48 +53,56 @@
   {# ===== 算子管理面板 ===== #}
   <div id="gOpPanel" class="d-none">
 
-    {# 新建算子 #}
+    {# 新建算子（可折叠） #}
     <div class="card mb-2">
-      <div class="card-header py-1"><strong>新建算子</strong></div>
-      <div class="card-body py-2">
-        <div class="row g-2 align-items-end mb-2">
-          <div class="col-auto">
-            <label class="form-label small mb-0">算子名 <span class="text-danger">*</span></label>
-            <input class="form-control form-control-sm" id="gcOpName" placeholder="matmul">
-          </div>
-          <div class="col-auto">
+      <div class="card-header py-1 d-flex align-items-center" role="button" data-bs-toggle="collapse" data-bs-target="#gcCreateBody">
+        <strong>新建算子</strong>
+        <small class="ms-auto text-muted">点击展开/收起</small>
+      </div>
+      <div class="collapse" id="gcCreateBody">
+        <div class="card-body py-2">
+          <div class="d-flex align-items-end gap-2 mb-2">
+            <div>
+              <label class="form-label small mb-0">算子名 <span class="text-danger">*</span></label>
+              <input class="form-control form-control-sm" id="gcOpName" placeholder="matmul">
+            </div>
             <button type="button" class="btn btn-sm btn-primary" onclick="gcSubmit()">创建算子</button>
+            <span id="gcMsg" class="small"></span>
           </div>
-          <div class="col-auto"><span id="gcMsg" class="small"></span></div>
+          <h6 class="mb-1">数据条目</h6>
+          <div style="overflow-x:auto">
+            <table class="table table-sm table-bordered mb-1" style="font-size:0.8rem;white-space:nowrap">
+              <thead><tr id="gcItemHead"></tr></thead>
+              <tbody id="gcItemBody"></tbody>
+            </table>
+          </div>
+          <button type="button" class="btn btn-sm btn-outline-secondary py-0" onclick="gcAddRow()">+ 添加数据条目</button>
         </div>
-        <label class="form-label small mb-1 fw-bold">数据条目（每条可独立上传文件）</label>
-        <div style="overflow-x:auto">
-          <table class="table table-sm table-bordered mb-1" style="font-size:0.8rem;white-space:nowrap" id="gcItemTable">
-            <thead><tr><th>#</th><th>种类</th><th>loop</th><th>m</th><th>n</th><th>k</th><th>分型</th><th>数据格式</th><th>文件</th><th></th></tr></thead>
-            <tbody id="gcItemBody"></tbody>
-          </table>
-        </div>
-        <button type="button" class="btn btn-sm btn-outline-secondary py-0" onclick="gcAddRow()">+ 添加数据条目</button>
       </div>
     </div>
 
-    {# 批量拖拽上传 #}
+    {# 批量拖拽上传（可折叠） #}
     <div class="card mb-2">
-      <div class="card-header py-1"><strong>批量上传</strong></div>
-      <div class="card-body py-2">
-        <div class="d-flex gap-3 align-items-start">
-          <div id="gDropZone" class="d-flex flex-column align-items-center justify-content-center" style="border:2px dashed #adb5bd;border-radius:6px;padding:16px;text-align:center;cursor:pointer;min-width:220px;min-height:80px;transition:all .2s" onclick="document.getElementById('gDropInput').click()">
-            <div class="text-muted">拖放文件夹或文件到此处</div>
-            <input type="file" id="gDropInput" class="d-none" multiple webkitdirectory>
+      <div class="card-header py-1 d-flex align-items-center" role="button" data-bs-toggle="collapse" data-bs-target="#gBatchBody">
+        <strong>批量上传</strong>
+        <small class="ms-auto text-muted">点击展开/收起</small>
+      </div>
+      <div class="collapse" id="gBatchBody">
+        <div class="card-body py-2">
+          <div class="d-flex gap-3 align-items-start">
+            <div id="gDropZone" class="d-flex flex-column align-items-center justify-content-center" style="border:2px dashed #adb5bd;border-radius:6px;padding:16px;text-align:center;cursor:pointer;min-width:220px;min-height:80px;transition:all .2s" onclick="document.getElementById('gDropInput').click()">
+              <div class="text-muted">拖放文件夹或文件到此处</div>
+              <input type="file" id="gDropInput" class="d-none" multiple webkitdirectory>
+            </div>
+            <div style="font-size:0.72rem;color:#6c757d;line-height:1.4">
+              <strong>命名规范:</strong> <code>{算子名}_{种类}{序号}_{分型}_{格式}_{shape}.ext</code><br>
+              示例: <code>matmul_input0_NCHW_fp16_128x96.bin</code><br>
+              shape: 4维 LxMxNxK · 3维 MxNxK · 2维 NxK<br>
+              符合规范的文件自动创建数据条目
+            </div>
           </div>
-          <div style="font-size:0.72rem;color:#6c757d;line-height:1.4">
-            <strong>命名规范:</strong> <code>{op}_{种类}{序号}_{分型}_{格式}_{shape}.ext</code><br>
-            示例: <code>matmul_input0_NCHW_fp16_128x96.bin</code><br>
-            shape: 4维 LxMxNxK · 3维 MxNxK · 2维 NxK<br>
-            符合规范的文件自动创建数据条目
-          </div>
+          <div id="gDropMsg" class="small mt-1"></div>
         </div>
-        <div id="gDropMsg" class="small mt-1"></div>
       </div>
     </div>
 
@@ -158,10 +166,84 @@
 </div>
 
 <script>
+/* ========== 工具函数 ========== */
 function _gFmt(b){return b<1024?b+' B':b<1048576?(b/1024).toFixed(1)+' KB':(b/1048576).toFixed(1)+' MB';}
 function _gEsc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+function _optionsHtml(choices,selected){
+  return choices.map(function(v){return '<option value="'+_gEsc(v)+'"'+(v===selected?' selected':'')+'>'+_gEsc(v)+'</option>';}).join('');
+}
+function _curMV(){return{model:document.getElementById('gModelSel').value,ver:document.getElementById('gVerSel').value};}
+
+/* 统一的文件名解析: 返回 {op, category, seq} 或 null */
+function _parseGoldenName(fname){
+  var base=fname,exts=['.tar.gz','.txt','.pth','.bin','.zip','.tar'];
+  for(var e=0;e<exts.length;e++){if(base.endsWith(exts[e])){base=base.slice(0,-exts[e].length);break;}}
+  var parts=base.split('_');
+  if(parts.length<5) return null;
+  var catSeq=parts[parts.length-4],ci=catSeq.length;
+  while(ci>0&&catSeq[ci-1]>='0'&&catSeq[ci-1]<='9') ci--;
+  if(ci===0||ci===catSeq.length) return null;
+  var op=parts.slice(0,-4).join('_');
+  return op?{op:op,category:catSeq.slice(0,ci),seq:parseInt(catSeq.slice(ci))}:null;
+}
+
+/* 统一的文件下载链接 HTML */
+function _fileLink(model,ver,op,fname,cls){
+  return '<a href="/api/golden/'+encodeURIComponent(model)+'/'+encodeURIComponent(ver)+'/'+encodeURIComponent(op)+'/'+encodeURIComponent(fname)+'/download" class="badge '+cls+' text-decoration-none me-1" title="下载">'+_gEsc(fname)+'</a>';
+}
+
+/* 统一的上传函数 */
+function _uploadFiles(opName,fileInput,cb){
+  var mv=_curMV();
+  if(!fileInput||!fileInput.files.length){if(cb)cb();return;}
+  var fd=new FormData();
+  fd.append('model',mv.model);fd.append('version',mv.ver);fd.append('operator',opName);
+  for(var i=0;i<fileInput.files.length;i++) fd.append('file',fileInput.files[i]);
+  fetch('/api/golden/upload',{method:'POST',body:fd}).then(function(r){return r.json()}).then(function(d){
+    if(d.error) alert(d.error);
+    if(cb) cb();
+  });
+}
+
+/* 统一的数据条目行 HTML（不含文件列和操作列，由调用方补充） */
+function _dataItemCells(prefix,idx,defaults){
+  var d=defaults||{};
+  return '<td><input type="number" class="form-control form-control-sm" id="'+prefix+'Seq-'+idx+'" value="'+(d.seq!=null?d.seq:0)+'" style="width:50px" min="0"></td>'
+    +'<td><select class="form-select form-select-sm" id="'+prefix+'Cat-'+idx+'" style="min-width:80px">'+_optionsHtml(_gChoices.category,d.category||'input')+'</select></td>'
+    +'<td><input type="number" class="form-control form-control-sm" id="'+prefix+'Loop-'+idx+'" value="'+(d.loop||1)+'" style="width:55px"></td>'
+    +'<td><input type="number" class="form-control form-control-sm" id="'+prefix+'M-'+idx+'" value="'+(d.m||64)+'" style="width:55px"></td>'
+    +'<td><input type="number" class="form-control form-control-sm" id="'+prefix+'N-'+idx+'" value="'+(d.n||64)+'" style="width:55px"></td>'
+    +'<td><input type="number" class="form-control form-control-sm" id="'+prefix+'K-'+idx+'" value="'+(d.k||64)+'" style="width:55px"></td>'
+    +'<td><select class="form-select form-select-sm" id="'+prefix+'Lay-'+idx+'" style="min-width:110px">'+_optionsHtml(_gChoices.layout,d.layout||'NCHW')+'</select></td>'
+    +'<td><select class="form-select form-select-sm" id="'+prefix+'Prec-'+idx+'" style="min-width:75px">'+_optionsHtml(_gChoices.precision,d.precision||'fp16')+'</select></td>';
+}
+
+/* 从表单读取数据条目 */
+function _readDataItem(prefix,idx){
+  return {
+    seq:parseInt(document.getElementById(prefix+'Seq-'+idx).value)||0,
+    category:document.getElementById(prefix+'Cat-'+idx).value,
+    loop:parseInt(document.getElementById(prefix+'Loop-'+idx).value)||1,
+    m:parseInt(document.getElementById(prefix+'M-'+idx).value)||64,
+    n:parseInt(document.getElementById(prefix+'N-'+idx).value)||64,
+    k:parseInt(document.getElementById(prefix+'K-'+idx).value)||64,
+    layout:document.getElementById(prefix+'Lay-'+idx).value,
+    precision:document.getElementById(prefix+'Prec-'+idx).value
+  };
+}
+
+/* 新建下拉选项（模型/版本共用） */
+function _addSelOption(selId,label){
+  var n=prompt(label);if(!n||!n.trim())return null;n=n.trim();
+  var sel=document.getElementById(selId);
+  for(var i=0;i<sel.options.length;i++){if(sel.options[i].value===n)return n;}
+  var o=document.createElement('option');o.value=n;o.textContent=n;sel.appendChild(o);
+  return n;
+}
 
 var _gChoices={category:[],precision:[],layout:[]};
+var _gOpenOp='';
+var _DATA_ITEM_THEAD='<th>序号</th><th>种类</th><th>loop</th><th>m</th><th>n</th><th>k</th><th>分型</th><th>格式</th><th style="width:100%">文件</th><th></th>';
 
 /* ========== 总览 ========== */
 function gLoadOverview(){
@@ -174,11 +256,7 @@ function gLoadOverview(){
     var rows='';
     items.forEach(function(it){
       var dLen=it.meta.data?it.meta.data.length:0;
-      var summary='';
-      if(dLen){
-        var cats=it.meta.data.map(function(d){return d.category;});
-        summary=cats.join(', ');
-      }
+      var summary=dLen?it.meta.data.map(function(d){return d.category;}).join(', '):'';
       rows+='<tr><td>'+_gEsc(it.model)+'</td><td>'+_gEsc(it.version)+'</td>'
         +'<td>'+_gEsc(it.operator)+'</td>'
         +'<td><span class="badge bg-info text-dark">'+dLen+'</span> '+_gEsc(summary)+'</td>'
@@ -196,8 +274,7 @@ function gLoadChoices(){
 /* ========== 模型/版本 选择器 ========== */
 function gLoadModels(selectModel,selectVer){
   fetch('/api/golden/models').then(function(r){return r.json()}).then(function(models){
-    var sel=document.getElementById('gModelSel');
-    var prev=selectModel||sel.value;
+    var sel=document.getElementById('gModelSel'),prev=selectModel||sel.value;
     var opts='<option value="">-- 选择 --</option>';
     models.forEach(function(m){opts+='<option value="'+_gEsc(m)+'">'+_gEsc(m)+'</option>';});
     sel.innerHTML=opts;
@@ -211,8 +288,7 @@ function gOnModelChange(selectVer){
   document.getElementById('gNewVerBtn').classList.toggle('d-none',!model);
   if(!model){document.getElementById('gVerSel').innerHTML='<option value="">-- 选择 --</option>';gOnVerChange();return;}
   fetch('/api/golden/'+encodeURIComponent(model)+'/versions').then(function(r){return r.json()}).then(function(vers){
-    var sel=document.getElementById('gVerSel');
-    var prev=selectVer||sel.value;
+    var sel=document.getElementById('gVerSel'),prev=selectVer||sel.value;
     var opts='<option value="">-- 选择 --</option>';
     vers.forEach(function(v){opts+='<option value="'+_gEsc(v)+'">'+_gEsc(v)+'</option>';});
     sel.innerHTML=opts;
@@ -227,20 +303,13 @@ function gOnVerChange(){
   if(model&&ver){document.getElementById('gOpPanel').classList.remove('d-none');document.getElementById('gModelHint').classList.add('d-none');gLoadOps();}
   else{document.getElementById('gOpPanel').classList.add('d-none');document.getElementById('gModelHint').classList.remove('d-none');}
 }
-function gNewModel(){var n=prompt('新模型名称:');if(!n||!n.trim())return;n=n.trim();var sel=document.getElementById('gModelSel');for(var i=0;i<sel.options.length;i++){if(sel.options[i].value===n)break;}if(i===sel.options.length){var o=document.createElement('option');o.value=n;o.textContent=n;sel.appendChild(o);}sel.value=n;gOnModelChange();}
-function gNewVer(){var n=prompt('新版本名称:');if(!n||!n.trim())return;n=n.trim();var sel=document.getElementById('gVerSel');for(var i=0;i<sel.options.length;i++){if(sel.options[i].value===n)break;}if(i===sel.options.length){var o=document.createElement('option');o.value=n;o.textContent=n;sel.appendChild(o);}sel.value=n;gOnVerChange();}
+function gNewModel(){var n=_addSelOption('gModelSel','新模型名称:');if(n){document.getElementById('gModelSel').value=n;gOnModelChange();}}
+function gNewVer(){var n=_addSelOption('gVerSel','新版本名称:');if(n){document.getElementById('gVerSel').value=n;gOnVerChange();}}
 function gDelModel(){var m=document.getElementById('gModelSel').value;if(!m||!confirm('确认删除模型「'+m+'」及其所有数据？'))return;fetch('/api/golden/'+encodeURIComponent(m),{method:'DELETE'}).then(function(r){return r.json()}).then(function(d){if(d.error)alert(d.error);else{gLoadModels();gLoadOverview();}});}
 function gDelVer(){var m=document.getElementById('gModelSel').value,v=document.getElementById('gVerSel').value;if(!m||!v||!confirm('确认删除版本「'+m+'/'+v+'」？'))return;fetch('/api/golden/'+encodeURIComponent(m)+'/'+encodeURIComponent(v),{method:'DELETE'}).then(function(r){return r.json()}).then(function(d){if(d.error)alert(d.error);else{gOnModelChange();gLoadOverview();}});}
 function gExportVer(){var m=document.getElementById('gModelSel').value,v=document.getElementById('gVerSel').value;if(!m||!v)return;window.location.href='/api/golden/'+encodeURIComponent(m)+'/'+encodeURIComponent(v)+'/download';}
 
 /* ========== 算子列表 (accordion) ========== */
-function _curMV(){return{model:document.getElementById('gModelSel').value,ver:document.getElementById('gVerSel').value};}
-
-function _optionsHtml(choices, selected){
-  return choices.map(function(v){return '<option value="'+_gEsc(v)+'"'+(v===selected?' selected':'')+'>'+_gEsc(v)+'</option>';}).join('');
-}
-
-var _gOpenOp=''; /* 记住当前展开的算子名 */
 function gLoadOps(keepOpen){
   var mv=_curMV(); if(!mv.model||!mv.ver)return;
   fetch('/api/golden?model='+encodeURIComponent(mv.model)).then(function(r){return r.json()}).then(function(items){
@@ -258,50 +327,28 @@ function gLoadOps(keepOpen){
       it.files.forEach(function(f){
         var p=_parseGoldenName(f);
         if(p){
-          /* _parseGoldenName returns operator name; need category+seq from full parse */
-          var base=f, ext='';
-          var exts=['.tar.gz','.txt','.pth','.bin','.zip','.tar'];
-          for(var e=0;e<exts.length;e++){if(base.endsWith(exts[e])){ext=exts[e];base=base.slice(0,-exts[e].length);break;}}
-          var parts=base.split('_');
-          if(parts.length>=5){
-            var catSeq=parts[parts.length-4];
-            var ci=catSeq.length;
-            while(ci>0&&catSeq[ci-1]>='0'&&catSeq[ci-1]<='9') ci--;
-            if(ci>0&&ci<catSeq.length){
-              var key=catSeq.slice(0,ci)+'_'+catSeq.slice(ci);
-              if(!matchedFiles[key]) matchedFiles[key]=[];
-              matchedFiles[key].push(f);
-              return;
-            }
-          }
+          var key=p.category+'_'+p.seq;
+          if(!matchedFiles[key]) matchedFiles[key]=[];
+          matchedFiles[key].push(f);
+        } else {
+          unmatchedFiles.push(f);
         }
-        unmatchedFiles.push(f);
       });
 
       var dataRows='';
       (it.meta.data||[]).forEach(function(d,di){
-        var fileKey=d.category+'_'+d.seq;
-        var mFiles=matchedFiles[fileKey]||[];
+        var mFiles=matchedFiles[d.category+'_'+d.seq]||[];
         var fileCell='';
-        mFiles.forEach(function(f){
-          fileCell+='<a href="/api/golden/'+encodeURIComponent(it.model)+'/'+encodeURIComponent(it.version)+'/'+encodeURIComponent(it.operator)+'/'+encodeURIComponent(f)+'/download" class="badge bg-success text-white text-decoration-none me-1" title="下载">'+_gEsc(f)+'</a>';
-        });
-        fileCell+='<div class="d-flex gap-1'+(mFiles.length?' mt-1':'')+'"><input type="file" class="form-control form-control-sm" id="diFile-'+idx+'-'+di+'" accept=".txt,.pth,.bin,.zip,.tar,.tar.gz" style="max-width:180px">'
-          +'<button class="btn btn-sm btn-outline-primary py-0" onclick="gUploadToItem(\''+_gEsc(it.operator)+'\','+idx+','+di+')">传</button></div>';
-        dataRows+='<tr>'
-          +'<td><span class="badge bg-secondary">'+d.seq+'</span></td>'
-          +'<td><span class="badge bg-primary">'+_gEsc(d.category)+'</span></td>'
-          +'<td>'+d.loop+'</td><td>'+d.m+'</td><td>'+d.n+'</td><td>'+d.k+'</td>'
-          +'<td>'+_gEsc(d.layout)+'</td><td>'+_gEsc(d.precision)+'</td>'
+        mFiles.forEach(function(f){fileCell+=_fileLink(it.model,it.version,it.operator,f,'bg-success text-white');});
+        fileCell+='<div class="d-flex gap-1'+(mFiles.length?' mt-1':'')+'"><input type="file" class="form-control form-control-sm" id="diFile-'+idx+'-'+di+'" accept=".txt,.pth,.bin,.zip,.tar,.tar.gz">'
+          +'<button class="btn btn-sm btn-outline-primary py-0" onclick="gUploadToOp(\''+_gEsc(it.operator)+'\',\'diFile-'+idx+'-'+di+'\')">上传</button></div>';
+        dataRows+='<tr data-saved="1" data-seq="'+d.seq+'" data-di="'+di+'">'
+          +_dataItemCells('di-'+idx+'-'+di,0,d)
           +'<td>'+fileCell+'</td>'
-          +'<td><button class="btn btn-sm btn-outline-danger py-0" onclick="gDelDataItem(\''+_gEsc(it.operator)+'\','+di+')">删</button></td>'
-          +'</tr>';
+          +'<td><button class="btn btn-sm btn-outline-danger py-0" onclick="gDelDataItem(\''+_gEsc(it.operator)+'\','+di+')">×</button></td></tr>';
       });
       var dataCnt=(it.meta.data||[]).length;
-      /* 未匹配文件链接 */
-      var unmatchedLinks=unmatchedFiles.map(function(f){
-        return '<a href="/api/golden/'+encodeURIComponent(it.model)+'/'+encodeURIComponent(it.version)+'/'+encodeURIComponent(it.operator)+'/'+encodeURIComponent(f)+'/download" class="badge bg-light text-dark text-decoration-none border me-1">'+_gEsc(f)+'</a>';
-      }).join('');
+      var unmatchedLinks=unmatchedFiles.map(function(f){return _fileLink(it.model,it.version,it.operator,f,'bg-light text-dark border');}).join('');
 
       var isOpen=(it.operator===openTarget);
       html+='<div class="accordion-item">'
@@ -315,39 +362,22 @@ function gLoadOps(keepOpen){
         +'<div class="accordion-body py-2 px-3">';
 
       /* 数据条目表 */
-      html+='<h6 class="mb-1">数据条目</h6>';
-      if(dataRows){
-        html+='<div style="overflow-x:auto"><table class="table table-sm table-bordered mb-2" style="font-size:0.85rem">'
-          +'<thead><tr><th>#</th><th>种类</th><th>loop</th><th>m</th><th>n</th><th>k</th><th>分型</th><th>数据格式</th><th>文件</th><th></th></tr></thead>'
-          +'<tbody>'+dataRows+'</tbody></table></div>';
-      } else {
-        html+='<p class="text-muted small mb-2">暂无数据条目。</p>';
-      }
+      html+='<h6 class="mb-1">数据条目</h6>'
+        +'<div style="overflow-x:auto"><table class="table table-sm table-bordered mb-1" style="font-size:0.8rem;white-space:nowrap">'
+        +'<thead><tr>'+_DATA_ITEM_THEAD+'</tr></thead>'
+        +'<tbody id="aiBody-'+idx+'">'+dataRows+'</tbody></table></div>'
+        +'<button type="button" class="btn btn-sm btn-outline-secondary py-0 mb-2" onclick="gAddItemRow(\''+_gEsc(it.operator)+'\','+idx+')">+ 添加数据条目</button>';
 
-      /* 添加数据条目 */
-      html+='<div class="row g-1 align-items-end mb-2" style="max-width:700px" id="addRow-'+idx+'">'
-        +'<div class="col-auto"><select class="form-select form-select-sm" id="aiCat-'+idx+'">'+_optionsHtml(_gChoices.category,'input')+'</select></div>'
-        +'<div class="col-auto"><input type="number" class="form-control form-control-sm" id="aiLoop-'+idx+'" value="1" style="width:60px" title="loop"></div>'
-        +'<div class="col-auto"><input type="number" class="form-control form-control-sm" id="aiM-'+idx+'" value="64" style="width:60px" title="m"></div>'
-        +'<div class="col-auto"><input type="number" class="form-control form-control-sm" id="aiN-'+idx+'" value="64" style="width:60px" title="n"></div>'
-        +'<div class="col-auto"><input type="number" class="form-control form-control-sm" id="aiK-'+idx+'" value="64" style="width:60px" title="k"></div>'
-        +'<div class="col-auto"><select class="form-select form-select-sm" id="aiLay-'+idx+'">'+_optionsHtml(_gChoices.layout,'NCHW')+'</select></div>'
-        +'<div class="col-auto"><select class="form-select form-select-sm" id="aiPrec-'+idx+'">'+_optionsHtml(_gChoices.precision,'fp16')+'</select></div>'
-        +'<div class="col-auto"><button class="btn btn-sm btn-outline-primary py-0" onclick="gAddDataItem(\''+_gEsc(it.operator)+'\','+idx+')">添加</button></div>'
+      if(unmatchedLinks) html+='<div class="mb-2"><span class="small text-muted me-1">其他文件:</span>'+unmatchedLinks+'</div>';
+      html+='<div class="d-flex gap-2 align-items-center">'
+        +'<button type="button" class="btn btn-sm btn-primary" onclick="gSaveOp(\''+_gEsc(it.operator)+'\','+idx+')">保存算子</button>'
+        +'<a class="btn btn-sm btn-outline-success" href="/api/golden/'+encodeURIComponent(it.model)+'/'+encodeURIComponent(it.version)+'/'+encodeURIComponent(it.operator)+'/download">下载算子</a>'
+        +'<button type="button" class="btn btn-sm btn-outline-danger" onclick="gDelOp(\''+_gEsc(it.operator).replace(/'/g,"\\'")+'\')">删除算子</button>'
+        +'<span class="small" id="gSaveMsg-'+idx+'"></span>'
         +'</div>';
-
-      /* 未匹配的文件 */
-      if(unmatchedLinks){
-        html+='<div class="mb-2"><span class="small text-muted me-1">其他文件:</span>'+unmatchedLinks+'</div>';
-      }
-
-      /* 删除算子 */
-      html+='<button class="btn btn-sm btn-outline-danger" onclick="gDelOp(\''+_gEsc(it.operator).replace(/'/g,"\\'")+'\')">删除此算子</button>';
-
       html+='</div></div></div>';
     });
     acc.innerHTML=html;
-    /* 监听展开/折叠，记住当前打开的算子 */
     acc.querySelectorAll('.accordion-collapse').forEach(function(el){
       el.addEventListener('shown.bs.collapse',function(){_gOpenOp=el.getAttribute('data-op')||'';});
       el.addEventListener('hidden.bs.collapse',function(){if(_gOpenOp===el.getAttribute('data-op'))_gOpenOp='';});
@@ -356,84 +386,109 @@ function gLoadOps(keepOpen){
   });
 }
 
-/* 添加数据条目 */
-function gAddDataItem(opName, idx){
-  var mv=_curMV();
-  var item={
-    category: document.getElementById('aiCat-'+idx).value,
-    loop: parseInt(document.getElementById('aiLoop-'+idx).value)||1,
-    m: parseInt(document.getElementById('aiM-'+idx).value)||64,
-    n: parseInt(document.getElementById('aiN-'+idx).value)||64,
-    k: parseInt(document.getElementById('aiK-'+idx).value)||64,
-    layout: document.getElementById('aiLay-'+idx).value,
-    precision: document.getElementById('aiPrec-'+idx).value
-  };
-  fetch('/api/golden/'+encodeURIComponent(mv.model)+'/'+encodeURIComponent(mv.ver)+'/'+encodeURIComponent(opName)+'/data-item',
-    {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(item)})
-    .then(function(r){return r.json()}).then(function(d){if(d.error)alert(d.error);else{gLoadOps(opName);gLoadOverview();}});
+/* ========== 算子操作 ========== */
+var _aiRowIdx=0;
+
+function gAddItemRow(opName,opIdx){
+  var tbody=document.getElementById('aiBody-'+opIdx);
+  if(!tbody) return;
+  /* 计算下一个 seq */
+  var nextSeq=0;
+  tbody.querySelectorAll('tr[data-saved]').forEach(function(tr){
+    var s=parseInt(tr.getAttribute('data-seq'))||0;
+    if(s>=nextSeq) nextSeq=s+1;
+  });
+  /* 也检查未提交的新行 */
+  tbody.querySelectorAll('tr[data-new]').forEach(function(tr){
+    var id=tr.id.replace('aiRow-','');
+    var s=parseInt((document.getElementById('aiSeq-'+id)||{}).value)||0;
+    if(s>=nextSeq) nextSeq=s+1;
+  });
+  var i=_aiRowIdx++;
+  var tr=document.createElement('tr'); tr.id='aiRow-'+i; tr.setAttribute('data-new','1');
+  tr.setAttribute('data-op',opName); tr.setAttribute('data-opidx',opIdx);
+  tr.innerHTML=_dataItemCells('ai',i,{seq:nextSeq})
+    +'<td><input type="file" class="form-control form-control-sm" id="aiFile-'+i+'" accept=".txt,.pth,.bin,.zip,.tar,.tar.gz" "></td>'
+    +'<td><div class="d-flex gap-1">'
+    +'<button class="btn btn-sm btn-outline-primary py-0" onclick="gSubmitItemRow(\''+_gEsc(opName)+'\','+i+')">提交</button>'
+    +'<button class="btn btn-sm btn-outline-danger py-0" onclick="this.closest(\'tr\').remove()">×</button>'
+    +'</div></td>';
+  tbody.appendChild(tr);
 }
 
-/* 删除数据条目 */
-function gDelDataItem(opName, idx){
+function gSubmitItemRow(opName,rowIdx){
+  var mv=_curMV(),item=_readDataItem('ai',rowIdx);
+  var fileInput=document.getElementById('aiFile-'+rowIdx);
+  fetch('/api/golden/'+encodeURIComponent(mv.model)+'/'+encodeURIComponent(mv.ver)+'/'+encodeURIComponent(opName)+'/data-item',
+    {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(item)})
+    .then(function(r){return r.json()}).then(function(d){
+      if(d.error){alert(d.error);return;}
+      _uploadFiles(opName,fileInput,function(){gLoadOps(opName);gLoadOverview();});
+    });
+}
+
+function gSaveOp(opName,opIdx){
+  var mv=_curMV();
+  var tbody=document.getElementById('aiBody-'+opIdx);
+  if(!tbody) return;
+  var items=[];
+  tbody.querySelectorAll('tr[data-saved]').forEach(function(tr){
+    var di=tr.getAttribute('data-di');
+    items.push(_readDataItem('di-'+opIdx+'-'+di,0));
+  });
+  var msg=document.getElementById('gSaveMsg-'+opIdx);
+  fetch('/api/golden/'+encodeURIComponent(mv.model)+'/'+encodeURIComponent(mv.ver)+'/'+encodeURIComponent(opName)+'/meta',
+    {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:opName,data:items})})
+    .then(function(r){return r.json()}).then(function(d){
+      if(d.error){if(msg)msg.textContent='失败: '+d.error;}
+      else{if(msg)msg.textContent='已保存';gLoadOps(opName);gLoadOverview();setTimeout(function(){if(msg)msg.textContent='';},2000);}
+    });
+}
+
+function gDelDataItem(opName,idx){
   var mv=_curMV();
   fetch('/api/golden/'+encodeURIComponent(mv.model)+'/'+encodeURIComponent(mv.ver)+'/'+encodeURIComponent(opName)+'/data-item/'+idx,{method:'DELETE'})
     .then(function(r){return r.json()}).then(function(d){if(d.error)alert(d.error);else{gLoadOps(opName);gLoadOverview();}});
 }
 
-/* 创建算子 — 动态数据条目行（每条可独立上传文件） */
+function gUploadToOp(opName,fileId){
+  _uploadFiles(opName,document.getElementById(fileId),function(){gLoadOps(opName);gLoadOverview();});
+}
+
+function gDelOp(opName){
+  var mv=_curMV();
+  if(!confirm('删除算子「'+opName+'」?'))return;
+  fetch('/api/golden/'+encodeURIComponent(mv.model)+'/'+encodeURIComponent(mv.ver)+'/'+encodeURIComponent(opName),{method:'DELETE'})
+    .then(function(r){return r.json()}).then(function(d){if(d.error)alert(d.error);else{gLoadOps();gLoadOverview();}});
+}
+
+/* ========== 新建算子 ========== */
 var _gcRowIdx=0;
+
 function gcAddRow(defaults){
-  var d=defaults||{};
-  var i=_gcRowIdx++;
+  var d=defaults||{},i=_gcRowIdx++;
   var tr=document.createElement('tr'); tr.id='gcRow-'+i;
-  tr.innerHTML='<td><input type="number" class="form-control form-control-sm" id="gcSeq-'+i+'" value="'+(d.seq!=null?d.seq:i)+'" style="width:50px" min="0"></td>'
-    +'<td><select class="form-select form-select-sm" id="gcCat-'+i+'">'+_optionsHtml(_gChoices.category,d.category||'input')+'</select></td>'
-    +'<td><input type="number" class="form-control form-control-sm" id="gcLoop-'+i+'" value="'+(d.loop||1)+'" style="width:55px"></td>'
-    +'<td><input type="number" class="form-control form-control-sm" id="gcM-'+i+'" value="'+(d.m||64)+'" style="width:55px"></td>'
-    +'<td><input type="number" class="form-control form-control-sm" id="gcN-'+i+'" value="'+(d.n||64)+'" style="width:55px"></td>'
-    +'<td><input type="number" class="form-control form-control-sm" id="gcK-'+i+'" value="'+(d.k||64)+'" style="width:55px"></td>'
-    +'<td><select class="form-select form-select-sm" id="gcLay-'+i+'">'+_optionsHtml(_gChoices.layout,d.layout||'NCHW')+'</select></td>'
-    +'<td><select class="form-select form-select-sm" id="gcPrec-'+i+'">'+_optionsHtml(_gChoices.precision,d.precision||'fp16')+'</select></td>'
-    +'<td><input type="file" class="form-control form-control-sm" id="gcFile-'+i+'" accept=".txt,.pth,.bin,.zip,.tar,.tar.gz" multiple style="min-width:150px"></td>'
+  tr.innerHTML=_dataItemCells('gc',i,{seq:d.seq!=null?d.seq:i,category:d.category,loop:d.loop,m:d.m,n:d.n,k:d.k,layout:d.layout,precision:d.precision})
+    +'<td><input type="file" class="form-control form-control-sm" id="gcFile-'+i+'" accept=".txt,.pth,.bin,.zip,.tar,.tar.gz" multiple "></td>'
     +'<td><button type="button" class="btn btn-sm btn-outline-danger py-0" onclick="this.closest(\'tr\').remove()">×</button></td>';
   document.getElementById('gcItemBody').appendChild(tr);
 }
 
-function gcCollectRows(){
+function gcSubmit(){
+  var mv=_curMV(),opName=document.getElementById('gcOpName').value.trim();
+  if(!opName){alert('请输入算子名');return;}
   var rows=document.getElementById('gcItemBody').querySelectorAll('tr');
-  var result=[];
+  var items=[],allFiles=[];
   rows.forEach(function(tr){
     var id=tr.id.replace('gcRow-','');
-    result.push({
-      item:{
-        seq:parseInt(document.getElementById('gcSeq-'+id).value)||0,
-        category:document.getElementById('gcCat-'+id).value,
-        loop:parseInt(document.getElementById('gcLoop-'+id).value)||1,
-        m:parseInt(document.getElementById('gcM-'+id).value)||64,
-        n:parseInt(document.getElementById('gcN-'+id).value)||64,
-        k:parseInt(document.getElementById('gcK-'+id).value)||64,
-        layout:document.getElementById('gcLay-'+id).value,
-        precision:document.getElementById('gcPrec-'+id).value
-      },
-      files:document.getElementById('gcFile-'+id).files
-    });
+    items.push(_readDataItem('gc',id));
+    var fi=document.getElementById('gcFile-'+id);
+    if(fi) for(var i=0;i<fi.files.length;i++) allFiles.push(fi.files[i]);
   });
-  return result;
-}
-
-function gcSubmit(){
-  var mv=_curMV();
-  var opName=document.getElementById('gcOpName').value.trim();
-  if(!opName){alert('请输入算子名');return;}
-  var rows=gcCollectRows();
-  var items=rows.map(function(r){return r.item;});
-  /* 收集所有文件 */
   var fd=new FormData();
   fd.append('model',mv.model);fd.append('version',mv.ver);fd.append('operator',opName);
   if(items.length) fd.append('data_items',JSON.stringify(items));
-  rows.forEach(function(r){
-    for(var i=0;i<r.files.length;i++) fd.append('file',r.files[i]);
-  });
+  allFiles.forEach(function(f){fd.append('file',f);});
   document.getElementById('gcMsg').textContent='创建中...';
   fetch('/api/golden/create',{method:'POST',body:fd}).then(function(r){return r.json().then(function(d){return{ok:r.ok,data:d};})}).then(function(res){
     var d=res.data;
@@ -447,63 +502,21 @@ function gcSubmit(){
   });
 }
 
-/* 数据条目内上传文件 */
-function gUploadToItem(opName,opIdx,dataIdx){
-  var mv=_curMV();
-  var fileInput=document.getElementById('diFile-'+opIdx+'-'+dataIdx);
-  if(!fileInput||!fileInput.files.length){alert('请选择文件');return;}
-  var fd=new FormData();
-  fd.append('model',mv.model);fd.append('version',mv.ver);fd.append('operator',opName);
-  for(var i=0;i<fileInput.files.length;i++) fd.append('file',fileInput.files[i]);
-  fetch('/api/golden/upload',{method:'POST',body:fd}).then(function(r){return r.json()}).then(function(d){
-    if(d.error) alert(d.error);
-    else{gLoadOps(opName);gLoadOverview();}
-  });
-}
-
-/* 删除算子 */
-function gDelOp(opName){
-  var mv=_curMV();
-  if(!confirm('删除算子「'+opName+'」?'))return;
-  fetch('/api/golden/'+encodeURIComponent(mv.model)+'/'+encodeURIComponent(mv.ver)+'/'+encodeURIComponent(opName),{method:'DELETE'})
-    .then(function(r){return r.json()}).then(function(d){if(d.error)alert(d.error);else{gLoadOps();gLoadOverview();}});
-}
-
-/* ========== 批量拖拽上传（按文件名解析算子） ========== */
-/* 前端解析文件名: {op}_{cat}{seq}_{layout}_{prec}_{shape}.ext */
-function _parseGoldenName(fname){
-  var base=fname;
-  var exts=['.tar.gz','.txt','.pth','.bin','.zip','.tar'];
-  for(var e=0;e<exts.length;e++){if(base.endsWith(exts[e])){base=base.slice(0,-exts[e].length);break;}}
-  var parts=base.split('_');
-  if(parts.length<5) return null;
-  var op=parts.slice(0,-4).join('_');
-  return op||null;
-}
-
+/* ========== 批量拖拽上传 ========== */
 function _batchUploadFiles(allFiles){
-  var mv=_curMV();
-  var msg=document.getElementById('gDropMsg');
+  var mv=_curMV(),msg=document.getElementById('gDropMsg');
   if(!mv.model||!mv.ver){msg.textContent='请先选择模型和版本';return;}
-  /* group by parsed operator name */
-  var groups={}, unparsed=[];
+  var groups={},unparsed=[];
   allFiles.forEach(function(f){
-    var op=_parseGoldenName(f.name);
-    if(op){
-      if(!groups[op]) groups[op]=[];
-      groups[op].push(f);
-    } else {
-      unparsed.push(f.name);
-    }
+    var p=_parseGoldenName(f.name);
+    if(p){if(!groups[p.op])groups[p.op]=[];groups[p.op].push(f);}
+    else unparsed.push(f.name);
   });
-  if(unparsed.length){
-    msg.textContent='以下文件名无法解析算子: '+unparsed.join(', ');
-    if(!Object.keys(groups).length) return;
-  }
+  if(unparsed.length){msg.textContent='以下文件名无法解析算子: '+unparsed.join(', ');if(!Object.keys(groups).length)return;}
   var keys=Object.keys(groups);
   if(!keys.length){msg.textContent='无可上传内容（文件名不符合命名规范）';return;}
   msg.textContent='上传中... 0/'+keys.length;
-  var uploaded=0, errors=[];
+  var uploaded=0,errors=[];
   keys.forEach(function(opName){
     var fd=new FormData();
     fd.append('model',mv.model);fd.append('version',mv.ver);fd.append('operator',opName);
@@ -512,8 +525,7 @@ function _batchUploadFiles(allFiles){
       uploaded++;
       if(d.error) errors.push(opName+': '+d.error);
       if(uploaded===keys.length){
-        if(errors.length) msg.textContent='部分失败: '+errors.join('; ');
-        else msg.textContent='上传完成: '+keys.length+' 个算子, '+(unparsed.length?unparsed.length+' 个跳过':'全部成功');
+        msg.textContent=errors.length?'部分失败: '+errors.join('; '):'上传完成: '+keys.length+' 个算子, '+(unparsed.length?unparsed.length+' 个跳过':'全部成功');
         gLoadOps();gLoadModels(mv.model,mv.ver);gLoadOverview();
         setTimeout(function(){msg.textContent='';},6000);
       } else {
@@ -525,8 +537,6 @@ function _batchUploadFiles(allFiles){
 
 (function(){
   var zone=document.getElementById('gDropZone');
-  var msg=document.getElementById('gDropMsg');
-
   zone.addEventListener('dragover',function(e){e.preventDefault();e.stopPropagation();zone.style.borderColor='#0d6efd';zone.style.background='#e8f0fe';});
   zone.addEventListener('dragleave',function(e){e.preventDefault();zone.style.borderColor='#adb5bd';zone.style.background='';});
   zone.addEventListener('drop',function(e){
@@ -534,67 +544,39 @@ function _batchUploadFiles(allFiles){
     zone.style.borderColor='#adb5bd';zone.style.background='';
     var items=e.dataTransfer.items;
     if(!items||!items.length)return;
-    var allFiles=[];
-    var pending=0, done=0;
-
-    function checkDone(){
-      if(done<pending) return;
-      _batchUploadFiles(allFiles);
-    }
-
+    var allFiles=[],pending=0,done=0;
+    function checkDone(){if(done>=pending)_batchUploadFiles(allFiles);}
     function readEntry(entry){
-      if(entry.isFile){
-        pending++;
-        entry.file(function(f){ allFiles.push(f); done++; checkDone(); });
-      } else if(entry.isDirectory){
-        var reader=entry.createReader();
-        reader.readEntries(function(entries){
-          if(!entries.length) return;
-          entries.forEach(function(e){ readEntry(e); });
-        });
-      }
+      if(entry.isFile){pending++;entry.file(function(f){allFiles.push(f);done++;checkDone();});}
+      else if(entry.isDirectory){entry.createReader().readEntries(function(entries){entries.forEach(readEntry);});}
     }
-
     for(var i=0;i<items.length;i++){
       var entry=items[i].webkitGetAsEntry&&items[i].webkitGetAsEntry();
-      if(entry){
-        readEntry(entry);
-      } else {
-        var f=items[i].getAsFile();
-        if(f){allFiles.push(f);pending++;done++;}
-      }
+      if(entry) readEntry(entry);
+      else{var f=items[i].getAsFile();if(f){allFiles.push(f);pending++;done++;}}
     }
     if(!pending) checkDone();
   });
-
-  /* click fallback (file/folder picker) */
   document.getElementById('gDropInput').addEventListener('change',function(e){
-    var files=e.target.files;
-    if(!files.length)return;
-    var allFiles=[];
-    for(var i=0;i<files.length;i++) allFiles.push(files[i]);
-    _batchUploadFiles(allFiles);
-    e.target.value='';
+    var files=e.target.files;if(!files.length)return;
+    var a=[];for(var i=0;i<files.length;i++)a.push(files[i]);
+    _batchUploadFiles(a);e.target.value='';
   });
 })();
 
 /* ========== 迁移 ========== */
 function gImport(){
-  var f=document.getElementById('gImportFile').files[0];
-  if(!f){alert('请选择zip');return;}
+  var f=document.getElementById('gImportFile').files[0];if(!f){alert('请选择zip');return;}
   var fd=new FormData();fd.append('file',f);
-  var msg=document.getElementById('gImportMsg');
-  msg.textContent='导入中...';
+  var msg=document.getElementById('gImportMsg');msg.textContent='导入中...';
   fetch('/api/golden/import',{method:'POST',body:fd}).then(function(r){return r.json()}).then(function(d){
     msg.textContent=d.error?'失败: '+d.error:'导入成功: '+d.count+'个文件';
     if(!d.error){document.getElementById('gImportFile').value='';gLoadModels();gLoadOverview();}
   });
 }
 function gSync(){
-  var src=document.getElementById('gSyncSource').value.trim();
-  if(!src){alert('请输入地址');return;}
-  var msg=document.getElementById('gSyncResMsg');
-  msg.textContent='同步中...';
+  var src=document.getElementById('gSyncSource').value.trim();if(!src){alert('请输入地址');return;}
+  var msg=document.getElementById('gSyncResMsg');msg.textContent='同步中...';
   fetch('/api/golden/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source:src})}).then(function(r){return r.json()}).then(function(d){
     msg.textContent=d.error?'失败: '+d.error:'同步成功: '+d.count+'个文件';
     if(!d.error){gLoadModels();gLoadOverview();}
@@ -603,5 +585,6 @@ function gSync(){
 function gSyncFromServer(){var msg=document.getElementById('gSyncMsg');if(msg)msg.textContent='同步中...';fetch('/api/golden/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source:''})}).then(function(r){return r.json()}).then(function(d){if(d.error){if(msg)msg.textContent=d.error;}else{if(msg)msg.textContent='同步完成';gLoadModels();gLoadOverview();setTimeout(function(){if(msg)msg.textContent='';},3000);}});}
 
 /* ========== 初始化 ========== */
+document.getElementById('gcItemHead').innerHTML=_DATA_ITEM_THEAD;
 gLoadChoices(); gLoadModels(); gLoadOverview();
 </script>

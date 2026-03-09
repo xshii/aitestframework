@@ -124,6 +124,26 @@ class TestDataItems:
         resp = client.delete("/api/golden/tdd/v1/matmul/data-item/99")
         assert resp.status_code == 400
 
+    def test_duplicate_category_seq_rejected(self, client):
+        _create(client, data_items=[{"category": "input", "seq": 0}])
+        resp = client.post("/api/golden/tdd/v1/matmul/data-item",
+                           json={"category": "input", "seq": 0})
+        assert resp.status_code == 409
+        assert "序号重复" in resp.get_json()["error"]
+
+    def test_same_seq_different_category_ok(self, client):
+        _create(client, data_items=[{"category": "input", "seq": 0}])
+        resp = client.post("/api/golden/tdd/v1/matmul/data-item",
+                           json={"category": "output", "seq": 0})
+        assert resp.status_code == 201
+
+    def test_create_with_duplicate_items_rejected(self, client):
+        resp = _create(client, data_items=[
+            {"category": "input", "seq": 0},
+            {"category": "input", "seq": 0},
+        ])
+        assert resp.status_code == 409
+
 
 class TestUpload:
     def test_upload_success(self, client):
