@@ -167,7 +167,6 @@ _LAYOUT_CONVERTERS: dict[tuple[str, str], tuple[callable, str]] = {
 CONVERTERS = {k: v[0] for k, v in _LAYOUT_CONVERTERS.items()}
 
 
-
 # ---------------------------------------------------------------------------
 # Core dtype cast (numpy array level)
 # ---------------------------------------------------------------------------

@@ -170,8 +170,8 @@ def get_choices():
         "category": list(CATEGORY_CHOICES),
         "precision": list(PRECISION_CHOICES),
         "layout": list(LAYOUT_CHOICES),
-        "filename_format": "{op}_{category}{seq}_{layout}_{precision}_{shape}.ext",
-        "filename_example": "matmul_input0_NCHW_FP16_128x96.bin",
+        "filename_format": "{op}_{category}{seq}_{layout}_{precision}_{shape}.txt",
+        "filename_example": "matmul_input0_NCHW_FP16_128x96.txt",
         "allowed_ext": list(ALLOWED_EXT),
     })
 
@@ -183,7 +183,7 @@ def parse_filename():
     filename = data.get("filename", "")
     result = parse_golden_filename(filename)
     if not result:
-        return jsonify({"error": "无法解析文件名，格式应为: {op}_{category}{seq}_{layout}_{precision}_{shape}.ext"}), 400
+        return jsonify({"error": "无法解析文件名，格式应为: {op}_{category}{seq}_{layout}_{precision}_{shape}.txt"}), 400
     return jsonify(result)
 
 
@@ -684,6 +684,70 @@ def convert_operator_file(model, version, operator):
         "src_layout": src_layout,
         "dst_layout": dst_layout,
     }), 201
+
+
+# -- pth inspect/export (无需 torch 依赖，纯 pickle 解析) -------------------
+
+def _pth_parser():
+    from aitf.ds import pth_parser
+    return pth_parser
+
+
+@bp.route("/api/golden/pth-inspect", methods=["POST"])
+def pth_inspect():
+    """解析 .pth 文件，列出内部所有 tensor 的 key/dtype/shape。
+
+    使用自定义 pickle unpickler 解析，无需 torch 依赖。
+    注意: pth 文件可能借用了 torch 序列化格式，实际存储 Ascend 自定义格式数据。
+    """
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify({"error": "file is required"}), 400
+    if not f.filename.endswith(".pth"):
+        return jsonify({"error": "仅支持 .pth 文件"}), 400
+
+    try:
+        pp = _pth_parser()
+        tensors = pp.inspect_pth(f.stream)
+        return jsonify({"tensors": tensors, "count": len(tensors)})
+    except Exception as exc:
+        logger.error("[%s] pth inspect failed: %s", _client_ip(), exc, exc_info=True)
+        return jsonify({"error": f"pth 解析失败: {exc}"}), 500
+
+
+@bp.route("/api/golden/pth-export", methods=["POST"])
+def pth_export():
+    """从 .pth 文件中导出指定 tensor 为 txt 格式（每行1字节hex，无0x）。"""
+    f = request.files.get("file")
+    key = request.form.get("key", "").strip()
+    if not f or not f.filename:
+        return jsonify({"error": "file is required"}), 400
+    if not key:
+        return jsonify({"error": "key is required"}), 400
+
+    try:
+        pp = _pth_parser()
+        lc = _lc()
+        raw, info = pp.export_tensor(f.stream, key)
+
+        # 原样导出 raw bytes 为 txt (不做精度/分型转换)
+        txt = lc.bin_to_hex_txt(raw)
+        safe_name = info.get("operator", key.replace(".", "_")) + "_" + info.get("category", "other") + ".txt"
+        buf = io.BytesIO(txt.encode("utf-8"))
+        buf.seek(0)
+
+        logger.info("[%s] pth export: %s (%s %s, %d bytes)",
+                    _client_ip(), key, info["dtype"], info["shape"], len(raw))
+
+        return send_file(buf, as_attachment=True, download_name=safe_name,
+                         mimetype="text/plain")
+    except KeyError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        logger.error("[%s] pth export failed: %s", _client_ip(), exc, exc_info=True)
+        return jsonify({"error": f"pth 导出失败: {exc}"}), 500
 
 
 # -- dbox export ------------------------------------------------------------
