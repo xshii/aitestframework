@@ -110,6 +110,27 @@
       </div>
     </div>
 
+    {# 批量分型转换（可折叠） #}
+    <div class="card mb-2">
+      <div class="card-header py-1 d-flex align-items-center" role="button" data-bs-toggle="collapse" data-bs-target="#gBatchCvtBody">
+        <strong>批量分型转换</strong>
+        <small class="ms-auto text-muted">点击展开/收起</small>
+      </div>
+      <div class="collapse" id="gBatchCvtBody">
+        <div class="card-body py-2">
+          <p class="small text-muted mb-2">扫描当前版本所有文件，按实际分型列出，选择目标分型后批量转换。转换后替换原文件。</p>
+          <div class="d-flex gap-2 align-items-center mb-2">
+            <button class="btn btn-sm btn-outline-primary" onclick="gBatchCvtScan()">扫描文件</button>
+            <label class="small mb-0 ms-2">目标分型:</label>
+            <select id="gBatchCvtDstLayout" class="form-select form-select-sm" style="width:auto;min-width:110px"></select>
+            <button class="btn btn-sm btn-primary ms-2" id="gBatchCvtBtn" onclick="gBatchCvtRun()" disabled>转换勾选项</button>
+            <span id="gBatchCvtMsg" class="small text-muted"></span>
+          </div>
+          <div id="gBatchCvtList"></div>
+        </div>
+      </div>
+    </div>
+
     {# 算子列表 #}
     <div class="d-flex align-items-center mb-1">
       <span class="fw-bold me-1">算子列表</span>
@@ -817,6 +838,98 @@ function gClearOps(){
     .then(function(r){return r.json()}).then(function(d){if(d.error)alert(d.error);else{gLoadOps();gLoadOverview();}});
 }
 
+/* ========== 批量分型转换 ========== */
+var _gBatchCvtFiles=[];
+
+function gBatchCvtScan(){
+  var mv=_curMV();if(!mv.model||!mv.ver){alert('请先选择模型和版本');return;}
+  var msg=document.getElementById('gBatchCvtMsg');
+  msg.textContent='扫描中...';
+
+  /* 填充目标分型下拉 */
+  var sel=document.getElementById('gBatchCvtDstLayout');
+  if(!sel.options.length){
+    var layouts=_gChoices.layout||[];
+    sel.innerHTML=layouts.map(function(l){return '<option value="'+l+'">'+l+'</option>';}).join('');
+  }
+
+  fetch('/api/golden?model='+encodeURIComponent(mv.model)).then(function(r){return r.json()}).then(function(items){
+    var ops=items.filter(function(it){return it.version===mv.ver;});
+    _gBatchCvtFiles=[];
+    ops.forEach(function(it){
+      it.files.forEach(function(f){
+        var p=_parseGoldenName(f);
+        if(p) _gBatchCvtFiles.push({operator:it.operator,filename:f,layout:p.layout,precision:p.precision,shape:p.shape||''});
+      });
+    });
+    if(!_gBatchCvtFiles.length){msg.textContent='未找到符合命名规范的文件';return;}
+
+    var h='<div class="table-responsive" style="max-height:300px;overflow-y:auto"><table class="table table-sm table-hover mb-0" style="font-size:0.78rem">';
+    h+='<thead class="table-light sticky-top"><tr>'
+      +'<th><input type="checkbox" id="gBcCheckAll" checked onchange="document.querySelectorAll(\'.gBcCheck\').forEach(function(c){c.checked=this.checked;}.bind(this))"></th>'
+      +'<th>算子</th><th>文件</th><th>当前分型</th><th>精度</th>'
+      +'</tr></thead><tbody>';
+    _gBatchCvtFiles.forEach(function(f,i){
+      h+='<tr>'
+        +'<td><input type="checkbox" class="gBcCheck" data-idx="'+i+'" checked></td>'
+        +'<td><code>'+_gEsc(f.operator)+'</code></td>'
+        +'<td title="'+_gEsc(f.filename)+'"><code class="text-truncate d-inline-block" style="max-width:250px">'+_gEsc(f.filename)+'</code></td>'
+        +'<td><span class="badge bg-info text-dark">'+_gEsc(f.layout)+'</span></td>'
+        +'<td>'+_gEsc(f.precision)+'</td>'
+        +'</tr>';
+    });
+    h+='</tbody></table></div>';
+    document.getElementById('gBatchCvtList').innerHTML=h;
+    document.getElementById('gBatchCvtBtn').disabled=false;
+    msg.textContent='共 '+_gBatchCvtFiles.length+' 个文件';
+  });
+}
+
+function gBatchCvtRun(){
+  var mv=_curMV();if(!mv.model||!mv.ver) return;
+  var dstLayout=document.getElementById('gBatchCvtDstLayout').value;
+  if(!dstLayout){alert('请选择目标分型');return;}
+
+  /* 收集勾选项，排除已经是目标分型的 */
+  var selected=[];
+  document.querySelectorAll('.gBcCheck:checked').forEach(function(cb){
+    var f=_gBatchCvtFiles[parseInt(cb.dataset.idx)];
+    if(f&&f.layout!==dstLayout) selected.push(f);
+  });
+  if(!selected.length){alert('没有需要转换的文件（所有勾选文件已是目标分型）');return;}
+  if(!confirm('将 '+selected.length+' 个文件从各自分型转换到 '+dstLayout+'，转换后替换原文件。确认？')) return;
+
+  var btn=document.getElementById('gBatchCvtBtn');
+  var msg=document.getElementById('gBatchCvtMsg');
+  btn.disabled=true;
+  var done=0,ok=0,total=selected.length;
+  msg.textContent='转换中... 0/'+total;
+
+  function next(si){
+    if(si>=total){
+      msg.textContent='完成: '+ok+'/'+total+' 个文件已转换为 '+dstLayout;
+      btn.disabled=false;
+      gLoadOps();gLoadOverview();
+      return;
+    }
+    var f=selected[si];
+    fetch('/api/golden/'+encodeURIComponent(mv.model)+'/'+encodeURIComponent(mv.ver)+'/'+encodeURIComponent(f.operator)+'/convert',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({filename:f.filename,dst_layout:dstLayout})
+    }).then(function(r){
+      if(r.ok) ok++;
+      else return r.json().then(function(d){throw new Error(d.error||'');});
+    }).catch(function(e){
+      msg.textContent='转换中... '+(done+1)+'/'+total+' ('+f.filename+': '+e.message+')';
+    }).then(function(){
+      done++;
+      msg.textContent='转换中... '+done+'/'+total;
+      next(si+1);
+    });
+  }
+  next(0);
+}
+
 /* ========== 新建算子 ========== */
 var _gcRowIdx=0;
 
@@ -1232,15 +1345,16 @@ function gCvtPthSplit(){
     /* 批量操作栏: 全局默认 + 一键导入 */
     var h='<div class="d-flex gap-2 align-items-center mt-1 mb-1 flex-wrap">'
       +'<strong class="small">共 '+_gPthTensors.length+' 个 tensor</strong>'
-      +'<label class="small mb-0 ms-2">全局实际精度:</label>'
+      +'<label class="small mb-0 ms-2">全局精度:</label>'
       +'<select id="gPthDefPrec" class="form-select form-select-sm" style="width:auto;min-width:75px" onchange="gPthApplyDefaults()">'
       +_pthPrecOpts(_gPthTensors[0].dtype)+'</select>'
-      +'<label class="small mb-0 ms-1">实际分型:</label>'
+      +'<label class="small mb-0 ms-1">目标分型:</label>'
       +'<select id="gPthDefLayout" class="form-select form-select-sm" style="width:auto;min-width:90px" onchange="gPthApplyDefaults()">'
       +_pthLayOpts('ND')+'</select>'
       +'<button class="btn btn-sm btn-outline-secondary ms-1" onclick="gPthApplyDefaults(false)">应用到全部</button>'
       +'<button class="btn btn-sm btn-outline-secondary ms-1" onclick="gPthApplyDefaults(true)">应用到勾选</button>'
-      +'</div>';
+      +'</div>'
+      +'<div class="small text-muted mb-1">pth 原始数据分型为 ND，导入时自动转换为目标分型；精度为标记实际精度，不做转换。</div>';
 
     /* 一键创建模型并导入 */
     var baseName=f.name.replace('.pth','');
@@ -1258,7 +1372,7 @@ function gCvtPthSplit(){
     h+='<div class="table-responsive" style="max-height:400px;overflow-y:auto"><table class="table table-sm table-hover mb-0" style="font-size:0.78rem">';
     h+='<thead class="table-light sticky-top"><tr>'
       +'<th><input type="checkbox" id="gPthCheckAll" checked onchange="gPthToggleAll(this.checked)"></th>'
-      +'<th>Key</th><th>算子名</th><th>类别</th><th>torch类型</th><th>实际精度</th><th>实际分型</th><th>Shape</th><th>大小</th><th></th>'
+      +'<th>Key</th><th>算子名</th><th>类别</th><th>torch类型</th><th>实际精度</th><th>目标分型</th><th>Shape</th><th>大小</th><th></th>'
       +'</tr></thead><tbody>';
     _gPthTensors.forEach(function(t,i){
       h+='<tr>'
@@ -1271,7 +1385,7 @@ function gCvtPthSplit(){
         +'<td><select class="form-select form-select-sm py-0" id="gPthLay-'+i+'" style="width:100px">'+_pthLayOpts('ND')+'</select></td>'
         +'<td>'+_gEsc(t.shape)+'</td>'
         +'<td class="text-muted">'+_pthSizeStr(t.bytes)+'</td>'
-        +'<td><button class="btn btn-sm btn-outline-primary py-0 px-1" onclick="gPthExport('+i+',this)">导出</button></td>'
+        +'<td><button class="btn btn-sm btn-outline-secondary py-0 px-1" onclick="gPthExport('+i+',this)">直接导出</button></td>'
         +'</tr>';
     });
     h+='</tbody></table></div>';
@@ -1306,25 +1420,30 @@ function gPthExport(idx,btn){
   if(!t) return;
   var fi=document.getElementById('gCvtSingleFile');
   if(!fi.files.length) return;
+
+  /* 精度标记实际精度，分型固定为 ND (pth 原始数据) */
+  var prec=document.getElementById('gPthPrec-'+idx).value;
+  var op=document.getElementById('gPthOp-'+idx).value.trim()||t.operator;
+  var cat=document.getElementById('gPthCat-'+idx).value;
+  var fname=op+'_'+cat+t.seq+'_ND_'+prec+'_'+t.shape+'.txt';
+
+  /* 提示：直接导出不做任何转换 */
+  if(!confirm('注意：直接导出 pth tensor\n\n· 数据类型未变更（标记精度: '+prec+'）\n· 数据分型未变更（固定为 ND）\n\n如需转换分型，建议通过「一键导入模型」后在数据管理页导出。\n\n是否继续直接导出？')){
+    return;
+  }
+
   var fd=new FormData();
   fd.append('file',fi.files[0]);
   fd.append('key',t.key);
 
-  /* 实际精度/分型仅用于文件名标记，不做转换 */
-  var prec=document.getElementById('gPthPrec-'+idx).value;
-  var lay=document.getElementById('gPthLay-'+idx).value;
-  var op=document.getElementById('gPthOp-'+idx).value.trim()||t.operator;
-  var cat=document.getElementById('gPthCat-'+idx).value;
-  var fname=op+'_'+cat+t.seq+'_'+lay+'_'+prec+'_'+t.shape+'.txt';
-
-  btn.disabled=true;btn.textContent='...';
+  btn.style.opacity='0.3';btn.style.pointerEvents='none';
   fetch('/api/golden/pth-export',{method:'POST',body:fd}).then(function(r){
     if(!r.ok) return r.json().then(function(d){throw new Error(d.error||'导出失败');});
     return r.blob().then(function(blob){
       var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=fname;a.click();
-      btn.textContent='OK';setTimeout(function(){btn.textContent='导出';btn.disabled=false;},1500);
+      btn.style.opacity='1';btn.style.pointerEvents='';
     });
-  }).catch(function(e){btn.textContent='失败';btn.disabled=false;alert('导出失败: '+e.message);});
+  }).catch(function(e){btn.style.opacity='1';btn.style.pointerEvents='';alert('导出失败: '+e.message);});
 }
 
 /* 一键创建模型+版本，批量导出并上传所有勾选的 tensor */
@@ -1408,30 +1527,39 @@ function gPthImportAll(){
         return;
       }
       var s=selected[si];
-      /* 导出 tensor 为 txt */
+      var prec=s.dstPrec||'FP16';
+      var targetLay=s.dstLayout||'ND';
+      /* 导出 tensor 为 txt (pth 数据始终是 ND) */
       var fd=new FormData();
       fd.append('file',fi.files[0]);
       fd.append('key',s.key);
-      if(s.dstPrec) fd.append('dst_precision',s.dstPrec);
-      if(s.dstLayout) fd.append('dst_layout',s.dstLayout);
 
       fetch('/api/golden/pth-export',{method:'POST',body:fd}).then(function(r){
         if(!r.ok) throw new Error('导出失败: '+s.key);
         return r.blob();
       }).then(function(blob){
-        /* 构建命名规范文件名并上传 */
-        var prec=s.dstPrec||'FP16';
-        var lay=s.dstLayout||'ND';
-        var fname=s.operator+'_'+s.category+s.seq+'_'+lay+'_'+prec+'_'+s.shape+'.txt';
+        /* 上传文件名: 先用 ND 分型 (pth 原始数据是 flat) */
+        var fname=s.operator+'_'+s.category+s.seq+'_ND_'+prec+'_'+s.shape+'.txt';
 
         var ufd=new FormData();
         ufd.append('model',model);
         ufd.append('version',version);
         ufd.append('operator',s.operator);
         ufd.append('file',new File([blob],fname));
-        return fetch('/api/golden/upload',{method:'POST',body:ufd});
+        return fetch('/api/golden/upload',{method:'POST',body:ufd}).then(function(r){
+          if(!r||!r.ok) throw new Error('上传失败');
+          /* 如果目标分型不是 ND，自动转换 */
+          if(targetLay&&targetLay!=='ND'){
+            msgEl.textContent='转换分型... '+(done+1)+'/'+total+' ('+s.operator+': ND→'+targetLay+')';
+            return fetch('/api/golden/'+encodeURIComponent(model)+'/'+encodeURIComponent(version)+'/'+encodeURIComponent(s.operator)+'/convert',{
+              method:'POST',headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({filename:fname,dst_layout:targetLay})
+            });
+          }
+        });
       }).then(function(r){
-        if(r&&r.ok) ok++;
+        /* r 为 undefined 表示无需转换(ND)，算成功; 否则检查转换结果 */
+        if(!r||r.ok) ok++;
         done++;
         msgEl.textContent='导入中... '+done+'/'+total;
         next(si+1);
