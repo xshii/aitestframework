@@ -184,7 +184,7 @@
         <div class="card-header py-1"><strong>单文件转换</strong></div>
         <div class="card-body py-2">
           <div class="mb-2">
-            <input type="file" id="gCvtSingleFile" class="form-control form-control-sm" accept=".bin,.txt,.pth">
+            <input type="file" id="gCvtSingleFile" class="form-control form-control-sm" accept=".bin,.txt">
           </div>
           <div class="d-flex gap-2 align-items-center flex-wrap mb-2">
             <label class="small mb-0">源分型:</label>
@@ -210,12 +210,26 @@
             <button class="btn btn-sm btn-outline-secondary" onclick="gCvtBinTxt()">bin↔txt</button>
             <span class="text-muted small">仅文件格式互转，不改变分型/数据类型（txt: 每行1字节hex, 无0x）</span>
           </div>
-          <div class="d-flex gap-2 align-items-center mt-1">
-            <button class="btn btn-sm btn-outline-secondary" onclick="gCvtPthSplit()">pth 拆分</button>
-            <span class="text-muted small">解析 .pth 文件，列出内部 tensor 并逐个导出为 txt（无需 torch）</span>
-          </div>
           <div id="gCvtSingleMsg" class="small mt-1"></div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  {# pth 拆分（独立整行卡片） #}
+  <div class="card mb-3">
+    <div class="card-header py-1 d-flex align-items-center" role="button" data-bs-toggle="collapse" data-bs-target="#gPthBody">
+      <strong>pth 拆分</strong>
+      <small class="text-muted ms-2">解析 .pth 文件，列出内部 tensor，支持逐个导出或一键导入到模型（无需 torch）</small>
+      <small class="ms-auto text-muted">点击展开/收起</small>
+    </div>
+    <div class="collapse" id="gPthBody">
+      <div class="card-body py-2">
+        <div class="d-flex gap-2 align-items-center mb-2">
+          <input type="file" id="gPthFile" class="form-control form-control-sm" accept=".pth" style="max-width:350px">
+          <button class="btn btn-sm btn-primary" onclick="gCvtPthSplit()">解析</button>
+        </div>
+        <div id="gPthMsg" class="small"></div>
       </div>
     </div>
   </div>
@@ -1327,11 +1341,11 @@ function _pthCatOpts(selected){
 function _pthSizeStr(b){return b>1048576?(b/1048576).toFixed(1)+'MB':b>1024?(b/1024).toFixed(1)+'KB':b+'B';}
 
 function gCvtPthSplit(){
-  var fi=document.getElementById('gCvtSingleFile');
+  var fi=document.getElementById('gPthFile');
   if(!fi.files.length){alert('请选择 .pth 文件');return;}
   var f=fi.files[0];
   if(!f.name.endsWith('.pth')){alert('仅支持 .pth 文件');return;}
-  var msg=document.getElementById('gCvtSingleMsg');
+  var msg=document.getElementById('gPthMsg');
   msg.textContent='解析中...';
   var fd=new FormData();
   fd.append('file',f);
@@ -1418,7 +1432,7 @@ function gPthApplyDefaults(onlyChecked){
 function gPthExport(idx,btn){
   var t=_gPthTensors[idx];
   if(!t) return;
-  var fi=document.getElementById('gCvtSingleFile');
+  var fi=document.getElementById('gPthFile');
   if(!fi.files.length) return;
 
   /* 精度标记实际精度，分型固定为 ND (pth 原始数据) */
@@ -1452,7 +1466,7 @@ function gPthImportAll(){
   var version=document.getElementById('gPthVersionName').value.trim();
   if(!model||!version){alert('请填写模型名和版本');return;}
 
-  var fi=document.getElementById('gCvtSingleFile');
+  var fi=document.getElementById('gPthFile');
   if(!fi.files.length){alert('请先选择 .pth 文件并解析');return;}
 
   /* 收集勾选项 */
