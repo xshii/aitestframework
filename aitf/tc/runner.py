@@ -167,16 +167,24 @@ def _collect_suite_cases(suite: unittest.TestSuite) -> list[tuple[str, list[str]
 
 
 # ---------------------------------------------------------------------------
-# Run a single RunConfig
+# Shared helpers: prepare execution + run suite
 # ---------------------------------------------------------------------------
 
-def _run_one_config(
-    cases_dir: Path, config: RunConfig, verbosity: int = 1,
-) -> tuple[str, bool]:
-    """Run tests for one RunConfig. Returns (execution_id, all_passed)."""
+def _ensure_sys_path(cases_dir: Path) -> None:
+    """Ensure cases_dir is on sys.path for unittest discovery."""
     cases_str = str(cases_dir)
     if cases_str not in sys.path:
         sys.path.insert(0, cases_str)
+
+
+def _prepare_execution(
+    cases_dir: Path, config: RunConfig, *, plan_name: str | None = None,
+) -> tuple[str, unittest.TestSuite | None]:
+    """Load suites and create execution row. Returns (execution_id, suite).
+
+    Returns ("", None) if no tests are found.
+    """
+    _ensure_sys_path(cases_dir)
 
     suite = _load_suites(cases_dir, config.tests or None, config.filter_k)
     suite_cases = _collect_suite_cases(suite)
@@ -184,20 +192,23 @@ def _run_one_config(
 
     if total == 0:
         logger.warning("No tests found for config: %s", config.name)
-        return "", True
+        return "", None
 
     execution_id = store.generate_execution_id()
     store.create_execution(
         execution_id,
         bundle=config.bundle, target=config.target,
         golden_model=config.golden_model, golden_version=config.golden_version,
-        plan_name=config.name or None,
+        plan_name=plan_name or config.name or None,
         suite_cases=suite_cases,
     )
+    return execution_id, suite
 
-    logger.info("execution %s [%s]: %d tests", execution_id, config.name, total)
 
-    # Set thread-local context so tests can access RunConfig
+def _execute_suite(
+    execution_id: str, suite: unittest.TestSuite, config: RunConfig,
+) -> bool:
+    """Run suite with context tracking. Returns True if all passed."""
     _set_run_context(config)
     try:
         result = AitfTestResult(execution_id)
@@ -206,9 +217,7 @@ def _run_one_config(
         _set_run_context(None)
 
     store.finish_execution(execution_id)
-
-    passed = len(result.failures) == 0 and len(result.errors) == 0
-    return execution_id, passed
+    return len(result.failures) == 0 and len(result.errors) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -237,10 +246,11 @@ def run_tests(
         golden_model=golden_model, golden_version=golden_version,
     )
 
-    eid, passed = _run_one_config(cases_dir, config, verbosity)
-
+    eid, suite = _prepare_execution(cases_dir, config)
     if not eid:
         return "", True
+
+    passed = _execute_suite(eid, suite, config)
 
     detail = store.get_execution_detail(eid)
     print(f"\n{'='*60}")
@@ -280,16 +290,18 @@ def run_testplan(
         if config.golden_model:
             print(f"  golden: {config.golden_model}/{config.golden_version}")
 
-        eid, passed = _run_one_config(cases_dir, config, verbosity)
-        if eid:
-            execution_ids.append(eid)
-            detail = store.get_execution_detail(eid)
-            print(f"  result: {detail['passed']}/{detail['total']} passed "
-                  f"({detail['pass_rate']*100:.1f}%)")
-            if not passed:
-                all_passed = False
-        else:
+        eid, suite = _prepare_execution(cases_dir, config, plan_name=config.name or plan.name)
+        if not eid:
             print("  (no tests)")
+            continue
+
+        passed = _execute_suite(eid, suite, config)
+        execution_ids.append(eid)
+        detail = store.get_execution_detail(eid)
+        print(f"  result: {detail['passed']}/{detail['total']} passed "
+              f"({detail['pass_rate']*100:.1f}%)")
+        if not passed:
+            all_passed = False
 
     print(f"\n{'='*60}")
     print(f"Plan complete: {len(execution_ids)} executions, "
@@ -317,39 +329,19 @@ def run_tests_async(
         golden_version=kwargs.get("golden_version"),
     )
 
-    cases_str = str(cases_dir)
-    if cases_str not in sys.path:
-        sys.path.insert(0, cases_str)
-
-    suite = _load_suites(cases_dir, config.tests or None, config.filter_k)
-    suite_cases = _collect_suite_cases(suite)
-    total = sum(len(ms) for _, ms in suite_cases)
-
-    if total == 0:
+    eid, suite = _prepare_execution(cases_dir, config)
+    if not eid:
         return ""
 
-    execution_id = store.generate_execution_id()
-    store.create_execution(
-        execution_id,
-        bundle=config.bundle, target=config.target,
-        golden_model=config.golden_model, golden_version=config.golden_version,
-        suite_cases=suite_cases,
-    )
-
     def _worker():
-        _set_run_context(config)
-        result = AitfTestResult(execution_id)
         try:
-            suite.run(result)
+            _execute_suite(eid, suite, config)
         except Exception:
-            logger.exception("execution %s failed", execution_id)
-        finally:
-            _set_run_context(None)
-            store.finish_execution(execution_id)
+            logger.exception("execution %s failed", eid)
 
-    t = threading.Thread(target=_worker, name=f"aitf-run-{execution_id}", daemon=True)
+    t = threading.Thread(target=_worker, name=f"aitf-run-{eid}", daemon=True)
     t.start()
-    return execution_id
+    return eid
 
 
 def run_testplan_async(
@@ -368,39 +360,21 @@ def run_testplan_async(
     execution_ids: list[str] = []
 
     for config in plan.configs:
-        cases_str = str(cases_dir)
-        if cases_str not in sys.path:
-            sys.path.insert(0, cases_str)
-
-        suite = _load_suites(cases_dir, config.tests or None, config.filter_k)
-        suite_cases = _collect_suite_cases(suite)
-        total = sum(len(ms) for _, ms in suite_cases)
-
-        if total == 0:
+        eid, suite = _prepare_execution(
+            cases_dir, config, plan_name=config.name or plan.name,
+        )
+        if not eid:
             continue
 
-        execution_id = store.generate_execution_id()
-        store.create_execution(
-            execution_id,
-            bundle=config.bundle, target=config.target,
-            golden_model=config.golden_model, golden_version=config.golden_version,
-            plan_name=config.name or plan.name,
-            suite_cases=suite_cases,
-        )
-        execution_ids.append(execution_id)
+        execution_ids.append(eid)
 
-        def _worker(eid=execution_id, s=suite, c=config):
-            _set_run_context(c)
-            result = AitfTestResult(eid)
+        def _worker(eid=eid, s=suite, c=config):
             try:
-                s.run(result)
+                _execute_suite(eid, s, c)
             except Exception:
                 logger.exception("execution %s failed", eid)
-            finally:
-                _set_run_context(None)
-                store.finish_execution(eid)
 
-        t = threading.Thread(target=_worker, name=f"aitf-run-{execution_id}", daemon=True)
+        t = threading.Thread(target=_worker, name=f"aitf-run-{eid}", daemon=True)
         t.start()
 
     return execution_ids

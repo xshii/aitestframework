@@ -115,13 +115,14 @@ def api_run_plan():
 @bp.route("/api/tc/options", methods=["GET"])
 def api_tc_options():
     """Return available bundles and golden models for the run form."""
+    cfg = current_app.config.get("AITF_CONFIG")
     bundles = []
     golden_models = []
+    testplans = []
 
     # Bundles from deps config
     try:
         from aitf.deps.config import load_deps_config
-        cfg = current_app.config.get("AITF_CONFIG")
         deps_file = cfg.project_root / "deps.yaml" if cfg else "deps.yaml"
         if deps_file.is_file():
             dcfg = load_deps_config(deps_file)
@@ -141,11 +142,9 @@ def api_tc_options():
         pass
 
     # Testplan files
-    testplans = []
     try:
-        cfg = current_app.config.get("AITF_CONFIG")
-        root = cfg.project_root if cfg else "."
         from pathlib import Path
+        root = cfg.project_root if cfg else "."
         for f in sorted(Path(root).glob("testplan*.yaml")):
             testplans.append(f.name)
         for f in sorted(Path(root).glob("testplan*.yml")):

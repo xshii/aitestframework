@@ -6,7 +6,7 @@ import ast
 import json
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 from sqlalchemy import select
@@ -125,22 +125,7 @@ def list_suites() -> list[dict]:
         rows = session.execute(
             select(SuiteInfo).order_by(SuiteInfo.platform, SuiteInfo.module_path)
         ).scalars().all()
-        return [
-            {
-                "id": r.id,
-                "module_path": r.module_path,
-                "class_name": r.class_name,
-                "docstring": r.docstring,
-                "platform": r.platform,
-                "category": r.category,
-                "case_count": r.case_count,
-                "case_names": json.loads(r.case_names or "[]"),
-                "scanned_at": r.scanned_at.isoformat() if r.scanned_at else None,
-                "last_execution_id": r.last_execution_id,
-                "last_status_summary": json.loads(r.last_status_summary or "{}"),
-            }
-            for r in rows
-        ]
+        return [r.to_dict() for r in rows]
 
 
 def list_executions(limit: int = 50) -> list[dict]:
@@ -149,30 +134,7 @@ def list_executions(limit: int = 50) -> list[dict]:
         rows = session.execute(
             select(Execution).order_by(Execution.started_at.desc()).limit(limit)
         ).scalars().all()
-        return [
-            {
-                "id": r.id,
-                "started_at": r.started_at.isoformat() if r.started_at else None,
-                "finished_at": r.finished_at.isoformat() if r.finished_at else None,
-                "bundle": r.bundle,
-                "target": r.target,
-                "golden_model": r.golden_model,
-                "golden_version": r.golden_version,
-                "plan_name": r.plan_name,
-                "platform": r.platform,
-                "git_commit": r.git_commit,
-                "trigger": r.trigger,
-                "total": r.total,
-                "passed": r.passed,
-                "failed": r.failed,
-                "timeout": r.timeout,
-                "crashed": r.crashed,
-                "skipped": r.skipped,
-                "errored": r.errored,
-                "pass_rate": r.pass_rate,
-            }
-            for r in rows
-        ]
+        return [r.to_dict() for r in rows]
 
 
 def get_execution_detail(execution_id: str) -> dict | None:
@@ -186,43 +148,9 @@ def get_execution_detail(execution_id: str) -> dict | None:
             .where(CaseResult.execution_id == execution_id)
             .order_by(CaseResult.suite_class, CaseResult.id)
         ).scalars().all()
-        return {
-            "id": exe.id,
-            "started_at": exe.started_at.isoformat() if exe.started_at else None,
-            "finished_at": exe.finished_at.isoformat() if exe.finished_at else None,
-            "bundle": exe.bundle,
-            "target": exe.target,
-            "golden_model": exe.golden_model,
-            "golden_version": exe.golden_version,
-            "plan_name": exe.plan_name,
-            "platform": exe.platform,
-            "git_commit": exe.git_commit,
-            "trigger": exe.trigger,
-            "total": exe.total,
-            "passed": exe.passed,
-            "failed": exe.failed,
-            "timeout": exe.timeout,
-            "crashed": exe.crashed,
-            "skipped": exe.skipped,
-            "errored": exe.errored,
-            "pass_rate": exe.pass_rate,
-            "cases": [
-                {
-                    "id": c.id,
-                    "suite_class": c.suite_class,
-                    "case_method": c.case_method,
-                    "status": c.status,
-                    "duration_s": c.duration_s,
-                    "started_at": c.started_at.isoformat() if c.started_at else None,
-                    "finished_at": c.finished_at.isoformat() if c.finished_at else None,
-                    "failure_reason": c.failure_reason,
-                    "compare_detail": json.loads(c.compare_detail or "null"),
-                    "stdout_path": c.stdout_path,
-                    "stderr_path": c.stderr_path,
-                }
-                for c in cases
-            ],
-        }
+        d = exe.to_dict()
+        d["cases"] = [c.to_dict() for c in cases]
+        return d
 
 
 def create_execution(

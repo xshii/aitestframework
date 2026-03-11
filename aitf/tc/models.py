@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 
 from sqlalchemy import (
@@ -15,6 +16,10 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.orm import DeclarativeBase, relationship
+
+
+def _ts(dt: datetime | None) -> str | None:
+    return dt.isoformat() if dt else None
 
 
 class Base(DeclarativeBase):
@@ -37,6 +42,21 @@ class SuiteInfo(Base):
     scanned_at = Column(DateTime, default=func.now())
     last_execution_id = Column(String, nullable=True)
     last_status_summary = Column(Text, nullable=True)           # JSON: {"pass":3,"fail":1}
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "module_path": self.module_path,
+            "class_name": self.class_name,
+            "docstring": self.docstring,
+            "platform": self.platform,
+            "category": self.category,
+            "case_count": self.case_count,
+            "case_names": json.loads(self.case_names or "[]"),
+            "scanned_at": _ts(self.scanned_at),
+            "last_execution_id": self.last_execution_id,
+            "last_status_summary": json.loads(self.last_status_summary or "{}"),
+        }
 
 
 class Execution(Base):
@@ -71,6 +91,29 @@ class Execution(Base):
     cases = relationship("CaseResult", back_populates="execution",
                          cascade="all, delete-orphan")
 
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "started_at": _ts(self.started_at),
+            "finished_at": _ts(self.finished_at),
+            "bundle": self.bundle,
+            "target": self.target,
+            "golden_model": self.golden_model,
+            "golden_version": self.golden_version,
+            "plan_name": self.plan_name,
+            "platform": self.platform,
+            "git_commit": self.git_commit,
+            "trigger": self.trigger,
+            "total": self.total,
+            "passed": self.passed,
+            "failed": self.failed,
+            "timeout": self.timeout,
+            "crashed": self.crashed,
+            "skipped": self.skipped,
+            "errored": self.errored,
+            "pass_rate": self.pass_rate,
+        }
+
 
 class CaseResult(Base):
     """Result of a single test case within an execution."""
@@ -91,3 +134,18 @@ class CaseResult(Base):
     stderr_path = Column(String, nullable=True)
 
     execution = relationship("Execution", back_populates="cases")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "suite_class": self.suite_class,
+            "case_method": self.case_method,
+            "status": self.status,
+            "duration_s": self.duration_s,
+            "started_at": _ts(self.started_at),
+            "finished_at": _ts(self.finished_at),
+            "failure_reason": self.failure_reason,
+            "compare_detail": json.loads(self.compare_detail or "null"),
+            "stdout_path": self.stdout_path,
+            "stderr_path": self.stderr_path,
+        }
