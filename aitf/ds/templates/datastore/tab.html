@@ -148,105 +148,107 @@
 
 {# ==================== 数据转换 ==================== #}
 <div class="tab-pane" id="sub-convert">
-  <p class="text-muted small mb-2">拖放文件或文件夹，自动匹配算子信息进行分型/格式转换。支持 bin↔txt 互转（txt 格式: 每行1字节十六进制，不含0x前缀）。</p>
-
-  <div class="row mb-3">
-    <div class="col-md-6">
-      <div class="card">
-        <div class="card-header py-1"><strong>批量转换（拖拽上传）</strong></div>
+  <div class="row">
+    {# 左侧: 文件上传区 #}
+    <div class="col-md-4">
+      <div class="card mb-2">
+        <div class="card-header py-1"><strong>选择文件</strong></div>
         <div class="card-body py-2">
-          <div id="gCvtDropZone" class="d-flex flex-column align-items-center justify-content-center" style="border:2px dashed #adb5bd;border-radius:6px;padding:16px;text-align:center;cursor:pointer;min-height:80px;transition:all .2s" onclick="document.getElementById('gCvtDropInput').click()">
+          <div id="gCvtDropZone" class="d-flex flex-column align-items-center justify-content-center mb-2" style="border:2px dashed #adb5bd;border-radius:6px;padding:20px;text-align:center;cursor:pointer;min-height:100px;transition:all .2s" onclick="document.getElementById('gCvtDropInput').click()">
             <div class="text-muted">拖放文件到此处</div>
-            <small class="text-muted">自动解析文件名匹配算子，支持批量转换</small>
-            <input type="file" id="gCvtDropInput" class="d-none" multiple>
+            <small class="text-muted">支持 .bin / .txt / .pth，单个或多个</small>
+            <input type="file" id="gCvtDropInput" class="d-none" multiple accept=".bin,.txt,.pth">
           </div>
-          <div class="d-flex gap-2 mt-2 align-items-center flex-wrap">
-            <label class="small text-nowrap mb-0">目标分型:</label>
-            <select id="gCvtDstLayout" class="form-select form-select-sm" style="width:auto;min-width:120px">
-              <option value="">不转换分型</option>
-            </select>
-            <label class="small text-nowrap mb-0 ms-2">目标格式:</label>
-            <select id="gCvtDstPrec" class="form-select form-select-sm" style="width:auto;min-width:90px">
-              <option value="">不转换格式</option>
-            </select>
-            <label class="small text-nowrap mb-0 ms-2">输出:</label>
-            <select id="gCvtOutFmt" class="form-select form-select-sm" style="width:auto;min-width:80px">
-              <option value="txt" selected>txt (每行1byte hex, 无0x)</option>
-              <option value="bin">bin (二进制)</option>
-            </select>
-          </div>
-          <div id="gCvtMsg" class="small mt-2"></div>
+          <p class="small text-muted mb-1">自动根据后缀名识别文件类型:</p>
+          <ul class="small text-muted mb-1" style="padding-left:1.2em">
+            <li><code>.txt/.bin</code> — 解析文件名提取算子信息</li>
+            <li><code>.pth</code> — 解析内部 tensor 列表（无需 torch）</li>
+          </ul>
+          <p class="small text-muted mb-0">txt 格式: 每行1字节十六进制（如 <code>3F</code>），不含 <code>0x</code> 前缀</p>
         </div>
       </div>
-    </div>
-    <div class="col-md-6">
+      {# 转换路径参考 #}
       <div class="card">
-        <div class="card-header py-1"><strong>单文件转换</strong></div>
-        <div class="card-body py-2">
-          <div class="mb-2">
-            <input type="file" id="gCvtSingleFile" class="form-control form-control-sm" accept=".bin,.txt">
+        <div class="card-header py-1 d-flex align-items-center" role="button" data-bs-toggle="collapse" data-bs-target="#gCvtRefBody">
+          <strong class="small">支持的转换路径</strong>
+          <small class="ms-auto text-muted">展开/收起</small>
+        </div>
+        <div class="collapse" id="gCvtRefBody">
+          <div class="card-body py-2">
+            <h6 class="small fw-bold">分型 (Layout)</h6>
+            <div id="gCvtLayoutPaths" class="small mb-2"></div>
+            <h6 class="small fw-bold">数据类型 (Precision)</h6>
+            <p class="small text-muted mb-0">所有类型均可通过 FP32 中转互相转换</p>
           </div>
-          <div class="d-flex gap-2 align-items-center flex-wrap mb-2">
-            <label class="small mb-0">源分型:</label>
-            <select id="gCvtSrcLayout" class="form-select form-select-sm" style="width:auto;min-width:110px"></select>
-            <label class="small mb-0 ms-1">→</label>
-            <select id="gCvtSingleDstLayout" class="form-select form-select-sm" style="width:auto;min-width:110px"></select>
-          </div>
-          <div class="d-flex gap-2 align-items-center flex-wrap mb-2">
-            <label class="small mb-0">源格式:</label>
-            <select id="gCvtSrcPrec" class="form-select form-select-sm" style="width:auto;min-width:80px"></select>
-            <label class="small mb-0 ms-1">→</label>
-            <select id="gCvtSingleDstPrec" class="form-select form-select-sm" style="width:auto;min-width:80px"></select>
-          </div>
-          <div class="d-flex gap-2 align-items-center flex-wrap mb-2">
-            <label class="small mb-0">Shape (JSON):</label>
-            <input class="form-control form-control-sm" id="gCvtShape" value='{"loop":1,"m":64,"n":64,"k":64}' style="width:250px">
-          </div>
-          <div class="d-flex gap-2 align-items-center">
-            <button class="btn btn-sm btn-primary" onclick="gCvtSingle()">转换并下载</button>
-            <span class="text-muted small">分型/数据类型转换，输入输出均为txt</span>
-          </div>
-          <div class="d-flex gap-2 align-items-center mt-1">
-            <button class="btn btn-sm btn-outline-secondary" onclick="gCvtBinTxt()">bin↔txt</button>
-            <span class="text-muted small">仅文件格式互转，不改变分型/数据类型（txt: 每行1字节hex, 无0x）</span>
-          </div>
-          <div id="gCvtSingleMsg" class="small mt-1"></div>
         </div>
       </div>
     </div>
-  </div>
 
-  {# pth 拆分（独立整行卡片） #}
-  <div class="card mb-3">
-    <div class="card-header py-1 d-flex align-items-center" role="button" data-bs-toggle="collapse" data-bs-target="#gPthBody">
-      <strong>pth 拆分</strong>
-      <small class="text-muted ms-2">解析 .pth 文件，列出内部 tensor，支持逐个导出或一键导入到模型（无需 torch）</small>
-      <small class="ms-auto text-muted">点击展开/收起</small>
-    </div>
-    <div class="collapse" id="gPthBody">
-      <div class="card-body py-2">
-        <div class="d-flex gap-2 align-items-center mb-2">
-          <input type="file" id="gPthFile" class="form-control form-control-sm" accept=".pth" style="max-width:350px">
-          <button class="btn btn-sm btn-primary" onclick="gCvtPthSplit()">解析</button>
+    {# 右侧: 识别结果 & 转换操作 #}
+    <div class="col-md-8">
+      <div class="card">
+        <div class="card-header py-1 d-flex align-items-center gap-2 flex-wrap">
+          <strong>文件列表</strong>
+          <span id="gCvtFileCount" class="small text-muted"></span>
+          <div class="ms-auto d-flex gap-2 align-items-center flex-wrap">
+            <label class="small mb-0">目标分型:</label>
+            <select id="gCvtDstLayout" class="form-select form-select-sm py-0" style="width:auto;min-width:90px">
+              <option value="">不变</option>
+            </select>
+            <label class="small mb-0">目标类型:</label>
+            <select id="gCvtDstPrec" class="form-select form-select-sm py-0" style="width:auto;min-width:75px">
+              <option value="">不变</option>
+            </select>
+            <button class="btn btn-sm btn-outline-secondary py-0" onclick="gCvtApplyGlobal()">应用到全部</button>
+          </div>
         </div>
-        <div id="gPthMsg" class="small"></div>
+        <div class="card-body py-1">
+          <div class="d-flex gap-2 align-items-center mb-1 flex-wrap">
+            <div class="form-check form-check-inline mb-0">
+              <input class="form-check-input" type="checkbox" id="gCvtRenameOnly">
+              <label class="form-check-label small" for="gCvtRenameOnly">仅改名不转换内容</label>
+            </div>
+            <label class="small mb-0 ms-2">输出格式:</label>
+            <select id="gCvtOutFmt" class="form-select form-select-sm py-0" style="width:auto;min-width:70px">
+              <option value="txt" selected>txt</option>
+              <option value="bin">bin</option>
+            </select>
+            <label class="small mb-0 ms-1">Shape:</label>
+            <input class="form-control form-control-sm py-0" id="gCvtShape" value='{"loop":1,"m":64,"n":64,"k":64}' style="width:220px">
+            <button class="btn btn-sm btn-primary py-0 ms-auto" onclick="gCvtRunAll()">转换并下载</button>
+          </div>
+          <div class="table-responsive" style="max-height:500px;overflow-y:auto">
+            <table class="table table-sm table-hover mb-0" style="font-size:0.78rem">
+              <thead class="table-light sticky-top">
+                <tr>
+                  <th><input type="checkbox" id="gCvtCheckAll" checked onchange="document.querySelectorAll('.gCvtCheck').forEach(function(c){c.checked=this.checked}.bind(this))"></th>
+                  <th>文件名</th>
+                  <th>算子</th>
+                  <th>类别</th>
+                  <th>源分型</th>
+                  <th>→ 目标分型</th>
+                  <th>源类型</th>
+                  <th>→ 目标类型</th>
+                  <th>Shape</th>
+                </tr>
+              </thead>
+              <tbody id="gCvtFileList"></tbody>
+            </table>
+          </div>
+          <div id="gCvtMsg" class="small mt-1"></div>
+        </div>
       </div>
-    </div>
-  </div>
 
-  <div class="card">
-    <div class="card-header py-1"><strong>支持的转换路径</strong></div>
-    <div class="card-body py-2">
-      <div class="row">
-        <div class="col-md-6">
-          <h6 class="small fw-bold">分型 (Layout) 转换</h6>
-          <div id="gCvtLayoutPaths" class="small"></div>
-        </div>
-        <div class="col-md-6">
-          <h6 class="small fw-bold">格式 (Precision/DType) 转换</h6>
-          <p class="small text-muted">BFP8↔FP16/FP32, BFP16↔FP16/FP32, FP16↔FP32, FP16↔BF16, FP32↔BF16, INT8↔INT16↔INT32, FP16↔INT8, FP32↔INT8/INT32, BOOL↔INT8/UINT8</p>
-          <h6 class="small fw-bold mt-2">文件格式</h6>
-          <p class="small text-muted">bin↔txt: txt 格式为每行1字节十六进制（如 <code>3F</code>），不含 <code>0x</code> 前缀</p>
+      {# pth tensor 展开区 (解析 pth 后显示) #}
+      <div id="gPthPanel" class="mt-2 d-none">
+        <div class="card">
+          <div class="card-header py-1 d-flex align-items-center gap-2">
+            <strong>pth Tensor 列表</strong>
+            <span id="gPthTensorCount" class="small text-muted"></span>
+          </div>
+          <div class="card-body py-1">
+            <div id="gPthMsg" class="small"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -1236,24 +1238,16 @@ function gLoadLog(){
   if(el) el.addEventListener('show.bs.collapse',function(){if(!_gLogLoaded)gLoadLog();});
 })();
 
-/* ========== 数据转换 ========== */
+/* ========== 数据转换（统一） ========== */
+var _gCvtFiles=[];  /* [{file, name, type:'bin'|'txt'|'pth', op, category, seq, srcLayout, srcPrec, shape, dstLayout, dstPrec}] */
+
 function gInitConvertTab(){
-  /* 填充下拉 */
   var layouts=_gChoices.layout||[];
   var precs=_gChoices.precision||[];
-  ['gCvtDstLayout','gCvtSrcLayout','gCvtSingleDstLayout'].forEach(function(id){
-    var sel=document.getElementById(id);
-    if(id==='gCvtDstLayout') sel.innerHTML='<option value="">不转换分型</option>';
-    else sel.innerHTML='';
-    layouts.forEach(function(l){sel.innerHTML+='<option value="'+l+'">'+l+'</option>';});
-  });
-  ['gCvtDstPrec','gCvtSrcPrec','gCvtSingleDstPrec'].forEach(function(id){
-    var sel=document.getElementById(id);
-    if(id==='gCvtDstPrec') sel.innerHTML='<option value="">不转换格式</option>';
-    else sel.innerHTML='';
-    precs.forEach(function(p){sel.innerHTML+='<option value="'+p+'">'+p+'</option>';});
-  });
-  /* 加载转换路径 */
+  var dstL=document.getElementById('gCvtDstLayout');
+  dstL.innerHTML='<option value="">不变</option>'+layouts.map(function(l){return '<option value="'+l+'">'+l+'</option>';}).join('');
+  var dstP=document.getElementById('gCvtDstPrec');
+  dstP.innerHTML='<option value="">不变</option>'+precs.map(function(p){return '<option value="'+p+'">'+p+'</option>';}).join('');
   fetch('/api/golden/conversions').then(function(r){return r.json()}).then(function(c){
     var h='';
     (c.layout||[]).forEach(function(p){h+='<span class="badge bg-light text-dark border me-1 mb-1">'+p.src+' → '+p.dst+'</span>';});
@@ -1261,237 +1255,307 @@ function gInitConvertTab(){
   });
 }
 
-function gCvtSingle(){
-  var fi=document.getElementById('gCvtSingleFile');
-  if(!fi.files.length){alert('请选择文件');return;}
-  var fd=new FormData();
-  fd.append('file',fi.files[0]);
-  fd.append('src_layout',document.getElementById('gCvtSrcLayout').value);
-  fd.append('dst_layout',document.getElementById('gCvtSingleDstLayout').value);
-  fd.append('src_precision',document.getElementById('gCvtSrcPrec').value);
-  fd.append('dst_precision',document.getElementById('gCvtSingleDstPrec').value);
-  fd.append('shape',document.getElementById('gCvtShape').value);
-  var msg=document.getElementById('gCvtSingleMsg');msg.textContent='转换中...';
-  fetch('/api/golden/convert-txt',{method:'POST',body:fd}).then(function(r){
-    if(!r.ok) return r.json().then(function(d){throw new Error(d.error||'转换失败');});
-    return r.blob().then(function(blob){
-      var name=r.headers.get('content-disposition');
-      name=name?name.split('filename=')[1].replace(/"/g,''):'converted.txt';
-      var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();
-      msg.textContent='转换完成';
-    });
-  }).catch(function(e){msg.textContent='失败: '+e.message;});
-}
-
-function gCvtBinTxt(){
-  var fi=document.getElementById('gCvtSingleFile');
-  if(!fi.files.length){alert('请选择文件');return;}
-  var f=fi.files[0];
-  var msg=document.getElementById('gCvtSingleMsg');
-  if(f.name.endsWith('.txt')){
-    /* txt -> bin: 每行1字节hex(无0x) -> 二进制 */
-    var reader=new FileReader();
-    reader.onload=function(e){
-      var lines=e.target.result.trim().split('\n');
-      var arr=new Uint8Array(lines.length);
-      for(var i=0;i<lines.length;i++) arr[i]=parseInt(lines[i].trim(),16)||0;
-      var blob=new Blob([arr]);
-      var a=document.createElement('a');a.href=URL.createObjectURL(blob);
-      a.download=f.name.replace('.txt','.bin');a.click();
-      msg.textContent='txt→bin 完成';
-    };
-    reader.readAsText(f);
-  } else {
-    /* bin -> txt: 二进制 -> 每行1字节hex(无0x前缀, 大写) */
-    var reader=new FileReader();
-    reader.onload=function(e){
-      var arr=new Uint8Array(e.target.result);
-      var lines=[];
-      for(var i=0;i<arr.length;i++) lines.push(arr[i].toString(16).toUpperCase().padStart(2,'0'));
-      var blob=new Blob([lines.join('\n')],{type:'text/plain'});
-      var a=document.createElement('a');a.href=URL.createObjectURL(blob);
-      a.download=f.name.replace(/\.[^.]+$/,'.txt');a.click();
-      msg.textContent='bin→txt 完成';
-    };
-    reader.readAsArrayBuffer(f);
-  }
-}
-
-/* ========== pth 拆分 (纯 pickle 解析，无需 torch) ========== */
-var _gPthTensors=[];
-
-function _pthPrecOpts(selected){
-  var precs=_gChoices.precision||[];
-  var h='';
-  precs.forEach(function(p){h+='<option value="'+p+'"'+(p===selected?' selected':'')+'>'+p+'</option>';});
-  return h;
-}
-function _pthLayOpts(selected){
+function _cvtLayOpts(selected){
   var layouts=_gChoices.layout||[];
-  var h='';
-  layouts.forEach(function(l){h+='<option value="'+l+'"'+(l===selected?' selected':'')+'>'+l+'</option>';});
-  return h;
+  return layouts.map(function(l){return '<option value="'+l+'"'+(l===selected?' selected':'')+'>'+l+'</option>';}).join('');
 }
-function _pthCatOpts(selected){
-  var cats=_gChoices.category||[];
-  var h='';
-  cats.forEach(function(c){h+='<option value="'+c+'"'+(c===selected?' selected':'')+'>'+c+'</option>';});
-  return h;
+function _cvtPrecOpts(selected){
+  var precs=_gChoices.precision||[];
+  return precs.map(function(p){return '<option value="'+p+'"'+(p===selected?' selected':'')+'>'+p+'</option>';}).join('');
 }
-function _pthSizeStr(b){return b>1048576?(b/1048576).toFixed(1)+'MB':b>1024?(b/1024).toFixed(1)+'KB':b+'B';}
 
-function gCvtPthSplit(){
-  var fi=document.getElementById('gPthFile');
-  if(!fi.files.length){alert('请选择 .pth 文件');return;}
-  var f=fi.files[0];
-  if(!f.name.endsWith('.pth')){alert('仅支持 .pth 文件');return;}
-  var msg=document.getElementById('gPthMsg');
-  msg.textContent='解析中...';
+/* 文件加入列表后统一渲染 */
+function gCvtAddFiles(fileList){
+  for(var i=0;i<fileList.length;i++){
+    var f=fileList[i];
+    if(f.name.endsWith('.pth')){
+      /* pth 文件走 tensor 解析 */
+      gCvtParsePth(f);
+      continue;
+    }
+    var p=_parseGoldenName(f.name);
+    _gCvtFiles.push({
+      file:f, name:f.name, type:f.name.endsWith('.txt')?'txt':'bin',
+      op:p?p.op:'', category:p?p.category:'', seq:p?p.seq:0,
+      srcLayout:p?p.layout:'ND', srcPrec:p?p.precision:'FP16',
+      shape:p?p.shape:'', dstLayout:p?p.layout:'ND', dstPrec:p?p.precision:'FP16',
+      isPth:false
+    });
+  }
+  gCvtRender();
+}
+
+/* pth 文件解析 — tensor 展开到文件列表 */
+function gCvtParsePth(file){
+  var msg=document.getElementById('gCvtMsg');
+  msg.textContent='解析 pth: '+file.name+'...';
   var fd=new FormData();
-  fd.append('file',f);
+  fd.append('file',file);
   fetch('/api/golden/pth-inspect',{method:'POST',body:fd}).then(function(r){
     if(!r.ok) return r.json().then(function(d){throw new Error(d.error||'解析失败');});
     return r.json();
   }).then(function(d){
-    _gPthTensors=d.tensors||[];
-    if(!_gPthTensors.length){msg.textContent='文件中未找到 tensor';return;}
+    var tensors=d.tensors||[];
+    if(!tensors.length){msg.textContent='pth 文件中未找到 tensor';return;}
+    tensors.forEach(function(t){
+      _gCvtFiles.push({
+        file:file, name:file.name, type:'pth',
+        op:t.operator, category:t.category, seq:t.seq,
+        srcLayout:'ND', srcPrec:t.dtype,
+        shape:t.shape, dstLayout:'ND', dstPrec:t.dtype,
+        isPth:true, pthKey:t.key, pthBytes:t.bytes
+      });
+    });
+    msg.textContent='pth 解析完成，共 '+tensors.length+' 个 tensor';
+    gCvtRender();
+  }).catch(function(e){msg.textContent='pth 解析失败: '+e.message;});
+}
 
-    /* 批量操作栏: 全局默认 + 一键导入 */
-    var h='<div class="d-flex gap-2 align-items-center mt-1 mb-1 flex-wrap">'
-      +'<strong class="small">共 '+_gPthTensors.length+' 个 tensor</strong>'
-      +'<label class="small mb-0 ms-2">全局精度:</label>'
-      +'<select id="gPthDefPrec" class="form-select form-select-sm" style="width:auto;min-width:75px" onchange="gPthApplyDefaults()">'
-      +_pthPrecOpts(_gPthTensors[0].dtype)+'</select>'
-      +'<label class="small mb-0 ms-1">目标分型:</label>'
-      +'<select id="gPthDefLayout" class="form-select form-select-sm" style="width:auto;min-width:90px" onchange="gPthApplyDefaults()">'
-      +_pthLayOpts('ND')+'</select>'
-      +'<button class="btn btn-sm btn-outline-secondary ms-1" onclick="gPthApplyDefaults(false)">应用到全部</button>'
-      +'<button class="btn btn-sm btn-outline-secondary ms-1" onclick="gPthApplyDefaults(true)">应用到勾选</button>'
-      +'</div>'
-      +'<div class="small text-muted mb-1">pth 原始数据分型为 ND，导入时自动转换为目标分型；精度为标记实际精度，不做转换。</div>';
-
-    /* 一键创建模型并导入 */
-    var baseName=f.name.replace('.pth','');
-    h+='<div class="d-flex gap-2 align-items-center mb-2 flex-wrap">'
+/* 渲染统一文件列表 */
+function gCvtRender(){
+  var tbody=document.getElementById('gCvtFileList');
+  var h='';
+  _gCvtFiles.forEach(function(f,i){
+    var nameDisplay=f.isPth?(f.op+'_'+f.category+f.seq+' <span class="badge bg-info text-dark">pth</span>'):f.name;
+    h+='<tr>'
+      +'<td><input type="checkbox" class="gCvtCheck" data-idx="'+i+'" checked></td>'
+      +'<td title="'+(f.isPth?_gEsc(f.pthKey):_gEsc(f.name))+'">'+nameDisplay+'</td>'
+      +'<td><input class="form-control form-control-sm py-0" value="'+_gEsc(f.op)+'" style="width:100px" onchange="_gCvtFiles['+i+'].op=this.value"></td>'
+      +'<td><select class="form-select form-select-sm py-0" style="width:70px" onchange="_gCvtFiles['+i+'].category=this.value">'
+        +(_gChoices.category||[]).map(function(c){return '<option'+(c===f.category?' selected':'')+'>'+c+'</option>';}).join('')
+        +'</select></td>'
+      +'<td><span class="badge bg-secondary">'+_gEsc(f.srcLayout)+'</span></td>'
+      +'<td><select class="form-select form-select-sm py-0" style="width:95px" onchange="_gCvtFiles['+i+'].dstLayout=this.value">'+_cvtLayOpts(f.dstLayout)+'</select></td>'
+      +'<td><span class="badge bg-secondary">'+_gEsc(f.srcPrec)+'</span></td>'
+      +'<td><select class="form-select form-select-sm py-0" style="width:80px" onchange="_gCvtFiles['+i+'].dstPrec=this.value">'+_cvtPrecOpts(f.dstPrec)+'</select></td>'
+      +'<td class="text-muted" style="font-size:0.7rem">'+_gEsc(f.shape)+'</td>'
+      +'</tr>';
+  });
+  tbody.innerHTML=h;
+  document.getElementById('gCvtFileCount').textContent=_gCvtFiles.length?'共 '+_gCvtFiles.length+' 项':'无文件';
+  /* pth 导入面板: 有 pth 项时显示 */
+  var hasPth=_gCvtFiles.some(function(f){return f.isPth;});
+  var pthPanel=document.getElementById('gPthPanel');
+  if(hasPth){
+    pthPanel.classList.remove('d-none');
+    var pthCount=_gCvtFiles.filter(function(f){return f.isPth;}).length;
+    document.getElementById('gPthTensorCount').textContent=pthCount+' 个 pth tensor';
+    /* 渲染一键导入表单 */
+    var pthFile=_gCvtFiles.find(function(f){return f.isPth;});
+    var baseName=pthFile?pthFile.name.replace('.pth',''):'model';
+    var ph='<div class="small text-muted mb-1">pth 原始数据分型为 ND，导入时自动转换为目标分型；精度为标记实际精度，不做转换。</div>'
+      +'<div class="d-flex gap-2 align-items-center flex-wrap">'
       +'<label class="small mb-0">模型名:</label>'
       +'<input class="form-control form-control-sm" id="gPthModelName" value="'+_gEsc(baseName)+'" style="width:150px" list="gPthModelList">'
       +'<datalist id="gPthModelList"></datalist>'
       +'<label class="small mb-0 ms-1">版本:</label>'
       +'<input class="form-control form-control-sm" id="gPthVersionName" value="v1" style="width:80px">'
-      +'<button class="btn btn-sm btn-primary" id="gPthImportBtn" onclick="gPthImportAll()">一键创建模型并导入全部</button>'
+      +'<button class="btn btn-sm btn-primary" id="gPthImportBtn" onclick="gPthImportAll()">一键创建模型并导入</button>'
       +'<span id="gPthImportMsg" class="small text-muted"></span>'
       +'</div>';
-
-    /* 表格: 每行可编辑算子名/类别/目标精度/分型 */
-    h+='<div class="table-responsive" style="max-height:400px;overflow-y:auto"><table class="table table-sm table-hover mb-0" style="font-size:0.78rem">';
-    h+='<thead class="table-light sticky-top"><tr>'
-      +'<th><input type="checkbox" id="gPthCheckAll" checked onchange="gPthToggleAll(this.checked)"></th>'
-      +'<th>Key</th><th>算子名</th><th>类别</th><th>torch类型</th><th>实际精度</th><th>目标分型</th><th>Shape</th><th>大小</th><th></th>'
-      +'</tr></thead><tbody>';
-    _gPthTensors.forEach(function(t,i){
-      h+='<tr>'
-        +'<td><input type="checkbox" class="gPthCheck" data-idx="'+i+'" checked></td>'
-        +'<td title="'+_gEsc(t.key)+'"><code class="text-truncate d-inline-block" style="max-width:200px">'+_gEsc(t.key)+'</code></td>'
-        +'<td><input class="form-control form-control-sm py-0" id="gPthOp-'+i+'" value="'+_gEsc(t.operator)+'" style="width:120px"></td>'
-        +'<td><select class="form-select form-select-sm py-0" id="gPthCat-'+i+'" style="width:80px">'+_pthCatOpts(t.category)+'</select></td>'
-        +'<td class="text-muted">'+_gEsc(t.dtype)+'</td>'
-        +'<td><select class="form-select form-select-sm py-0" id="gPthPrec-'+i+'" style="width:75px">'+_pthPrecOpts(t.dtype)+'</select></td>'
-        +'<td><select class="form-select form-select-sm py-0" id="gPthLay-'+i+'" style="width:100px">'+_pthLayOpts('ND')+'</select></td>'
-        +'<td>'+_gEsc(t.shape)+'</td>'
-        +'<td class="text-muted">'+_pthSizeStr(t.bytes)+'</td>'
-        +'<td><button class="btn btn-sm btn-outline-secondary py-0 px-1" onclick="gPthExport('+i+',this)">直接导出</button></td>'
-        +'</tr>';
-    });
-    h+='</tbody></table></div>';
-    msg.innerHTML=h;
-    /* 填充模型名自动补全 */
+    document.getElementById('gPthMsg').innerHTML=ph;
     fetch('/api/golden/models').then(function(r){return r.json()}).then(function(models){
       var dl=document.getElementById('gPthModelList');
       if(dl) dl.innerHTML=models.map(function(m){return '<option value="'+_gEsc(m)+'">';}).join('');
     });
-  }).catch(function(e){msg.textContent='失败: '+e.message;});
-}
-
-function gPthToggleAll(checked){
-  document.querySelectorAll('.gPthCheck').forEach(function(cb){cb.checked=checked;});
-}
-
-function gPthApplyDefaults(onlyChecked){
-  var defPrec=document.getElementById('gPthDefPrec').value;
-  var defLay=document.getElementById('gPthDefLayout').value;
-  _gPthTensors.forEach(function(t,i){
-    if(onlyChecked){
-      var cb=document.querySelector('.gPthCheck[data-idx="'+i+'"]');
-      if(!cb||!cb.checked) return;
-    }
-    document.getElementById('gPthPrec-'+i).value=defPrec;
-    document.getElementById('gPthLay-'+i).value=defLay;
-  });
-}
-
-function gPthExport(idx,btn){
-  var t=_gPthTensors[idx];
-  if(!t) return;
-  var fi=document.getElementById('gPthFile');
-  if(!fi.files.length) return;
-
-  /* 精度标记实际精度，分型固定为 ND (pth 原始数据) */
-  var prec=document.getElementById('gPthPrec-'+idx).value;
-  var op=document.getElementById('gPthOp-'+idx).value.trim()||t.operator;
-  var cat=document.getElementById('gPthCat-'+idx).value;
-  var fname=op+'_'+cat+t.seq+'_ND_'+prec+'_'+t.shape+'.txt';
-
-  /* 提示：直接导出不做任何转换 */
-  if(!confirm('注意：直接导出 pth tensor\n\n· 数据类型未变更（标记精度: '+prec+'）\n· 数据分型未变更（固定为 ND）\n\n如需转换分型，建议通过「一键导入模型」后在数据管理页导出。\n\n是否继续直接导出？')){
-    return;
+  } else {
+    pthPanel.classList.add('d-none');
   }
-
-  var fd=new FormData();
-  fd.append('file',fi.files[0]);
-  fd.append('key',t.key);
-
-  btn.style.opacity='0.3';btn.style.pointerEvents='none';
-  fetch('/api/golden/pth-export',{method:'POST',body:fd}).then(function(r){
-    if(!r.ok) return r.json().then(function(d){throw new Error(d.error||'导出失败');});
-    return r.blob().then(function(blob){
-      var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=fname;a.click();
-      btn.style.opacity='1';btn.style.pointerEvents='';
-    });
-  }).catch(function(e){btn.style.opacity='1';btn.style.pointerEvents='';alert('导出失败: '+e.message);});
 }
 
-/* 一键创建模型+版本，批量导出并上传所有勾选的 tensor */
+/* 全局设置应用到所有行 */
+function gCvtApplyGlobal(){
+  var dstL=document.getElementById('gCvtDstLayout').value;
+  var dstP=document.getElementById('gCvtDstPrec').value;
+  _gCvtFiles.forEach(function(f,i){
+    if(dstL){f.dstLayout=dstL;}
+    if(dstP){f.dstPrec=dstP;}
+  });
+  gCvtRender();
+}
+
+/* 统一转换并下载 */
+function gCvtRunAll(){
+  var renameOnly=document.getElementById('gCvtRenameOnly').checked;
+  var outFmt=document.getElementById('gCvtOutFmt').value;
+  var shapeStr=document.getElementById('gCvtShape').value;
+  var msg=document.getElementById('gCvtMsg');
+
+  /* 收集勾选项 */
+  var selected=[];
+  document.querySelectorAll('.gCvtCheck:checked').forEach(function(cb){
+    selected.push(_gCvtFiles[parseInt(cb.dataset.idx)]);
+  });
+  if(!selected.length){alert('请至少勾选一个文件');return;}
+
+  msg.textContent='转换中... 0/'+selected.length;
+  var done=0,ok=0,total=selected.length;
+
+  function next(si){
+    if(si>=total){
+      msg.textContent='完成: '+ok+'/'+total+' 个文件';
+      return;
+    }
+    var f=selected[si];
+    var outName=f.op+'_'+f.category+f.seq+'_'+f.dstLayout+'_'+f.dstPrec+'_'+f.shape+'.'+outFmt;
+
+    if(renameOnly){
+      /* 仅改名: 直接用原文件内容，改文件名下载 */
+      _cvtRenameDownload(f, outName, outFmt, function(){
+        ok++; done++;
+        msg.textContent='转换中... '+done+'/'+total;
+        next(si+1);
+      }, function(e){
+        done++;
+        msg.textContent='转换中... '+done+'/'+total+' (失败: '+e+')';
+        next(si+1);
+      });
+    } else if(f.isPth){
+      /* pth tensor: 先导出原始数据，再转换(如果需要) */
+      _cvtPthTensor(f, outName, outFmt, shapeStr, function(){
+        ok++; done++;
+        msg.textContent='转换中... '+done+'/'+total;
+        next(si+1);
+      }, function(e){
+        done++;
+        msg.textContent='转换中... '+done+'/'+total+' (失败: '+e+')';
+        next(si+1);
+      });
+    } else {
+      /* bin/txt 文件: 调用服务端 convert-txt API */
+      _cvtNormalFile(f, outName, shapeStr, function(){
+        ok++; done++;
+        msg.textContent='转换中... '+done+'/'+total;
+        next(si+1);
+      }, function(e){
+        done++;
+        msg.textContent='转换中... '+done+'/'+total+' (失败: '+e+')';
+        next(si+1);
+      });
+    }
+  }
+  next(0);
+}
+
+/* 仅改名下载 */
+function _cvtRenameDownload(f, outName, outFmt, onOk, onErr){
+  if(f.isPth){
+    /* pth tensor: 先导出原始 bytes */
+    var fd=new FormData();
+    fd.append('file',f.file);
+    fd.append('key',f.pthKey);
+    fetch('/api/golden/pth-export',{method:'POST',body:fd}).then(function(r){
+      if(!r.ok) throw new Error('导出失败');
+      return r.blob();
+    }).then(function(blob){
+      /* 如果输出 txt 则 pth-export 已返回 txt 格式 */
+      var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=outName;a.click();
+      onOk();
+    }).catch(function(e){onErr(e.message);});
+  } else {
+    /* 普通文件: 直接改名下载 */
+    if(outFmt==='txt'&&f.type==='bin'){
+      /* bin→txt 转格式 */
+      var reader=new FileReader();
+      reader.onload=function(e){
+        var arr=new Uint8Array(e.target.result);
+        var lines=[];
+        for(var i=0;i<arr.length;i++) lines.push(arr[i].toString(16).toUpperCase().padStart(2,'0'));
+        var blob=new Blob([lines.join('\n')],{type:'text/plain'});
+        var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=outName;a.click();
+        onOk();
+      };
+      reader.readAsArrayBuffer(f.file);
+    } else if(outFmt==='bin'&&f.type==='txt'){
+      /* txt→bin 转格式 */
+      var reader=new FileReader();
+      reader.onload=function(e){
+        var lines=e.target.result.trim().split('\n');
+        var arr=new Uint8Array(lines.length);
+        for(var i=0;i<lines.length;i++) arr[i]=parseInt(lines[i].trim(),16)||0;
+        var blob=new Blob([arr]);
+        var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=outName;a.click();
+        onOk();
+      };
+      reader.readAsText(f.file);
+    } else {
+      var a=document.createElement('a');a.href=URL.createObjectURL(f.file);a.download=outName;a.click();
+      onOk();
+    }
+  }
+}
+
+/* pth tensor 转换并下载 */
+function _cvtPthTensor(f, outName, outFmt, shapeStr, onOk, onErr){
+  var fd=new FormData();
+  fd.append('file',f.file);
+  fd.append('key',f.pthKey);
+  fetch('/api/golden/pth-export',{method:'POST',body:fd}).then(function(r){
+    if(!r.ok) throw new Error('pth 导出失败');
+    return r.blob();
+  }).then(function(blob){
+    /* 如果需要分型/类型转换，调用 convert-txt */
+    if(f.srcLayout!==f.dstLayout||f.srcPrec!==f.dstPrec){
+      var cfd=new FormData();
+      cfd.append('file',new File([blob],'tensor.txt'));
+      cfd.append('src_layout',f.srcLayout);
+      cfd.append('dst_layout',f.dstLayout);
+      cfd.append('src_precision',f.srcPrec);
+      cfd.append('dst_precision',f.dstPrec);
+      cfd.append('shape',shapeStr);
+      return fetch('/api/golden/convert-txt',{method:'POST',body:cfd});
+    }
+    /* 无需转换，直接下载 */
+    var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=outName;a.click();
+    onOk();
+    return null;
+  }).then(function(r){
+    if(!r) return;
+    if(!r.ok) return r.json().then(function(d){throw new Error(d.error||'转换失败');});
+    return r.blob().then(function(blob2){
+      var a=document.createElement('a');a.href=URL.createObjectURL(blob2);a.download=outName;a.click();
+      onOk();
+    });
+  }).catch(function(e){onErr(e.message);});
+}
+
+/* 普通文件转换并下载 */
+function _cvtNormalFile(f, outName, shapeStr, onOk, onErr){
+  var fd=new FormData();
+  fd.append('file',f.file);
+  fd.append('src_layout',f.srcLayout);
+  fd.append('dst_layout',f.dstLayout);
+  fd.append('src_precision',f.srcPrec);
+  fd.append('dst_precision',f.dstPrec);
+  fd.append('shape',shapeStr);
+  fetch('/api/golden/convert-txt',{method:'POST',body:fd}).then(function(r){
+    if(!r.ok) return r.json().then(function(d){throw new Error(d.error||'转换失败');});
+    return r.blob().then(function(blob){
+      var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=outName;a.click();
+      onOk();
+    });
+  }).catch(function(e){onErr(e.message);});
+}
+
+/* ========== pth 一键导入模型（从转换列表中的 pth tensor） ========== */
 function gPthImportAll(){
   var model=document.getElementById('gPthModelName').value.trim();
   var version=document.getElementById('gPthVersionName').value.trim();
   if(!model||!version){alert('请填写模型名和版本');return;}
 
-  var fi=document.getElementById('gPthFile');
-  if(!fi.files.length){alert('请先选择 .pth 文件并解析');return;}
-
-  /* 收集勾选项 */
+  /* 收集 pth 类型的勾选项 */
   var selected=[];
-  document.querySelectorAll('.gPthCheck:checked').forEach(function(cb){
-    var idx=parseInt(cb.dataset.idx);
-    var t=_gPthTensors[idx];
-    if(!t) return;
-    selected.push({
-      idx:idx, key:t.key,
-      operator:document.getElementById('gPthOp-'+idx).value.trim()||t.operator,
-      category:document.getElementById('gPthCat-'+idx).value,
-      dstPrec:document.getElementById('gPthPrec-'+idx).value,
-      dstLayout:document.getElementById('gPthLay-'+idx).value,
-      shape:t.shape, seq:t.seq
-    });
+  document.querySelectorAll('.gCvtCheck:checked').forEach(function(cb){
+    var f=_gCvtFiles[parseInt(cb.dataset.idx)];
+    if(f&&f.isPth) selected.push(f);
   });
-  if(!selected.length){alert('请至少勾选一个 tensor');return;}
+  if(!selected.length){alert('请至少勾选一个 pth tensor');return;}
 
   var btn=document.getElementById('gPthImportBtn');
   var msgEl=document.getElementById('gPthImportMsg');
   btn.disabled=true;
   msgEl.textContent='检查版本...';
 
-  /* Step 0: 检查版本是否已存在 */
   fetch('/api/golden/'+encodeURIComponent(model)+'/versions').then(function(r){
     if(!r.ok) return [];
     return r.json();
@@ -1505,22 +1569,16 @@ function gPthImportAll(){
   }).catch(function(){doImport();});
 
   function doImport(){
-
-  /* 按算子名分组 */
   var opSet={};
-  selected.forEach(function(s){opSet[s.operator]=true;});
+  selected.forEach(function(s){opSet[s.op]=true;});
   var ops=Object.keys(opSet);
-
-  /* Step 1: 为每个算子创建模型/版本/算子（使用 /api/golden/create） */
   msgEl.textContent='创建算子中... 0/'+ops.length;
   var createDone=0;
 
   function createOps(oi){
     if(oi>=ops.length){startImport();return;}
     var cfd=new FormData();
-    cfd.append('model',model);
-    cfd.append('version',version);
-    cfd.append('operator',ops[oi]);
+    cfd.append('model',model);cfd.append('version',version);cfd.append('operator',ops[oi]);
     fetch('/api/golden/create',{method:'POST',body:cfd}).then(function(r){
       createDone++;
       msgEl.textContent='创建算子中... '+createDone+'/'+ops.length;
@@ -1529,10 +1587,8 @@ function gPthImportAll(){
   }
 
   function startImport(){
-    /* Step 2: 逐个导出 tensor 并上传 */
     var done=0,ok=0,total=selected.length;
     msgEl.textContent='导入中... 0/'+total;
-
     function next(si){
       if(si>=total){
         msgEl.textContent='完成: '+ok+'/'+total+' 个 tensor 已导入到 '+model+'/'+version;
@@ -1543,54 +1599,40 @@ function gPthImportAll(){
       var s=selected[si];
       var prec=s.dstPrec||'FP16';
       var targetLay=s.dstLayout||'ND';
-      /* 导出 tensor 为 txt (pth 数据始终是 ND) */
       var fd=new FormData();
-      fd.append('file',fi.files[0]);
-      fd.append('key',s.key);
-
+      fd.append('file',s.file);fd.append('key',s.pthKey);
       fetch('/api/golden/pth-export',{method:'POST',body:fd}).then(function(r){
-        if(!r.ok) throw new Error('导出失败: '+s.key);
+        if(!r.ok) throw new Error('导出失败: '+s.pthKey);
         return r.blob();
       }).then(function(blob){
-        /* 上传文件名: 先用 ND 分型 (pth 原始数据是 flat) */
-        var fname=s.operator+'_'+s.category+s.seq+'_ND_'+prec+'_'+s.shape+'.txt';
-
+        var fname=s.op+'_'+s.category+s.seq+'_ND_'+prec+'_'+s.shape+'.txt';
         var ufd=new FormData();
-        ufd.append('model',model);
-        ufd.append('version',version);
-        ufd.append('operator',s.operator);
+        ufd.append('model',model);ufd.append('version',version);ufd.append('operator',s.op);
         ufd.append('file',new File([blob],fname));
         return fetch('/api/golden/upload',{method:'POST',body:ufd}).then(function(r){
           if(!r||!r.ok) throw new Error('上传失败');
-          /* 如果目标分型不是 ND，自动转换 */
           if(targetLay&&targetLay!=='ND'){
-            msgEl.textContent='转换分型... '+(done+1)+'/'+total+' ('+s.operator+': ND→'+targetLay+')';
-            return fetch('/api/golden/'+encodeURIComponent(model)+'/'+encodeURIComponent(version)+'/'+encodeURIComponent(s.operator)+'/convert',{
+            msgEl.textContent='转换分型... '+(done+1)+'/'+total+' ('+s.op+': ND→'+targetLay+')';
+            return fetch('/api/golden/'+encodeURIComponent(model)+'/'+encodeURIComponent(version)+'/'+encodeURIComponent(s.op)+'/convert',{
               method:'POST',headers:{'Content-Type':'application/json'},
               body:JSON.stringify({filename:fname,dst_layout:targetLay})
             });
           }
         });
       }).then(function(r){
-        /* r 为 undefined 表示无需转换(ND)，算成功; 否则检查转换结果 */
         if(!r||r.ok) ok++;
-        done++;
-        msgEl.textContent='导入中... '+done+'/'+total;
-        next(si+1);
+        done++;msgEl.textContent='导入中... '+done+'/'+total;next(si+1);
       }).catch(function(e){
-        done++;
-        msgEl.textContent='导入中... '+done+'/'+total+' (失败: '+e.message+')';
-        next(si+1);
+        done++;msgEl.textContent='导入中... '+done+'/'+total+' (失败: '+e.message+')';next(si+1);
       });
     }
     next(0);
   }
-
   createOps(0);
-  } /* end doImport */
+  }
 }
 
-/* 转换 tab drop zone */
+/* 转换 tab drop zone + file input */
 (function(){
   var zone=document.getElementById('gCvtDropZone');
   if(!zone) return;
@@ -1602,7 +1644,7 @@ function gPthImportAll(){
     var items=e.dataTransfer.items;
     if(items){
       var pending=0,done=0;
-      function checkDone(){if(done>=pending) gCvtBatch(files);}
+      function checkDone(){if(done>=pending) gCvtAddFiles(files);}
       function readEntry(entry){
         if(entry.isFile){pending++;entry.file(function(f){files.push(f);done++;checkDone();});}
         else if(entry.isDirectory){entry.createReader().readEntries(function(entries){entries.forEach(readEntry);});}
@@ -1617,50 +1659,9 @@ function gPthImportAll(){
   });
   document.getElementById('gCvtDropInput').addEventListener('change',function(e){
     var a=[];for(var i=0;i<e.target.files.length;i++) a.push(e.target.files[i]);
-    gCvtBatch(a);e.target.value='';
+    gCvtAddFiles(a);e.target.value='';
   });
 })();
-
-function gCvtBatch(files){
-  var dstLayout=document.getElementById('gCvtDstLayout').value;
-  var dstPrec=document.getElementById('gCvtDstPrec').value;
-  var outFmt=document.getElementById('gCvtOutFmt').value;
-  var msg=document.getElementById('gCvtMsg');
-  if(!dstLayout&&!dstPrec){msg.textContent='请至少选择一个转换目标（分型或格式）';return;}
-  var txtFiles=files.filter(function(f){return f.name.endsWith('.txt')||f.name.endsWith('.bin');});
-  if(!txtFiles.length){msg.textContent='无可转换文件（仅支持 .txt / .bin）';return;}
-  msg.textContent='转换中... 0/'+txtFiles.length;
-  var done=0,ok=0;
-  txtFiles.forEach(function(f){
-    var p=_parseGoldenName(f.name);
-    var fd=new FormData();fd.append('file',f);
-    if(p){
-      fd.append('src_layout',p.category?'':''); /* 从文件名解析 */
-      /* 尝试从文件名提取 layout 和 precision */
-      var base=f.name;
-      ['.tar.gz','.txt','.pth','.bin','.zip','.tar'].forEach(function(ext){if(base.endsWith(ext))base=base.slice(0,-ext.length);});
-      var parts=base.split('_');
-      if(parts.length>=5){
-        fd.append('src_layout',parts[parts.length-3]);
-        fd.append('src_precision',parts[parts.length-2]);
-        fd.append('shape',JSON.stringify({loop:1,m:parseInt(parts[parts.length-1].split('x')[0])||64,n:64,k:64}));
-      }
-    }
-    if(dstLayout) fd.append('dst_layout',dstLayout);
-    if(dstPrec) fd.append('dst_precision',dstPrec);
-    fetch('/api/golden/convert-txt',{method:'POST',body:fd}).then(function(r){
-      if(r.ok){
-        r.blob().then(function(blob){
-          var name=r.headers.get('content-disposition');
-          name=name?name.split('filename=')[1].replace(/"/g,''):'converted.txt';
-          var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();
-          ok++;
-        });
-      }
-      if(++done===txtFiles.length) msg.textContent='完成: '+ok+'/'+txtFiles.length+' 文件已转换';
-    });
-  });
-}
 
 /* ========== 初始化 ========== */
 document.getElementById('gcItemHead').innerHTML=_DATA_ITEM_THEAD;
