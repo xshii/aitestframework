@@ -35,6 +35,26 @@
             "command": "./scripts/start.sh --debug",
             "problemMatcher": [],
             "isBackground": true
+        },
+        {
+            "label": "[web] 03-启动 Web 服务 (Windows)",
+            "type": "shell",
+            "command": ".\\scripts\\start.bat",
+            "problemMatcher": [],
+            "isBackground": true,
+            "windows": {
+                "command": ".\\scripts\\start.bat"
+            }
+        },
+        {
+            "label": "[web] 04-启动 Web 服务 (Windows, 调试模式)",
+            "type": "shell",
+            "command": ".\\scripts\\start.bat --debug",
+            "problemMatcher": [],
+            "isBackground": true,
+            "windows": {
+                "command": ".\\scripts\\start.bat --debug"
+            }
         }
     ]
 }
