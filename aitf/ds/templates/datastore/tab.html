@@ -177,11 +177,6 @@
               <option value="txt" selected>txt</option>
               <option value="bin">bin</option>
             </select>
-            <span class="small text-muted ms-1">Shape:</span>
-            <span class="small text-muted">loop</span><input type="number" class="form-control form-control-sm py-0 bg-light" id="gCvtShapeLoop" value="1" style="width:45px" disabled>
-            <span class="small text-muted">m</span><input type="number" class="form-control form-control-sm py-0 bg-light" id="gCvtShapeM" value="64" style="width:50px" disabled>
-            <span class="small text-muted">n</span><input type="number" class="form-control form-control-sm py-0 bg-light" id="gCvtShapeN" value="64" style="width:50px" disabled>
-            <span class="small text-muted">k</span><input type="number" class="form-control form-control-sm py-0 bg-light" id="gCvtShapeK" value="64" style="width:50px" disabled>
             <button class="btn btn-sm btn-primary py-0 ms-auto" onclick="gCvtRunAll()">转换并下载</button>
           </div>
           <div class="table-responsive" style="max-height:500px;overflow-y:auto">
@@ -1137,6 +1132,12 @@ function _cvtPrecOpts(selected){
   return precs.map(function(p){return '<option value="'+p+'"'+(p===selected?' selected':'')+'>'+p+'</option>';}).join('');
 }
 
+/* 从文件的 shape 字段 (如 "128x96x64") 生成 API 所需的 JSON shape */
+function _fileShapeStr(f){
+  var dims=(f.shape||'').split('x').map(function(s){return parseInt(s)||0;});
+  return JSON.stringify({loop:1,m:dims[0]||64,n:dims[1]||64,k:dims[2]||64});
+}
+
 /* 文件加入列表后统一渲染 */
 function gCvtAddFiles(fileList){
   for(var i=0;i<fileList.length;i++){
@@ -1206,14 +1207,6 @@ function gCvtRender(){
   });
   tbody.innerHTML=h;
   document.getElementById('gCvtFileCount').textContent=_gCvtFiles.length?'共 '+_gCvtFiles.length+' 项':'无文件';
-  /* 用第一个非 pth 文件的 shape 填充全局 shape 字段 */
-  var first=_gCvtFiles.find(function(f){return !f.isPth&&f.shape;});
-  if(first){
-    var dims=first.shape.split('x').map(function(s){return parseInt(s)||0;});
-    document.getElementById('gCvtShapeM').value=dims[0]||64;
-    document.getElementById('gCvtShapeN').value=dims[1]||64;
-    document.getElementById('gCvtShapeK').value=dims[2]||64;
-  }
   /* pth 导入面板: 有 pth 项时显示 */
   var hasPth=_gCvtFiles.some(function(f){return f.isPth;});
   var pthPanel=document.getElementById('gPthPanel');
@@ -1259,7 +1252,7 @@ function gCvtApplyGlobal(){
 function gCvtRunAll(){
   var renameOnly=document.getElementById('gCvtRenameOnly').checked;
   var outFmt=document.getElementById('gCvtOutFmt').value;
-  var shapeStr=JSON.stringify({loop:parseInt(document.getElementById('gCvtShapeLoop').value)||1,m:parseInt(document.getElementById('gCvtShapeM').value)||64,n:parseInt(document.getElementById('gCvtShapeN').value)||64,k:parseInt(document.getElementById('gCvtShapeK').value)||64});
+  /* shape 从每个文件自身解析 */
   var msg=document.getElementById('gCvtMsg');
 
   /* 收集勾选项 */
@@ -1293,7 +1286,7 @@ function gCvtRunAll(){
       });
     } else if(f.isPth){
       /* pth tensor: 先导出原始数据，再转换(如果需要) */
-      _cvtPthTensor(f, outName, outFmt, shapeStr, function(){
+      _cvtPthTensor(f, outName, outFmt, _fileShapeStr(f), function(){
         ok++; done++;
         msg.textContent='转换中... '+done+'/'+total;
         next(si+1);
@@ -1304,7 +1297,7 @@ function gCvtRunAll(){
       });
     } else {
       /* bin/txt 文件: 调用服务端 convert-txt API */
-      _cvtNormalFile(f, outName, shapeStr, function(){
+      _cvtNormalFile(f, outName, _fileShapeStr(f), function(){
         ok++; done++;
         msg.textContent='转换中... '+done+'/'+total;
         next(si+1);
