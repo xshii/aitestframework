@@ -260,6 +260,29 @@ def delete_dep(name):
     return jsonify({"deleted": name})
 
 
+@bp.route("/api/deps/reorder", methods=["POST"])
+def reorder_deps():
+    """Update dependency order based on a list of names.
+
+    Expects JSON body: {"order": ["name1", "name2", ...]}
+    Assigns order=0,1,2,... based on position.
+    """
+    names = (request.get_json() or {}).get("order", [])
+    if not names:
+        return jsonify({"error": "missing order list"}), 400
+
+    mgr = _mgr()
+    with _config_lock:
+        cfg = mgr.config
+        for i, name in enumerate(names):
+            for section in (cfg.toolchains, cfg.libraries, cfg.repos):
+                if name in section:
+                    section[name].order = i
+                    break
+        _save_cfg(mgr)
+    return jsonify({"ok": True})
+
+
 @bp.route("/api/deps/export", methods=["GET"])
 def export_deps():
     """Return the full deps.yaml as a downloadable YAML file."""
