@@ -177,8 +177,11 @@
               <option value="txt" selected>txt</option>
               <option value="bin">bin</option>
             </select>
-            <label class="small mb-0 ms-1">Shape:</label>
-            <input class="form-control form-control-sm py-0" id="gCvtShape" value='{"loop":1,"m":64,"n":64,"k":64}' style="width:220px">
+            <span class="small text-muted ms-1">Shape:</span>
+            <span class="small text-muted">loop</span><input type="number" class="form-control form-control-sm py-0 bg-light" id="gCvtShapeLoop" value="1" style="width:45px" disabled>
+            <span class="small text-muted">m</span><input type="number" class="form-control form-control-sm py-0 bg-light" id="gCvtShapeM" value="64" style="width:50px" disabled>
+            <span class="small text-muted">n</span><input type="number" class="form-control form-control-sm py-0 bg-light" id="gCvtShapeN" value="64" style="width:50px" disabled>
+            <span class="small text-muted">k</span><input type="number" class="form-control form-control-sm py-0 bg-light" id="gCvtShapeK" value="64" style="width:50px" disabled>
             <button class="btn btn-sm btn-primary py-0 ms-auto" onclick="gCvtRunAll()">转换并下载</button>
           </div>
           <div class="table-responsive" style="max-height:500px;overflow-y:auto">
@@ -304,8 +307,11 @@ function _parseGoldenName(fname){
   if(ci===0||ci===catSeq.length) return null;
   var op=parts.slice(0,-4).join('_');
   if(!op) return null;
+  var shapeStr=parts[parts.length-1];
+  var dims=shapeStr.split('x').map(function(s){return parseInt(s)||0;});
   return {op:op,category:catSeq.slice(0,ci),seq:parseInt(catSeq.slice(ci)),
-          layout:parts[parts.length-3].toUpperCase(),precision:parts[parts.length-2].toUpperCase()};
+          layout:parts[parts.length-3].toUpperCase(),precision:parts[parts.length-2].toUpperCase(),
+          shape:shapeStr,m:dims[0]||64,n:dims[1]||64,k:dims[2]||64};
 }
 
 /* 统一的文件下载链接 HTML */
@@ -1200,6 +1206,14 @@ function gCvtRender(){
   });
   tbody.innerHTML=h;
   document.getElementById('gCvtFileCount').textContent=_gCvtFiles.length?'共 '+_gCvtFiles.length+' 项':'无文件';
+  /* 用第一个非 pth 文件的 shape 填充全局 shape 字段 */
+  var first=_gCvtFiles.find(function(f){return !f.isPth&&f.shape;});
+  if(first){
+    var dims=first.shape.split('x').map(function(s){return parseInt(s)||0;});
+    document.getElementById('gCvtShapeM').value=dims[0]||64;
+    document.getElementById('gCvtShapeN').value=dims[1]||64;
+    document.getElementById('gCvtShapeK').value=dims[2]||64;
+  }
   /* pth 导入面板: 有 pth 项时显示 */
   var hasPth=_gCvtFiles.some(function(f){return f.isPth;});
   var pthPanel=document.getElementById('gPthPanel');
@@ -1245,7 +1259,7 @@ function gCvtApplyGlobal(){
 function gCvtRunAll(){
   var renameOnly=document.getElementById('gCvtRenameOnly').checked;
   var outFmt=document.getElementById('gCvtOutFmt').value;
-  var shapeStr=document.getElementById('gCvtShape').value;
+  var shapeStr=JSON.stringify({loop:parseInt(document.getElementById('gCvtShapeLoop').value)||1,m:parseInt(document.getElementById('gCvtShapeM').value)||64,n:parseInt(document.getElementById('gCvtShapeN').value)||64,k:parseInt(document.getElementById('gCvtShapeK').value)||64});
   var msg=document.getElementById('gCvtMsg');
 
   /* 收集勾选项 */
