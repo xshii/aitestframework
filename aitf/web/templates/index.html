@@ -2,7 +2,7 @@
 {% block title %}AITF{% endblock %}
 {% block content %}
 
-<div class="tab-content">
+<div class="tab-content" id="mainTabContent">
 
 {# ===== DATA (Golden 数据管理 — provided by aitf.ds plugin) ===== #}
 <div class="tab-pane show active" id="tab-data">
@@ -12,6 +12,11 @@
 {# ===== DEPS & BUNDLES (provided by aitf.deps plugin) ===== #}
 <div class="tab-pane" id="tab-deps">
   {% include 'deps/tab.html' %}
+</div>
+
+{# ===== CASES (用例管理 — provided by aitf.tc plugin) ===== #}
+<div class="tab-pane" id="tab-cases">
+  {% include 'tc/tab.html' %}
 </div>
 
 {# ===== LOGS ===== #}
@@ -40,7 +45,7 @@
 /* Navbar tab switching */
 (function(){
   var links=document.querySelectorAll('#navTabs a[data-tab]');
-  var panes=document.querySelectorAll('.tab-content > .tab-pane');
+  var panes=document.querySelectorAll('#mainTabContent > .tab-pane');
   function activate(tabId){
     links.forEach(function(l){l.classList.toggle('active',l.dataset.tab===tabId);});
     panes.forEach(function(p){

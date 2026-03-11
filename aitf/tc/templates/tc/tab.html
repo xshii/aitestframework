@@ -1,0 +1,355 @@
+{# 用例管理 — REQ-4 / REQ-7.2 #}
+
+<ul class="nav nav-pills mb-2" id="tcSubTabs">
+  <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#sub-suites">测试套</button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#sub-executions">执行记录</button></li>
+</ul>
+<div class="tab-content">
+
+{# ===== 测试套列表 ===== #}
+<div class="tab-pane show active" id="sub-suites">
+  <div class="d-flex align-items-center mb-2 gap-2 flex-wrap">
+    <span class="fw-bold me-1">测试套</span>
+    <span class="badge bg-secondary" id="tcSuiteCount">0</span>
+    <button class="btn btn-sm btn-outline-secondary py-0 ms-2" id="tcScanBtn" onclick="tcRefreshSuites(this)">扫描用例</button>
+    <small class="text-muted ms-1" id="tcScanTime"></small>
+    <button class="btn btn-sm btn-outline-primary py-0 ms-2" id="tcRunAllBtn" onclick="tcRunAll(this)">执行全部</button>
+    <small class="text-muted ms-1" id="tcRunMsg"></small>
+    <input class="form-control form-control-sm ms-auto" id="tcSuiteFilter" placeholder="筛选..." style="width:160px" oninput="tcRenderSuites()">
+    <select class="form-select form-select-sm" id="tcPlatformFilter" style="width:100px" onchange="tcRenderSuites()">
+      <option value="">全部平台</option>
+    </select>
+  </div>
+  <div id="tcSuiteList"></div>
+  <p id="tcSuiteEmpty" class="text-muted small d-none">暂无测试套。点击「扫描用例」发现用例。</p>
+</div>
+
+{# ===== 执行记录 ===== #}
+<div class="tab-pane" id="sub-executions">
+  <div class="d-flex align-items-center mb-2 gap-2 flex-wrap">
+    <span class="fw-bold me-1">执行记录</span>
+    <span class="badge bg-secondary" id="tcExeCount">0</span>
+    <button class="btn btn-sm btn-outline-secondary py-0 ms-2" onclick="tcLoadExecutions()">刷新</button>
+  </div>
+  <table class="table table-sm table-striped table-hover" id="tcExeTable" style="display:none">
+    <thead>
+      <tr>
+        <th>批次ID</th>
+        <th>开始时间</th>
+        <th>配置集</th>
+        <th>环境</th>
+        <th>总数</th>
+        <th class="text-success">PASS</th>
+        <th class="text-danger">FAIL</th>
+        <th class="text-warning">TMOUT</th>
+        <th>通过率</th>
+        <th>触发</th>
+      </tr>
+    </thead>
+    <tbody id="tcExeBody"></tbody>
+  </table>
+  <p id="tcExeEmpty" class="text-muted small d-none">暂无执行记录。</p>
+</div>
+
+</div>
+
+<script>
+/* ===== 用例管理 JS ===== */
+(function(){
+
+var _suites=[];
+var _executions=[];
+
+/* ---------- 工具函数 ---------- */
+function _esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+function _fmtTime(ts){
+  if(!ts)return'-';
+  var d=new Date(ts);
+  if(isNaN(d.getTime())){d=new Date(ts+'Z');}
+  var u=new Date(d.getTime()+8*3600000);
+  var p=function(v){return v<10?'0'+v:v;};
+  return u.getUTCFullYear()+'-'+p(u.getUTCMonth()+1)+'-'+p(u.getUTCDate())+' '+p(u.getUTCHours())+':'+p(u.getUTCMinutes())+':'+p(u.getUTCSeconds());
+}
+
+function _statusBadge(s){
+  var cls={'PASS':'bg-success','FAIL':'bg-danger','TIMEOUT':'bg-warning text-dark',
+           'CRASH':'bg-purple','SKIP':'bg-secondary','ERROR':'bg-dark',
+           'RUNNING':'bg-info text-dark','PENDING':'bg-light text-dark border'};
+  return '<span class="badge '+(cls[s]||'bg-secondary')+'">'+_esc(s)+'</span>';
+}
+
+function _pct(v){return (v*100).toFixed(1)+'%';}
+
+/* ---------- 测试套 ---------- */
+var _tcScanTs=0;
+window.tcRefreshSuites=function(btn){
+  var stEl=document.getElementById('tcScanTime');
+  /* 60s 冷却 */
+  if(_tcScanTs){
+    var elapsed=(Date.now()/1000)-_tcScanTs;
+    if(elapsed<60){
+      var remain=Math.ceil(60-elapsed);
+      stEl.textContent='冷却中，'+remain+'秒后可刷新';
+      setTimeout(function(){stEl.textContent=_tcScanTs?'扫描于 '+_fmtTime(new Date(_tcScanTs*1000).toISOString()):'';},3000);
+      return;
+    }
+  }
+  btn.disabled=true;btn.textContent='扫描中...';
+  fetch('/api/suites/refresh',{method:'POST'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      btn.disabled=false;btn.textContent='扫描用例';
+      _tcScanTs=Date.now()/1000;
+      stEl.textContent='扫描完成，发现 '+(d.count||0)+' 个测试套';
+      tcLoadSuites();
+    })
+    .catch(function(){btn.disabled=false;btn.textContent='扫描用例';});
+};
+
+function tcLoadSuites(){
+  fetch('/api/suites').then(function(r){return r.json();}).then(function(data){
+    _suites=data;
+    // populate platform filter
+    var pf=document.getElementById('tcPlatformFilter');
+    var cur=pf.value;
+    var platforms={};
+    data.forEach(function(s){if(s.platform)platforms[s.platform]=1;});
+    var opts='<option value="">全部平台</option>';
+    Object.keys(platforms).sort().forEach(function(p){
+      opts+='<option value="'+_esc(p)+'">'+_esc(p)+'</option>';
+    });
+    pf.innerHTML=opts;
+    pf.value=cur;
+    tcRenderSuites();
+  });
+}
+
+window.tcRenderSuites=function(){
+  var filter=(document.getElementById('tcSuiteFilter').value||'').toLowerCase();
+  var plat=document.getElementById('tcPlatformFilter').value;
+  var items=_suites.filter(function(s){
+    if(plat&&s.platform!==plat)return false;
+    if(filter){
+      var hay=(s.class_name+' '+s.module_path+' '+(s.docstring||'')).toLowerCase();
+      if(hay.indexOf(filter)<0)return false;
+    }
+    return true;
+  });
+
+  document.getElementById('tcSuiteCount').textContent=items.length;
+  var el=document.getElementById('tcSuiteList');
+  var empty=document.getElementById('tcSuiteEmpty');
+
+  if(!items.length){
+    el.innerHTML='';
+    empty.classList.remove('d-none');
+    return;
+  }
+  empty.classList.add('d-none');
+
+  var html='<div class="accordion" id="tcSuiteAcc">';
+  items.forEach(function(s,i){
+    var id='tcS'+i;
+    var summary=s.last_status_summary||{};
+    var summaryHtml='';
+    if(Object.keys(summary).length){
+      Object.keys(summary).forEach(function(k){
+        summaryHtml+=_statusBadge(k)+' '+summary[k]+' ';
+      });
+    }else{
+      summaryHtml='<span class="text-muted small">未执行</span>';
+    }
+
+    html+='<div class="accordion-item">'
+      +'<h2 class="accordion-header">'
+      +'<button class="accordion-button collapsed py-1 px-2 small" type="button" data-bs-toggle="collapse" data-bs-target="#'+id+'">'
+      +'<span class="fw-bold me-2">'+_esc(s.class_name)+'</span>'
+      +'<span class="text-muted me-2">'+_esc(s.module_path)+'</span>'
+      +'<span class="badge bg-secondary me-2">'+s.case_count+' 用例</span>'
+      +summaryHtml
+      +'</button></h2>'
+      +'<div id="'+id+'" class="accordion-collapse collapse" data-bs-parent="#tcSuiteAcc">'
+      +'<div class="accordion-body py-2 px-3">';
+
+    if(s.docstring){
+      html+='<p class="text-muted small mb-1">'+_esc(s.docstring)+'</p>';
+    }
+    html+='<div class="mb-1"><span class="small text-muted">平台: '+_esc(s.platform||'-')
+      +' | 分类: '+_esc(s.category||'-')
+      +' | 扫描时间: '+_fmtTime(s.scanned_at)+'</span></div>';
+
+    // Case method list
+    var names=s.case_names||[];
+    if(names.length){
+      html+='<table class="table table-sm table-bordered mb-0" style="max-width:600px"><thead><tr><th>#</th><th>用例方法</th></tr></thead><tbody>';
+      names.forEach(function(n,j){
+        html+='<tr><td class="text-muted">'+(j+1)+'</td><td><code>'+_esc(n)+'</code></td></tr>';
+      });
+      html+='</tbody></table>';
+    }
+
+    html+='<button class="btn btn-sm btn-outline-primary py-0 mt-1" onclick="tcRunSuite(\''+_esc(s.module_path)+'\',this)">执行此套件</button>';
+    html+='</div></div></div>';
+  });
+  html+='</div>';
+  el.innerHTML=html;
+};
+
+/* ---------- 执行记录 ---------- */
+window.tcLoadExecutions=function(){
+  fetch('/api/executions').then(function(r){return r.json();}).then(function(data){
+    _executions=data;
+    tcRenderExecutions();
+  });
+};
+
+function tcRenderExecutions(){
+  var items=_executions;
+  document.getElementById('tcExeCount').textContent=items.length;
+  var tbody=document.getElementById('tcExeBody');
+  var table=document.getElementById('tcExeTable');
+  var empty=document.getElementById('tcExeEmpty');
+
+  if(!items.length){
+    table.style.display='none';
+    empty.classList.remove('d-none');
+    return;
+  }
+  table.style.display='';
+  empty.classList.add('d-none');
+
+  var html='';
+  items.forEach(function(e){
+    var rate=e.total?_pct(e.pass_rate):'—';
+    html+='<tr>'
+      +'<td><a href="#" onclick="tcShowExeDetail(\''+_esc(e.id)+'\');return false;" class="text-decoration-none">'+_esc(e.id)+'</a></td>'
+      +'<td>'+_fmtTime(e.started_at)+'</td>'
+      +'<td>'+_esc(e.bundle||'-')+'</td>'
+      +'<td>'+_esc(e.target||'-')+'</td>'
+      +'<td>'+e.total+'</td>'
+      +'<td class="text-success">'+e.passed+'</td>'
+      +'<td class="text-danger">'+e.failed+'</td>'
+      +'<td class="text-warning">'+(e.timeout||0)+'</td>'
+      +'<td>'+rate+'</td>'
+      +'<td>'+_esc(e.trigger||'-')+'</td>'
+      +'</tr>';
+  });
+  tbody.innerHTML=html;
+}
+
+/* ---------- 执行详情 ---------- */
+window.tcShowExeDetail=function(exeId){
+  fetch('/api/executions/'+encodeURIComponent(exeId))
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.error){alert(d.error);return;}
+      var cases=d.cases||[];
+      // Group by suite
+      var suites={};
+      cases.forEach(function(c){
+        if(!suites[c.suite_class])suites[c.suite_class]=[];
+        suites[c.suite_class].push(c);
+      });
+
+      var html='<div class="card mb-2"><div class="card-body py-2">'
+        +'<h6>批次 '+_esc(d.id)+'</h6>'
+        +'<div class="small mb-1">开始: '+_fmtTime(d.started_at)+' | 结束: '+_fmtTime(d.finished_at)
+        +' | 配置集: '+_esc(d.bundle||'-')+' | 环境: '+_esc(d.target||'-')+'</div>'
+        +'<div class="mb-1">'
+        +_statusBadge('PASS')+' '+d.passed+' '
+        +_statusBadge('FAIL')+' '+d.failed+' '
+        +_statusBadge('TIMEOUT')+' '+(d.timeout||0)+' '
+        +_statusBadge('CRASH')+' '+(d.crashed||0)+' '
+        +_statusBadge('ERROR')+' '+(d.errored||0)+' '
+        +'通过率: <strong>'+(d.total?_pct(d.pass_rate):'—')+'</strong>'
+        +'</div>';
+
+      Object.keys(suites).forEach(function(sn){
+        html+='<h6 class="mt-2 mb-1">'+_esc(sn)+'</h6>'
+          +'<table class="table table-sm table-bordered table-hover mb-1"><thead><tr>'
+          +'<th>用例</th><th>状态</th><th>耗时</th><th>失败原因</th>'
+          +'</tr></thead><tbody>';
+        suites[sn].forEach(function(c){
+          html+='<tr>'
+            +'<td><code>'+_esc(c.case_method)+'</code></td>'
+            +'<td>'+_statusBadge(c.status)+'</td>'
+            +'<td>'+(c.duration_s!=null?c.duration_s.toFixed(2)+'s':'-')+'</td>'
+            +'<td class="small">'+_esc(c.failure_reason||'')+'</td>'
+            +'</tr>';
+        });
+        html+='</tbody></table>';
+      });
+
+      html+='<button class="btn btn-sm btn-outline-secondary py-0" onclick="tcLoadExecutions()">返回列表</button>';
+      html+='</div></div>';
+
+      document.getElementById('tcExeBody').innerHTML='';
+      document.getElementById('tcExeTable').style.display='none';
+      document.getElementById('tcExeEmpty').classList.add('d-none');
+      // Reuse the executions pane to show detail
+      var container=document.getElementById('tcExeTable').parentNode;
+      var detailEl=document.getElementById('tcExeDetail');
+      if(!detailEl){
+        detailEl=document.createElement('div');
+        detailEl.id='tcExeDetail';
+        container.appendChild(detailEl);
+      }
+      detailEl.innerHTML=html;
+    });
+};
+
+/* ---------- 执行触发 ---------- */
+var _tcPollTimer=null;
+
+window.tcRunAll=function(btn){
+  btn.disabled=true;btn.textContent='启动中...';
+  var msg=document.getElementById('tcRunMsg');
+  fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      btn.disabled=false;btn.textContent='执行全部';
+      if(d.error){msg.textContent=d.error;return;}
+      msg.textContent='已启动: '+d.execution_id;
+      _tcStartPoll(d.execution_id);
+    })
+    .catch(function(){btn.disabled=false;btn.textContent='执行全部';});
+};
+
+window.tcRunSuite=function(modulePath,btn){
+  btn.disabled=true;
+  var msg=document.getElementById('tcRunMsg');
+  var body=JSON.stringify({paths:[modulePath]});
+  fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:body})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      btn.disabled=false;
+      if(d.error){msg.textContent=d.error;return;}
+      msg.textContent='已启动: '+d.execution_id;
+      _tcStartPoll(d.execution_id);
+    })
+    .catch(function(){btn.disabled=false;});
+};
+
+function _tcStartPoll(exeId){
+  if(_tcPollTimer)clearInterval(_tcPollTimer);
+  _tcPollTimer=setInterval(function(){
+    fetch('/api/executions/'+encodeURIComponent(exeId))
+      .then(function(r){return r.json();})
+      .then(function(d){
+        if(d.finished_at){
+          clearInterval(_tcPollTimer);_tcPollTimer=null;
+          document.getElementById('tcRunMsg').textContent='执行完成: '+exeId+' 通过率 '+(d.total?_pct(d.pass_rate):'—');
+          tcLoadSuites();
+          tcLoadExecutions();
+        }
+      });
+  },3000);
+}
+
+/* ---------- 初始化 ---------- */
+tcLoadSuites();
+tcLoadExecutions();
+
+})();
+</script>

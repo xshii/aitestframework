@@ -73,6 +73,11 @@ def create_app(config: dict | None = None, aitf_config=None) -> Flask:
     if config:
         app.config.update(config)
 
+    # Initialise test-case SQLite database
+    from aitf.tc.db import init_db
+    db_path = aitf_config.build_root / "aitf.db"
+    init_db(db_path)
+
     @app.context_processor
     def inject_aitf_globals():
         return {
