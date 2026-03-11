@@ -13,13 +13,31 @@
     <span class="badge bg-secondary" id="tcSuiteCount">0</span>
     <button class="btn btn-sm btn-outline-secondary py-0 ms-2" id="tcScanBtn" onclick="tcRefreshSuites(this)">扫描用例</button>
     <small class="text-muted ms-1" id="tcScanTime"></small>
-    <button class="btn btn-sm btn-outline-primary py-0 ms-2" id="tcRunAllBtn" onclick="tcRunAll(this)">执行全部</button>
-    <small class="text-muted ms-1" id="tcRunMsg"></small>
     <input class="form-control form-control-sm ms-auto" id="tcSuiteFilter" placeholder="筛选..." style="width:160px" oninput="tcRenderSuites()">
     <select class="form-select form-select-sm" id="tcPlatformFilter" style="width:100px" onchange="tcRenderSuites()">
       <option value="">全部平台</option>
     </select>
   </div>
+  {# 执行参数栏 #}
+  <div class="d-flex align-items-center mb-2 gap-2 flex-wrap" id="tcRunBar">
+    <span class="small text-muted">执行参数:</span>
+    <select class="form-select form-select-sm" id="tcRunBundle" style="width:130px">
+      <option value="">配置集</option>
+    </select>
+    <select class="form-select form-select-sm" id="tcRunModel" style="width:130px" onchange="tcModelChanged()">
+      <option value="">Golden 模型</option>
+    </select>
+    <select class="form-select form-select-sm" id="tcRunVersion" style="width:100px">
+      <option value="">版本</option>
+    </select>
+    <select class="form-select form-select-sm" id="tcRunPlan" style="width:150px">
+      <option value="">测试计划</option>
+    </select>
+    <button class="btn btn-sm btn-outline-primary py-0" id="tcRunAllBtn" onclick="tcRunAll(this)">执行全部</button>
+    <button class="btn btn-sm btn-outline-success py-0" id="tcRunPlanBtn" onclick="tcRunPlan(this)">执行计划</button>
+    <small class="text-muted ms-1" id="tcRunMsg"></small>
+  </div>
+
   <div id="tcSuiteList"></div>
   <p id="tcSuiteEmpty" class="text-muted small d-none">暂无测试套。点击「扫描用例」发现用例。</p>
 </div>
@@ -37,7 +55,7 @@
         <th>批次ID</th>
         <th>开始时间</th>
         <th>配置集</th>
-        <th>环境</th>
+        <th>Golden</th>
         <th>总数</th>
         <th class="text-success">PASS</th>
         <th class="text-danger">FAIL</th>
@@ -59,6 +77,7 @@
 
 var _suites=[];
 var _executions=[];
+var _tcOptions={bundles:[],golden_models:[],testplans:[]};
 
 /* ---------- 工具函数 ---------- */
 function _esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -226,7 +245,7 @@ function tcRenderExecutions(){
       +'<td><a href="#" onclick="tcShowExeDetail(\''+_esc(e.id)+'\');return false;" class="text-decoration-none">'+_esc(e.id)+'</a></td>'
       +'<td>'+_fmtTime(e.started_at)+'</td>'
       +'<td>'+_esc(e.bundle||'-')+'</td>'
-      +'<td>'+_esc(e.target||'-')+'</td>'
+      +'<td>'+_esc(e.golden_model&&e.golden_version?e.golden_model+'/'+e.golden_version:'-')+'</td>'
       +'<td>'+e.total+'</td>'
       +'<td class="text-success">'+e.passed+'</td>'
       +'<td class="text-danger">'+e.failed+'</td>'
@@ -255,7 +274,9 @@ window.tcShowExeDetail=function(exeId){
       var html='<div class="card mb-2"><div class="card-body py-2">'
         +'<h6>批次 '+_esc(d.id)+'</h6>'
         +'<div class="small mb-1">开始: '+_fmtTime(d.started_at)+' | 结束: '+_fmtTime(d.finished_at)
-        +' | 配置集: '+_esc(d.bundle||'-')+' | 环境: '+_esc(d.target||'-')+'</div>'
+        +' | 配置集: '+_esc(d.bundle||'-')
+        +(d.golden_model?' | Golden: '+_esc(d.golden_model+'/'+d.golden_version):'')
+        +(d.plan_name?' | 计划: '+_esc(d.plan_name):'')+'</div>'
         +'<div class="mb-1">'
         +_statusBadge('PASS')+' '+d.passed+' '
         +_statusBadge('FAIL')+' '+d.failed+' '
@@ -302,10 +323,54 @@ window.tcShowExeDetail=function(exeId){
 /* ---------- 执行触发 ---------- */
 var _tcPollTimer=null;
 
+/* ---------- 执行参数 ---------- */
+function _tcRunParams(){
+  var p={};
+  var b=document.getElementById('tcRunBundle').value;
+  var m=document.getElementById('tcRunModel').value;
+  var v=document.getElementById('tcRunVersion').value;
+  if(b)p.bundle=b;
+  if(m)p.golden_model=m;
+  if(v)p.golden_version=v;
+  return p;
+}
+
+function tcLoadOptions(){
+  fetch('/api/tc/options').then(function(r){return r.json();}).then(function(d){
+    _tcOptions=d;
+    var bs=document.getElementById('tcRunBundle');
+    var html='<option value="">配置集</option>';
+    (d.bundles||[]).forEach(function(b){html+='<option value="'+_esc(b)+'">'+_esc(b)+'</option>';});
+    bs.innerHTML=html;
+
+    var ms=document.getElementById('tcRunModel');
+    html='<option value="">Golden 模型</option>';
+    (d.golden_models||[]).forEach(function(g){html+='<option value="'+_esc(g.model)+'">'+_esc(g.model)+'</option>';});
+    ms.innerHTML=html;
+
+    var ps=document.getElementById('tcRunPlan');
+    html='<option value="">测试计划</option>';
+    (d.testplans||[]).forEach(function(p){html+='<option value="'+_esc(p)+'">'+_esc(p)+'</option>';});
+    ps.innerHTML=html;
+  });
+}
+
+window.tcModelChanged=function(){
+  var model=document.getElementById('tcRunModel').value;
+  var vs=document.getElementById('tcRunVersion');
+  var html='<option value="">版本</option>';
+  if(model){
+    var g=(_tcOptions.golden_models||[]).find(function(m){return m.model===model;});
+    if(g)(g.versions||[]).forEach(function(v){html+='<option value="'+_esc(v)+'">'+_esc(v)+'</option>';});
+  }
+  vs.innerHTML=html;
+};
+
 window.tcRunAll=function(btn){
   btn.disabled=true;btn.textContent='启动中...';
   var msg=document.getElementById('tcRunMsg');
-  fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
+  var body=_tcRunParams();
+  fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
     .then(function(r){return r.json();})
     .then(function(d){
       btn.disabled=false;btn.textContent='执行全部';
@@ -319,8 +384,9 @@ window.tcRunAll=function(btn){
 window.tcRunSuite=function(modulePath,btn){
   btn.disabled=true;
   var msg=document.getElementById('tcRunMsg');
-  var body=JSON.stringify({paths:[modulePath]});
-  fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:body})
+  var body=_tcRunParams();
+  body.paths=[modulePath];
+  fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
     .then(function(r){return r.json();})
     .then(function(d){
       btn.disabled=false;
@@ -329,6 +395,23 @@ window.tcRunSuite=function(modulePath,btn){
       _tcStartPoll(d.execution_id);
     })
     .catch(function(){btn.disabled=false;});
+};
+
+window.tcRunPlan=function(btn){
+  var plan=document.getElementById('tcRunPlan').value;
+  if(!plan){document.getElementById('tcRunMsg').textContent='请选择测试计划';return;}
+  btn.disabled=true;btn.textContent='启动中...';
+  var msg=document.getElementById('tcRunMsg');
+  fetch('/api/run/plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({plan:plan})})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      btn.disabled=false;btn.textContent='执行计划';
+      if(d.error){msg.textContent=d.error;return;}
+      var ids=d.execution_ids||[];
+      msg.textContent='已启动 '+ids.length+' 个执行';
+      if(ids.length)_tcStartPoll(ids[ids.length-1]);
+    })
+    .catch(function(){btn.disabled=false;btn.textContent='执行计划';});
 };
 
 function _tcStartPoll(exeId){
@@ -350,6 +433,7 @@ function _tcStartPoll(exeId){
 /* ---------- 初始化 ---------- */
 tcLoadSuites();
 tcLoadExecutions();
+tcLoadOptions();
 
 })();
 </script>

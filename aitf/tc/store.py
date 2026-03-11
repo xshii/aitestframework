@@ -156,6 +156,9 @@ def list_executions(limit: int = 50) -> list[dict]:
                 "finished_at": r.finished_at.isoformat() if r.finished_at else None,
                 "bundle": r.bundle,
                 "target": r.target,
+                "golden_model": r.golden_model,
+                "golden_version": r.golden_version,
+                "plan_name": r.plan_name,
                 "platform": r.platform,
                 "git_commit": r.git_commit,
                 "trigger": r.trigger,
@@ -189,6 +192,9 @@ def get_execution_detail(execution_id: str) -> dict | None:
             "finished_at": exe.finished_at.isoformat() if exe.finished_at else None,
             "bundle": exe.bundle,
             "target": exe.target,
+            "golden_model": exe.golden_model,
+            "golden_version": exe.golden_version,
+            "plan_name": exe.plan_name,
             "platform": exe.platform,
             "git_commit": exe.git_commit,
             "trigger": exe.trigger,
@@ -222,6 +228,8 @@ def get_execution_detail(execution_id: str) -> dict | None:
 def create_execution(
     execution_id: str, *, bundle: str | None = None,
     target: str | None = None, platform: str | None = None,
+    golden_model: str | None = None, golden_version: str | None = None,
+    plan_name: str | None = None,
     git_commit: str | None = None, trigger: str = "manual",
     suite_cases: list[tuple[str, list[str]]] | None = None,
 ) -> str:
@@ -237,6 +245,8 @@ def create_execution(
         exe = Execution(
             id=execution_id, started_at=now,
             bundle=bundle, target=target, platform=platform,
+            golden_model=golden_model, golden_version=golden_version,
+            plan_name=plan_name,
             git_commit=git_commit, trigger=trigger, total=total,
         )
         session.add(exe)

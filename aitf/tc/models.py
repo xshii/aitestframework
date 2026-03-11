@@ -49,6 +49,9 @@ class Execution(Base):
     finished_at = Column(DateTime, nullable=True)
     bundle = Column(String, nullable=True)                      # deps bundle used
     target = Column(String, nullable=True)                      # execution target
+    golden_model = Column(String, nullable=True)                # golden data model name
+    golden_version = Column(String, nullable=True)              # golden data version
+    plan_name = Column(String, nullable=True)                   # testplan name (if from plan)
     platform = Column(String, nullable=True)
     git_commit = Column(String, nullable=True)
     trigger = Column(String, default="manual")                  # manual / jenkins
