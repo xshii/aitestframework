@@ -6,6 +6,7 @@ import ast
 import json
 import logging
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -17,22 +18,33 @@ from aitf.tc.models import CaseResult, Execution, SuiteInfo
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class ScannedSuite:
+    """A test suite discovered by AST scanning (not yet in DB)."""
+
+    module_path: str
+    class_name: str
+    docstring: str | None
+    platform: str | None
+    category: str | None
+    case_count: int
+    case_names: str  # JSON encoded list
+
+
 # ---------------------------------------------------------------------------
 # Suite discovery
 # ---------------------------------------------------------------------------
 
-def scan_cases_dir(cases_dir: str | Path) -> list[dict]:
+def scan_cases_dir(cases_dir: str | Path) -> list[ScannedSuite]:
     """Scan cases/ directory for unittest.TestCase subclasses.
 
-    Uses AST parsing (no import side-effects). Returns list of dicts with
-    keys: module_path, class_name, docstring, platform, category,
-    case_count, case_names.
+    Uses AST parsing (no import side-effects).
     """
     cases_dir = Path(cases_dir)
     if not cases_dir.is_dir():
         return []
 
-    results: list[dict] = []
+    results: list[ScannedSuite] = []
     for py_file in sorted(cases_dir.rglob("test_*.py")):
         rel = py_file.relative_to(cases_dir)
         module_path = str(rel)
@@ -65,23 +77,24 @@ def scan_cases_dir(cases_dir: str | Path) -> list[dict]:
                 if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
                 and n.name.startswith("test_")
             ]
-            docstring = ast.get_docstring(node)
 
-            results.append({
-                "module_path": module_path,
-                "class_name": node.name,
-                "docstring": docstring,
-                "platform": platform,
-                "category": category,
-                "case_count": len(methods),
-                "case_names": json.dumps(methods),
-            })
+            results.append(ScannedSuite(
+                module_path=module_path,
+                class_name=node.name,
+                docstring=ast.get_docstring(node),
+                platform=platform,
+                category=category,
+                case_count=len(methods),
+                case_names=json.dumps(methods),
+            ))
 
     return results
 
 
 def refresh_suites(cases_dir: str | Path) -> int:
     """Scan cases/ and upsert SuiteInfo rows. Returns count of suites found."""
+    from dataclasses import asdict
+
     discovered = scan_cases_dir(cases_dir)
     now = datetime.utcnow()
 
@@ -92,16 +105,18 @@ def refresh_suites(cases_dir: str | Path) -> int:
             for s in session.execute(select(SuiteInfo)).scalars()
         }
 
-        for d in discovered:
-            key = d["module_path"] + "::" + d["class_name"]
+        _update_attrs = ("docstring", "platform", "category",
+                         "case_count", "case_names")
+
+        for scanned in discovered:
+            key = scanned.module_path + "::" + scanned.class_name
             if key in existing:
                 suite = existing.pop(key)
-                for attr in ("docstring", "platform", "category",
-                             "case_count", "case_names"):
-                    setattr(suite, attr, d[attr])
+                for attr in _update_attrs:
+                    setattr(suite, attr, getattr(scanned, attr))
                 suite.scanned_at = now
             else:
-                session.add(SuiteInfo(**d, scanned_at=now))
+                session.add(SuiteInfo(**asdict(scanned), scanned_at=now))
 
         # Mark removed suites — don't delete (keep history linkage)
         for suite in existing.values():
