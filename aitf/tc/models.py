@@ -13,6 +13,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import DeclarativeBase, relationship
@@ -32,8 +33,12 @@ class SuiteInfo(Base):
     __tablename__ = "suite_info"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    module_path = Column(String, unique=True, nullable=False)   # cases/npu/operators/test_conv2d.py
+    module_path = Column(String, nullable=False)                # cases/npu/operators/test_conv2d.py
     class_name = Column(String, nullable=False)                 # TestConv2dNPU
+
+    __table_args__ = (
+        UniqueConstraint("module_path", "class_name", name="uq_suite_module_class"),
+    )
     docstring = Column(String, nullable=True)
     platform = Column(String, nullable=True)                    # npu / gpu / cpu
     category = Column(String, nullable=True)                    # operators / models / preprocess

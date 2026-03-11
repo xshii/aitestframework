@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import logging
 import time
@@ -11,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from aitf.tc.db import get_session
 from aitf.tc.models import CaseResult, Execution, SuiteInfo
@@ -210,10 +212,18 @@ def create_execution(
 
 def update_case_status(
     execution_id: str, suite_class: str, case_method: str,
-    status: str, **kwargs,
+    status: str, *, session: Session | None = None, **kwargs,
 ) -> None:
-    """Update a single case result status and optional fields."""
-    with get_session() as session:
+    """Update a single case result status and optional fields.
+
+    If *session* is provided it is reused (caller manages lifecycle);
+    otherwise a throwaway session is created and committed immediately.
+    """
+    own_session = session is None
+    if own_session:
+        session = get_session()
+
+    try:
         row = session.execute(
             select(CaseResult).where(
                 CaseResult.execution_id == execution_id,
@@ -242,6 +252,9 @@ def update_case_status(
                 setattr(row, key, val)
 
         session.commit()
+    finally:
+        if own_session:
+            session.close()
 
 
 def finish_execution(execution_id: str) -> None:
@@ -287,7 +300,6 @@ def finish_execution(execution_id: str) -> None:
 
 def generate_execution_id() -> str:
     """Generate a unique execution ID based on timestamp."""
-    import hashlib
     ts = time.strftime("%Y%m%d-%H%M%S")
     h = hashlib.md5(str(time.time()).encode()).hexdigest()[:6]
     return f"{ts}-{h}"

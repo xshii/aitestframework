@@ -14,13 +14,22 @@ logger = logging.getLogger(__name__)
 
 _engine = None
 _SessionFactory: sessionmaker[Session] | None = None
+_init_path: str | None = None
 
 
 def init_db(db_path: str | Path) -> None:
-    """Create engine, enable WAL mode, and create tables if needed."""
-    global _engine, _SessionFactory
+    """Create engine, enable WAL mode, and create tables if needed.
 
-    db_path = Path(db_path)
+    Safe to call multiple times — skips if already initialised for the same path.
+    """
+    global _engine, _SessionFactory, _init_path
+
+    db_path = Path(db_path).resolve()
+    db_key = str(db_path)
+
+    if _init_path == db_key:
+        return
+
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
     url = f"sqlite:///{db_path}"
@@ -36,6 +45,7 @@ def init_db(db_path: str | Path) -> None:
 
     Base.metadata.create_all(_engine)
     _SessionFactory = sessionmaker(bind=_engine)
+    _init_path = db_key
     logger.info("tc database ready: %s", db_path)
 
 

@@ -8,11 +8,10 @@ import sys
 import threading
 import traceback
 import unittest
-from datetime import datetime
 from pathlib import Path
 
 from aitf.tc import store
-from aitf.tc.db import init_db
+from aitf.tc.db import get_session, init_db
 from aitf.tc.testplan import RunConfig
 
 logger = logging.getLogger(__name__)
@@ -39,60 +38,54 @@ def _set_run_context(cfg: RunConfig | None) -> None:
 # ---------------------------------------------------------------------------
 
 class AitfTestResult(unittest.TestResult):
-    """Writes case status to the database as tests run."""
+    """Writes case status to the database as tests run.
+
+    Holds a single DB session for the duration of the test run
+    to avoid creating 2N sessions for N tests.
+    """
 
     def __init__(self, execution_id: str, **kwargs):
         super().__init__(**kwargs)
         self.execution_id = execution_id
+        self._session = get_session()
 
-    def _case_id(self, test: unittest.TestCase) -> tuple[str, str]:
-        """Return (suite_class, case_method)."""
-        return test.__class__.__name__, test._testMethodName
+    def close(self) -> None:
+        """Close the underlying DB session."""
+        self._session.close()
+
+    def _update(self, test, status, **kwargs):
+        suite_class, method = test.__class__.__name__, test._testMethodName
+        store.update_case_status(
+            self.execution_id, suite_class, method, status,
+            session=self._session, **kwargs,
+        )
 
     def startTest(self, test):
         super().startTest(test)
-        suite_class, case_method = self._case_id(test)
-        store.update_case_status(
-            self.execution_id, suite_class, case_method, "RUNNING",
-        )
+        self._update(test, "RUNNING")
 
     def addSuccess(self, test):
         super().addSuccess(test)
-        suite_class, case_method = self._case_id(test)
-        store.update_case_status(
-            self.execution_id, suite_class, case_method, "PASS",
-        )
+        self._update(test, "PASS")
 
     def addFailure(self, test, err):
         super().addFailure(test, err)
-        suite_class, case_method = self._case_id(test)
         reason = "".join(traceback.format_exception(*err))
-        store.update_case_status(
-            self.execution_id, suite_class, case_method, "FAIL",
-            failure_reason=reason,
-        )
+        self._update(test, "FAIL", failure_reason=reason)
 
     def addError(self, test, err):
         super().addError(test, err)
-        suite_class, case_method = self._case_id(test)
         reason = "".join(traceback.format_exception(*err))
         status = "ERROR"
         if err[0] is TimeoutError:
             status = "TIMEOUT"
         elif err[0] is SystemExit or err[0] is KeyboardInterrupt:
             status = "CRASH"
-        store.update_case_status(
-            self.execution_id, suite_class, case_method, status,
-            failure_reason=reason,
-        )
+        self._update(test, status, failure_reason=reason)
 
     def addSkip(self, test, reason):
         super().addSkip(test, reason)
-        suite_class, case_method = self._case_id(test)
-        store.update_case_status(
-            self.execution_id, suite_class, case_method, "SKIP",
-            failure_reason=reason,
-        )
+        self._update(test, "SKIP", failure_reason=reason)
 
 
 # ---------------------------------------------------------------------------
@@ -210,10 +203,11 @@ def _execute_suite(
 ) -> bool:
     """Run suite with context tracking. Returns True if all passed."""
     _set_run_context(config)
+    result = AitfTestResult(execution_id)
     try:
-        result = AitfTestResult(execution_id)
         suite.run(result)
     finally:
+        result.close()
         _set_run_context(None)
 
     store.finish_execution(execution_id)
