@@ -442,7 +442,7 @@ var _DATA_ITEM_THEAD='<th>序号</th><th>种类</th><th>loop</th><th>m</th><th>n
 var _gOvData=[];
 var _gVerInfo={};
 var _gOvStats={ts:0,data:{}};
-function _fmtTime(ts){if(!ts)return'-';var d=new Date(ts*1000);return d.toLocaleDateString()+' '+d.toLocaleTimeString();}
+function _fmtTime(ts){if(!ts)return'-';var d=new Date(ts*1000+8*3600000);var p=function(v){return v<10?'0'+v:v;};return d.getUTCFullYear()+'-'+p(d.getUTCMonth()+1)+'-'+p(d.getUTCDate())+' '+p(d.getUTCHours())+':'+p(d.getUTCMinutes())+':'+p(d.getUTCSeconds());}
 function gLoadOverview(){
   /* 并行加载数据列表和缓存统计 */
   Promise.all([
