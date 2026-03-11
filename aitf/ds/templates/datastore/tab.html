@@ -167,21 +167,6 @@
           <p class="small text-muted mb-0">txt 格式: 每行1字节十六进制（如 <code>3F</code>），不含 <code>0x</code> 前缀</p>
         </div>
       </div>
-      {# 转换路径参考 #}
-      <div class="card">
-        <div class="card-header py-1 d-flex align-items-center" role="button" data-bs-toggle="collapse" data-bs-target="#gCvtRefBody">
-          <strong class="small">支持的转换路径</strong>
-          <small class="ms-auto text-muted">展开/收起</small>
-        </div>
-        <div class="collapse" id="gCvtRefBody">
-          <div class="card-body py-2">
-            <h6 class="small fw-bold">分型 (Layout)</h6>
-            <div id="gCvtLayoutPaths" class="small mb-2"></div>
-            <h6 class="small fw-bold">数据类型 (Precision)</h6>
-            <p class="small text-muted mb-0">所有类型均可通过 FP32 中转互相转换</p>
-          </div>
-        </div>
-      </div>
     </div>
 
     {# 右侧: 识别结果 & 转换操作 #}
@@ -1248,11 +1233,6 @@ function gInitConvertTab(){
   dstL.innerHTML='<option value="">不变</option>'+layouts.map(function(l){return '<option value="'+l+'">'+l+'</option>';}).join('');
   var dstP=document.getElementById('gCvtDstPrec');
   dstP.innerHTML='<option value="">不变</option>'+precs.map(function(p){return '<option value="'+p+'">'+p+'</option>';}).join('');
-  fetch('/api/golden/conversions').then(function(r){return r.json()}).then(function(c){
-    var h='';
-    (c.layout||[]).forEach(function(p){h+='<span class="badge bg-light text-dark border me-1 mb-1">'+p.src+' → '+p.dst+'</span>';});
-    document.getElementById('gCvtLayoutPaths').innerHTML=h;
-  });
 }
 
 function _cvtLayOpts(selected){
