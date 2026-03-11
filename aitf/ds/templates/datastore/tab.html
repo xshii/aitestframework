@@ -579,11 +579,13 @@ function gOnModelChange(selectVer){
   document.getElementById('gNewVerBtn').classList.toggle('d-none',!model);
   if(!model){document.getElementById('gVerSel').innerHTML='<option value="">-- 选择 --</option>';gOnVerChange();return;}
   fetch('/api/golden/'+encodeURIComponent(model)+'/versions').then(function(r){return r.json()}).then(function(vers){
-    var sel=document.getElementById('gVerSel'),prev=selectVer||sel.value;
+    var sel=document.getElementById('gVerSel');
     var opts='<option value="">-- 选择 --</option>';
     vers.forEach(function(v){opts+='<option value="'+_gEsc(v)+'">'+_gEsc(v)+'</option>';});
     sel.innerHTML=opts;
-    if(prev) sel.value=prev;
+    /* 优先用指定版本，否则自动选最新版本（列表最后一个） */
+    if(selectVer) sel.value=selectVer;
+    else if(vers.length) sel.value=vers[vers.length-1];
     gOnVerChange();
   });
 }
