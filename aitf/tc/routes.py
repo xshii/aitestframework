@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import re
 import threading
+from pathlib import Path
 
+import yaml
 from flask import Blueprint, current_app, jsonify, request
 
 from aitf.tc import store
@@ -157,3 +160,53 @@ def api_tc_options():
         "golden_models": golden_models,
         "testplans": testplans,
     })
+
+
+# ---------------------------------------------------------------------------
+# Testplan generation
+# ---------------------------------------------------------------------------
+
+_SAFE_FILENAME_RE = re.compile(r'^[a-zA-Z0-9_\-\u4e00-\u9fff]+$')
+
+
+@bp.route("/api/tc/plan", methods=["POST"])
+def api_save_plan():
+    """Save a generated testplan YAML file.
+
+    Body: {"name": "...", "filename": "testplan_xxx.yaml", "plans": [...]}
+    Each plan item: {"name": "...", "tests": [...], "bundle": "...",
+                     "golden": {"model": "...", "version": "..."}}
+    """
+    body = request.get_json(silent=True) or {}
+    plans = body.get("plans", [])
+    if not plans:
+        return jsonify({"error": "plans 不能为空"}), 400
+
+    filename = body.get("filename", "").strip()
+    if not filename:
+        filename = "testplan_custom.yaml"
+    # Sanitise — only allow safe names
+    stem = Path(filename).stem
+    if not _SAFE_FILENAME_RE.match(stem):
+        return jsonify({"error": "文件名只能包含字母、数字、下划线、中文"}), 400
+    filename = stem + ".yaml"
+
+    plan_data = {"name": body.get("name", stem), "plans": []}
+    for item in plans:
+        entry = {"name": item.get("name", ""), "tests": item.get("tests", [])}
+        if item.get("bundle"):
+            entry["bundle"] = item["bundle"]
+        golden = item.get("golden")
+        if golden and golden.get("model"):
+            entry["golden"] = golden
+        plan_data["plans"].append(entry)
+
+    cfg = current_app.config.get("AITF_CONFIG")
+    root = cfg.project_root if cfg else Path(".")
+    out_path = root / filename
+
+    with open(out_path, "w", encoding="utf-8") as fh:
+        yaml.dump(plan_data, fh, allow_unicode=True, default_flow_style=False,
+                  sort_keys=False)
+
+    return jsonify({"ok": True, "filename": filename})

@@ -35,7 +35,17 @@
     </select>
     <button class="btn btn-sm btn-outline-primary py-0" id="tcRunAllBtn" onclick="tcRunAll(this)">执行全部</button>
     <button class="btn btn-sm btn-outline-success py-0" id="tcRunPlanBtn" onclick="tcRunPlan(this)">执行计划</button>
+    <button class="btn btn-sm btn-outline-warning py-0" id="tcGenPlanBtn" onclick="tcOpenGenPlan()">生成计划</button>
     <small class="text-muted ms-1" id="tcRunMsg"></small>
+  </div>
+
+  {# 全选 / 已选计数 #}
+  <div class="d-flex align-items-center mb-1 gap-2" id="tcSelectBar" style="display:none!important">
+    <div class="form-check form-check-inline mb-0">
+      <input class="form-check-input" type="checkbox" id="tcSelectAll" onchange="tcToggleAll(this.checked)">
+      <label class="form-check-label small" for="tcSelectAll">全选</label>
+    </div>
+    <small class="text-muted" id="tcSelectedCount"></small>
   </div>
 
   <div id="tcSuiteList"></div>
@@ -71,6 +81,55 @@
 
 </div>
 
+{# ===== 生成计划弹窗 ===== #}
+<div class="modal fade" id="tcPlanModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title">生成测试计划</h6>
+        <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row mb-2">
+          <div class="col-6">
+            <label class="form-label small mb-0">计划名称</label>
+            <input class="form-control form-control-sm" id="gpPlanName" placeholder="如: NPU算子回归">
+          </div>
+          <div class="col-6">
+            <label class="form-label small mb-0">文件名</label>
+            <div class="input-group input-group-sm">
+              <input class="form-control" id="gpFilename" placeholder="testplan_custom">
+              <span class="input-group-text">.yaml</span>
+            </div>
+          </div>
+        </div>
+        <div class="mb-2">
+          <label class="form-label small mb-0">公共参数 (应用到所有选中项)</label>
+          <div class="d-flex gap-2 flex-wrap">
+            <select class="form-select form-select-sm" id="gpBundle" style="width:130px">
+              <option value="">配置集</option>
+            </select>
+            <select class="form-select form-select-sm" id="gpModel" style="width:130px" onchange="tcGpModelChanged()">
+              <option value="">Golden 模型</option>
+            </select>
+            <select class="form-select form-select-sm" id="gpVersion" style="width:100px">
+              <option value="">版本</option>
+            </select>
+          </div>
+        </div>
+        <hr class="my-2">
+        <div class="small fw-bold mb-1">已选测试套 (<span id="gpCount">0</span>)</div>
+        <div id="gpSuiteList" style="max-height:300px;overflow-y:auto"></div>
+      </div>
+      <div class="modal-footer py-1">
+        <small class="text-muted me-auto" id="gpMsg"></small>
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">取消</button>
+        <button type="button" class="btn btn-sm btn-primary" onclick="tcSavePlan(this)">保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 /* ===== 用例管理 JS ===== */
 (function(){
@@ -78,6 +137,7 @@
 var _suites=[];
 var _executions=[];
 var _tcOptions={bundles:[],golden_models:[],testplans:[]};
+var _selectMode=false;
 
 /* ---------- 工具函数 ---------- */
 function _esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -181,8 +241,9 @@ window.tcRenderSuites=function(){
     }
 
     html+='<div class="accordion-item">'
-      +'<h2 class="accordion-header">'
-      +'<button class="accordion-button collapsed py-1 px-2 small" type="button" data-bs-toggle="collapse" data-bs-target="#'+id+'">'
+      +'<h2 class="accordion-header d-flex align-items-center">'
+      +'<input class="form-check-input me-2 ms-2 tc-suite-chk" type="checkbox" data-module="'+_esc(s.module_path)+'" data-class="'+_esc(s.class_name)+'" onchange="tcUpdateSelectCount()">'
+      +'<button class="accordion-button collapsed py-1 px-2 small flex-grow-1" type="button" data-bs-toggle="collapse" data-bs-target="#'+id+'">'
       +'<span class="fw-bold me-2">'+_esc(s.class_name)+'</span>'
       +'<span class="text-muted me-2">'+_esc(s.module_path)+'</span>'
       +'<span class="badge bg-secondary me-2">'+s.case_count+' 用例</span>'
@@ -213,7 +274,36 @@ window.tcRenderSuites=function(){
   });
   html+='</div>';
   el.innerHTML=html;
+  tcUpdateSelectCount();
 };
+
+/* ---------- 勾选管理 ---------- */
+window.tcToggleAll=function(checked){
+  document.querySelectorAll('.tc-suite-chk').forEach(function(cb){cb.checked=checked;});
+  tcUpdateSelectCount();
+};
+
+window.tcUpdateSelectCount=function(){
+  var checked=document.querySelectorAll('.tc-suite-chk:checked');
+  var bar=document.getElementById('tcSelectBar');
+  var cnt=document.getElementById('tcSelectedCount');
+  var total=document.querySelectorAll('.tc-suite-chk').length;
+  if(total>0){
+    bar.style.display='';bar.classList.add('d-flex');
+  }else{
+    bar.style.display='none';
+  }
+  cnt.textContent=checked.length?'已选 '+checked.length+' 项':'';
+  document.getElementById('tcSelectAll').checked=checked.length===total&&total>0;
+};
+
+function _getSelectedSuites(){
+  var result=[];
+  document.querySelectorAll('.tc-suite-chk:checked').forEach(function(cb){
+    result.push({module_path:cb.dataset.module, class_name:cb.dataset['class']});
+  });
+  return result;
+}
 
 /* ---------- 执行记录 ---------- */
 window.tcLoadExecutions=function(){
@@ -338,6 +428,7 @@ function _tcRunParams(){
 function tcLoadOptions(){
   fetch('/api/tc/options').then(function(r){return r.json();}).then(function(d){
     _tcOptions=d;
+    // 主界面下拉框
     var bs=document.getElementById('tcRunBundle');
     var html='<option value="">配置集</option>';
     (d.bundles||[]).forEach(function(b){html+='<option value="'+_esc(b)+'">'+_esc(b)+'</option>';});
@@ -352,6 +443,17 @@ function tcLoadOptions(){
     html='<option value="">测试计划</option>';
     (d.testplans||[]).forEach(function(p){html+='<option value="'+_esc(p)+'">'+_esc(p)+'</option>';});
     ps.innerHTML=html;
+
+    // 弹窗下拉框
+    var gpB=document.getElementById('gpBundle');
+    html='<option value="">不指定</option>';
+    (d.bundles||[]).forEach(function(b){html+='<option value="'+_esc(b)+'">'+_esc(b)+'</option>';});
+    gpB.innerHTML=html;
+
+    var gpM=document.getElementById('gpModel');
+    html='<option value="">不指定</option>';
+    (d.golden_models||[]).forEach(function(g){html+='<option value="'+_esc(g.model)+'">'+_esc(g.model)+'</option>';});
+    gpM.innerHTML=html;
   });
 }
 
@@ -359,6 +461,17 @@ window.tcModelChanged=function(){
   var model=document.getElementById('tcRunModel').value;
   var vs=document.getElementById('tcRunVersion');
   var html='<option value="">版本</option>';
+  if(model){
+    var g=(_tcOptions.golden_models||[]).find(function(m){return m.model===model;});
+    if(g)(g.versions||[]).forEach(function(v){html+='<option value="'+_esc(v)+'">'+_esc(v)+'</option>';});
+  }
+  vs.innerHTML=html;
+};
+
+window.tcGpModelChanged=function(){
+  var model=document.getElementById('gpModel').value;
+  var vs=document.getElementById('gpVersion');
+  var html='<option value="">不指定</option>';
   if(model){
     var g=(_tcOptions.golden_models||[]).find(function(m){return m.model===model;});
     if(g)(g.versions||[]).forEach(function(v){html+='<option value="'+_esc(v)+'">'+_esc(v)+'</option>';});
@@ -429,6 +542,92 @@ function _tcStartPoll(exeId){
       });
   },3000);
 }
+
+/* ---------- 生成测试计划 ---------- */
+window.tcOpenGenPlan=function(){
+  var selected=_getSelectedSuites();
+  if(!selected.length){
+    document.getElementById('tcRunMsg').textContent='请先勾选要加入计划的测试套';
+    return;
+  }
+
+  // 填充弹窗内容
+  document.getElementById('gpCount').textContent=selected.length;
+  document.getElementById('gpPlanName').value='';
+  document.getElementById('gpFilename').value='';
+  document.getElementById('gpBundle').value='';
+  document.getElementById('gpModel').value='';
+  document.getElementById('gpVersion').innerHTML='<option value="">不指定</option>';
+  document.getElementById('gpMsg').textContent='';
+
+  var html='<table class="table table-sm table-bordered mb-0"><thead><tr>'
+    +'<th>测试套</th><th>文件路径</th><th>用例数</th>'
+    +'</tr></thead><tbody>';
+  selected.forEach(function(sel){
+    var s=_suites.find(function(x){return x.module_path===sel.module_path&&x.class_name===sel.class_name;});
+    html+='<tr>'
+      +'<td><strong>'+_esc(sel.class_name)+'</strong></td>'
+      +'<td class="text-muted small">'+_esc(sel.module_path)+'</td>'
+      +'<td>'+((s&&s.case_count)||'?')+'</td>'
+      +'</tr>';
+  });
+  html+='</tbody></table>';
+  document.getElementById('gpSuiteList').innerHTML=html;
+
+  new bootstrap.Modal(document.getElementById('tcPlanModal')).show();
+};
+
+window.tcSavePlan=function(btn){
+  var selected=_getSelectedSuites();
+  if(!selected.length){document.getElementById('gpMsg').textContent='没有选中的测试套';return;}
+
+  var planName=document.getElementById('gpPlanName').value.trim()||'自定义计划';
+  var filename=document.getElementById('gpFilename').value.trim()||'testplan_custom';
+  var bundle=document.getElementById('gpBundle').value;
+  var model=document.getElementById('gpModel').value;
+  var version=document.getElementById('gpVersion').value;
+
+  // 按文件路径去重合并 (同文件的多个类合入一个 plan item)
+  var byFile={};
+  selected.forEach(function(sel){
+    if(!byFile[sel.module_path])byFile[sel.module_path]=[];
+    byFile[sel.module_path].push(sel.class_name);
+  });
+
+  var plans=[];
+  Object.keys(byFile).forEach(function(modPath){
+    var classes=byFile[modPath];
+    var entry={
+      name: classes.join(' + '),
+      tests: [modPath]
+    };
+    if(bundle) entry.bundle=bundle;
+    if(model&&version) entry.golden={model:model, version:version};
+    else if(model) entry.golden={model:model};
+    plans.push(entry);
+  });
+
+  btn.disabled=true;btn.textContent='保存中...';
+  fetch('/api/tc/plan',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name:planName, filename:filename, plans:plans})
+  })
+  .then(function(r){return r.json();})
+  .then(function(d){
+    btn.disabled=false;btn.textContent='保存';
+    if(d.error){document.getElementById('gpMsg').textContent=d.error;return;}
+    document.getElementById('gpMsg').textContent='已保存: '+d.filename;
+    // 刷新下拉框
+    tcLoadOptions();
+    // 2秒后关闭弹窗
+    setTimeout(function(){
+      var modal=bootstrap.Modal.getInstance(document.getElementById('tcPlanModal'));
+      if(modal)modal.hide();
+    },1500);
+  })
+  .catch(function(){btn.disabled=false;btn.textContent='保存';});
+};
 
 /* ---------- 初始化 ---------- */
 tcLoadSuites();
