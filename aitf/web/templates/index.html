@@ -2,13 +2,7 @@
 {% block title %}AITF{% endblock %}
 {% block content %}
 
-<ul class="nav nav-tabs" id="mainTabs">
-  <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-data">Data</button></li>
-  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-deps">Deps</button></li>
-  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-logs">Logs</button></li>
-</ul>
-
-<div class="tab-content pt-3">
+<div class="tab-content">
 
 {# ===== DATA (Golden 数据管理 — provided by aitf.ds plugin) ===== #}
 <div class="tab-pane show active" id="tab-data">
@@ -43,9 +37,24 @@
 </div>
 
 <script>
-/* Tab memory via hash */
-var hash = location.hash;
-if (hash) { var t = document.querySelector('[data-bs-target="'+hash+'"]'); if (t) new bootstrap.Tab(t).show(); }
-document.querySelectorAll('#mainTabs button').forEach(b => b.addEventListener('shown.bs.tab', () => history.replaceState(null,null,b.dataset.bsTarget)));
+/* Navbar tab switching */
+(function(){
+  var links=document.querySelectorAll('#navTabs a[data-tab]');
+  var panes=document.querySelectorAll('.tab-content > .tab-pane');
+  function activate(tabId){
+    links.forEach(function(l){l.classList.toggle('active',l.dataset.tab===tabId);});
+    panes.forEach(function(p){
+      var show=p.id===tabId;
+      p.classList.toggle('show',show);
+      p.classList.toggle('active',show);
+    });
+    history.replaceState(null,null,'#'+tabId);
+  }
+  links.forEach(function(l){
+    l.addEventListener('click',function(e){e.preventDefault();activate(l.dataset.tab);});
+  });
+  var hash=location.hash.replace('#','');
+  if(hash&&document.getElementById(hash)) activate(hash);
+})();
 </script>
 {% endblock %}
