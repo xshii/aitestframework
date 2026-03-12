@@ -135,9 +135,8 @@ def api_tc_options():
 
     # Golden models/versions from datastore
     try:
-        from aitf.ds.store import GoldenStore
-        base = current_app.config.get("DATASTORE_BASE_DIR", "datastore")
-        gs = GoldenStore(base)
+        from aitf.web.extensions import get_golden_store
+        gs = get_golden_store()
         for model in gs.list_models():
             versions = gs.list_versions(model)
             golden_models.append({"model": model, "versions": versions})

@@ -102,11 +102,26 @@ def _expand_plan_item(item: dict) -> list[RunConfig]:
     if matrix:
         return _expand_matrix(name, tests, filter_k, target, params, repeat, matrix)
 
-    # No matrix — single config
+    # No matrix — single config (or golden.versions shorthand)
     bundle = item.get("bundle")
     golden = item.get("golden", {})
     golden_model = golden.get("model") if isinstance(golden, dict) else None
     golden_version = golden.get("version") if isinstance(golden, dict) else None
+
+    # golden.versions shorthand → expand into multiple configs
+    golden_versions = golden.get("versions") if isinstance(golden, dict) else None
+    if golden_versions and isinstance(golden_versions, list):
+        configs = []
+        for ver in golden_versions:
+            label = f"{name} | {golden_model}/{ver}" if golden_model else name
+            for _ in range(repeat):
+                configs.append(RunConfig(
+                    name=label, tests=tests, filter_k=filter_k,
+                    bundle=bundle, target=target,
+                    golden_model=golden_model, golden_version=ver,
+                    params=params,
+                ))
+        return configs
 
     configs = []
     for _ in range(repeat):

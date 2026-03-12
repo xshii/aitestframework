@@ -96,6 +96,16 @@ class Execution(Base):
     cases = relationship("CaseResult", back_populates="execution",
                          cascade="all, delete-orphan")
 
+    @property
+    def failed_total(self) -> int:
+        """All failure-category counts combined (failed + errored + timeout + crashed)."""
+        return (self.failed or 0) + (self.errored or 0) + (self.timeout or 0) + (self.crashed or 0)
+
+    @property
+    def not_run(self) -> int:
+        """Cases not yet executed (total - passed - failed_total)."""
+        return max(0, (self.total or 0) - (self.passed or 0) - self.failed_total)
+
     def to_dict(self) -> dict:
         return {
             "id": self.id,
@@ -116,6 +126,8 @@ class Execution(Base):
             "crashed": self.crashed,
             "skipped": self.skipped,
             "errored": self.errored,
+            "failed_total": self.failed_total,
+            "not_run": self.not_run,
             "pass_rate": self.pass_rate,
         }
 

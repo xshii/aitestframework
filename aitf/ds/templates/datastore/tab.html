@@ -283,9 +283,9 @@
 </div>
 
 <script>
-/* ========== 工具函数 ========== */
-function _gFmt(b){return b<1024?b+' B':b<1048576?(b/1024).toFixed(1)+' KB':(b/1048576).toFixed(1)+' MB';}
-function _gEsc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+/* ========== 工具函数 (共享函数来自 aitf-common.js: _esc, _fmtTime, _fmtSize) ========== */
+var _gFmt = _fmtSize;
+var _gEsc = _esc;
 function _optionsHtml(choices,selected){
   return choices.map(function(v){return '<option value="'+_gEsc(v)+'"'+(v===selected?' selected':'')+'>'+_gEsc(v)+'</option>';}).join('');
 }
@@ -422,7 +422,7 @@ var _DATA_ITEM_THEAD='<th>序号</th><th>种类</th><th>loop</th><th>m</th><th>n
 var _gOvData=[];
 var _gVerInfo={};
 var _gOvStats={ts:0,data:{}};
-function _fmtTime(ts){if(!ts)return'-';var d=new Date(ts*1000);if(isNaN(d.getTime()))return'-';var p=function(v){return v<10?'0'+v:v;};return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());}
+/* _fmtTime provided by aitf-common.js (auto-detects epoch seconds vs ISO strings) */
 function gLoadOverview(){
   /* 并行加载数据列表和缓存统计 */
   Promise.all([

@@ -32,26 +32,15 @@ _config_lock = threading.Lock()
 # -- helpers ----------------------------------------------------------------
 
 def _mgr():
-    """Return the shared DepsManager, creating on first call."""
-    from aitf.deps.manager import DepsManager
-
-    if "deps_manager" not in current_app.config:
-        aitf_cfg = current_app.config.get("AITF_CONFIG")
-        if aitf_cfg is not None:
-            current_app.config["deps_manager"] = DepsManager(
-                project_root=str(aitf_cfg.project_root),
-                build_dir=str(aitf_cfg.build_root),
-            )
-        else:
-            current_app.config["deps_manager"] = DepsManager()
-    return current_app.config["deps_manager"]
+    """Return the shared DepsManager, cached per request."""
+    from aitf.web.extensions import get_deps_manager
+    return get_deps_manager()
 
 
 def _bm():
-    """Return a BundleManager wrapping the shared DepsManager."""
-    from aitf.deps.bundle import BundleManager
-
-    return BundleManager(_mgr())
+    """Return a BundleManager, cached per request."""
+    from aitf.web.extensions import get_bundle_manager
+    return get_bundle_manager()
 
 
 def _upload_dir() -> Path:

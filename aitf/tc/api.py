@@ -115,7 +115,8 @@ def get_golden_store():
     try:
         from aitf.ds.store import GoldenStore
         return GoldenStore()
-    except Exception:
+    except (ImportError, OSError) as exc:
+        logger.debug("GoldenStore unavailable: %s", exc)
         return None
 
 
@@ -199,7 +200,8 @@ def load_golden(operator: str, model: str | None = None,
             ))
         result.sort(key=lambda g: (g.category, g.seq))
         return result if result else None
-    except Exception:
+    except (ImportError, FileNotFoundError, OSError) as exc:
+        logger.debug("load_golden(%s) failed: %s", operator, exc)
         return None
 
 
@@ -235,7 +237,8 @@ def get_golden_file(operator: str, filename: str,
         return None
     try:
         return gs.get_file(model, version, operator, filename)
-    except Exception:
+    except (FileNotFoundError, OSError) as exc:
+        logger.debug("get_golden_file(%s/%s) failed: %s", operator, filename, exc)
         return None
 
 
@@ -249,7 +252,8 @@ def _get_deps_manager():
         from aitf.deps.manager import DepsManager
         root = ctx.params.get("project_root", ".") if ctx.active and ctx.params else "."
         return DepsManager(project_root=root)
-    except Exception:
+    except (ImportError, OSError) as exc:
+        logger.debug("DepsManager unavailable: %s", exc)
         return None
 
 
@@ -261,7 +265,8 @@ def _get_bundle_manager():
             return None
         from aitf.deps.bundle import BundleManager
         return BundleManager(dm, deps_file=dm.deps_file)
-    except Exception:
+    except (ImportError, OSError) as exc:
+        logger.debug("BundleManager unavailable: %s", exc)
         return None
 
 
@@ -381,7 +386,8 @@ def get_dep_path(name: str) -> Path | None:
         return None
     try:
         return dm.get_install_dir(name)
-    except Exception:
+    except (KeyError, OSError) as exc:
+        logger.debug("get_dep_path(%s) failed: %s", name, exc)
         return None
 
 
@@ -418,7 +424,8 @@ def get_dep_env(name: str) -> dict[str, str]:
                             for k, v in dep.env.items()}
                 return {}
         return {}
-    except Exception:
+    except (KeyError, ImportError, OSError) as exc:
+        logger.debug("get_dep_env(%s) failed: %s", name, exc)
         return {}
 
 
@@ -443,7 +450,8 @@ def get_bundle_env(name: str | None = None) -> dict[str, str]:
         if name is None and ctx.active:
             name = ctx.bundle
         return bm.get_bundle_env(name)
-    except Exception:
+    except (KeyError, ImportError, OSError) as exc:
+        logger.debug("get_bundle_env(%s) failed: %s", name, exc)
         return {}
 
 
@@ -521,7 +529,8 @@ def get_last_stats() -> ExecutionStats | None:
         if not rows:
             return None
         return _dict_to_stats(rows[0])
-    except Exception:
+    except (ImportError, RuntimeError) as exc:
+        logger.debug("get_last_stats failed: %s", exc)
         return None
 
 
@@ -533,7 +542,8 @@ def get_stats(execution_id: str) -> ExecutionStats | None:
         if not detail:
             return None
         return _dict_to_stats(detail)
-    except Exception:
+    except (ImportError, RuntimeError) as exc:
+        logger.debug("get_stats(%s) failed: %s", execution_id, exc)
         return None
 
 
@@ -561,7 +571,8 @@ def get_case_results(execution_id: str) -> list[CaseStatus] | None:
             )
             for c in detail["cases"]
         ]
-    except Exception:
+    except (ImportError, RuntimeError) as exc:
+        logger.debug("get_case_results(%s) failed: %s", execution_id, exc)
         return None
 
 
@@ -571,7 +582,8 @@ def list_executions(limit: int = 20) -> list[ExecutionStats]:
         from aitf.tc import store
         rows = store.list_executions(limit=limit)
         return [_dict_to_stats(r) for r in rows]
-    except Exception:
+    except (ImportError, RuntimeError) as exc:
+        logger.debug("list_executions failed: %s", exc)
         return []
 
 
@@ -587,13 +599,15 @@ def _simplify_status(raw: str) -> str:
 def _dict_to_stats(d: dict) -> ExecutionStats:
     total = d.get("total", 0)
     passed = d.get("passed", 0)
-    failed = (d.get("failed", 0) + d.get("errored", 0)
-              + d.get("timeout", 0) + d.get("crashed", 0))
-    not_run = total - passed - failed
+    # Use pre-computed fields if available (from Execution.to_dict)
+    failed = d.get("failed_total",
+                    (d.get("failed", 0) + d.get("errored", 0)
+                     + d.get("timeout", 0) + d.get("crashed", 0)))
+    not_run = d.get("not_run", max(0, total - passed - failed))
     return ExecutionStats(
         execution_id=d["id"],
         total=total,
         passed=passed,
         failed=failed,
-        not_run=max(not_run, 0),
+        not_run=not_run,
     )

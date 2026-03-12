@@ -248,6 +248,8 @@ def _enqueue_sync(execution_id: str) -> None:
 def run_tests(
     cases_dir: str | Path,
     db_path: str | Path,
+    config: RunConfig | None = None,
+    *,
     paths: list[str] | None = None,
     filter_k: str | None = None,
     bundle: str | None = None,
@@ -256,16 +258,20 @@ def run_tests(
     golden_version: str | None = None,
     verbosity: int = 1,
 ) -> tuple[str, bool]:
-    """Run tests with a single config. Returns (execution_id, all_passed)."""
+    """Run tests with a single config. Returns (execution_id, all_passed).
+
+    Accepts either a ``RunConfig`` object or individual keyword arguments.
+    """
     cases_dir = Path(cases_dir)
     init_db(db_path)
 
-    config = RunConfig(
-        tests=paths or [],
-        filter_k=filter_k,
-        bundle=bundle, target=target,
-        golden_model=golden_model, golden_version=golden_version,
-    )
+    if config is None:
+        config = RunConfig(
+            tests=paths or [],
+            filter_k=filter_k,
+            bundle=bundle, target=target,
+            golden_model=golden_model, golden_version=golden_version,
+        )
 
     eid, suite = _prepare_execution(cases_dir, config)
     if not eid:
@@ -277,8 +283,8 @@ def run_tests(
     print(f"\n{'='*60}")
     print(f"Execution: {eid}")
     print(f"Total: {detail['total']}  Pass: {detail['passed']}  "
-          f"Fail: {detail['failed']}  Error: {detail['errored']}  "
-          f"Skip: {detail['skipped']}")
+          f"Fail: {detail['failed_total']}  "
+          f"Not run: {detail['not_run']}")
     print(f"{'='*60}")
 
     return eid, passed
@@ -319,7 +325,8 @@ def run_testplan(
         passed = _execute_suite(eid, suite, config)
         execution_ids.append(eid)
         detail = store.get_execution_detail(eid)
-        print(f"  result: {detail['passed']}/{detail['total']} passed "
+        print(f"  result: {detail['passed']}/{detail['total']} passed, "
+              f"{detail['failed_total']} failed "
               f"({detail['pass_rate']*100:.1f}%)")
         if not passed:
             all_passed = False
@@ -335,20 +342,25 @@ def run_testplan(
 def run_tests_async(
     cases_dir: str | Path,
     db_path: str | Path,
+    config: RunConfig | None = None,
     **kwargs,
 ) -> str:
-    """Run tests in a background thread. Returns execution_id immediately."""
+    """Run tests in a background thread. Returns execution_id immediately.
+
+    Accepts either a ``RunConfig`` object or individual keyword arguments.
+    """
     cases_dir = Path(cases_dir)
     init_db(db_path)
 
-    config = RunConfig(
-        tests=kwargs.get("paths") or [],
-        filter_k=kwargs.get("filter_k"),
-        bundle=kwargs.get("bundle"),
-        target=kwargs.get("target"),
-        golden_model=kwargs.get("golden_model"),
-        golden_version=kwargs.get("golden_version"),
-    )
+    if config is None:
+        config = RunConfig(
+            tests=kwargs.get("paths") or [],
+            filter_k=kwargs.get("filter_k"),
+            bundle=kwargs.get("bundle"),
+            target=kwargs.get("target"),
+            golden_model=kwargs.get("golden_model"),
+            golden_version=kwargs.get("golden_version"),
+        )
 
     eid, suite = _prepare_execution(cases_dir, config)
     if not eid:

@@ -11,7 +11,7 @@ import logging
 import threading
 import time
 
-from flask import Blueprint, current_app, g, jsonify, request, send_file, send_from_directory
+from flask import Blueprint, current_app, jsonify, request, send_file, send_from_directory
 
 logger = logging.getLogger(__name__)
 
@@ -26,15 +26,9 @@ from aitf.ds.store import (
     build_golden_filename,
     parse_golden_filename,
 )
+from aitf.web.extensions import get_golden_store as _store
 
 bp = Blueprint("datastore", __name__, template_folder="templates")
-
-
-def _store() -> GoldenStore:
-    if "golden_store" not in g:
-        base = current_app.config.get("DATASTORE_BASE_DIR", "datastore")
-        g.golden_store = GoldenStore(base)
-    return g.golden_store
 
 
 def _client_ip() -> str:

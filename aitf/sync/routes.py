@@ -9,43 +9,18 @@ import tempfile
 from pathlib import Path
 
 import yaml
-from flask import Blueprint, current_app, g, jsonify, request, send_file
+from flask import Blueprint, current_app, jsonify, request, send_file
+
+from aitf.web.extensions import (
+    get_bundle_manager as _bundle_manager,
+    get_deps_manager as _deps_manager,
+    get_golden_store as _golden_store,
+    get_project_root as _project_root,
+)
 
 logger = logging.getLogger(__name__)
 
 bp = Blueprint("sync", __name__)
-
-
-# ---------------------------------------------------------------------------
-# helpers
-# ---------------------------------------------------------------------------
-
-def _golden_store():
-    if "golden_store" not in g:
-        from aitf.ds.store import GoldenStore
-        base = current_app.config.get("DATASTORE_BASE_DIR", "datastore")
-        g.golden_store = GoldenStore(base)
-    return g.golden_store
-
-
-def _deps_manager():
-    from aitf.deps.manager import DepsManager
-    cfg = current_app.config.get("AITF_CONFIG")
-    if cfg:
-        return DepsManager(project_root=str(cfg.project_root),
-                           build_dir=str(cfg.build_root))
-    return DepsManager()
-
-
-def _bundle_manager():
-    from aitf.deps.bundle import BundleManager
-    dm = _deps_manager()
-    return BundleManager(dm, deps_file=dm.deps_file)
-
-
-def _project_root() -> Path:
-    cfg = current_app.config.get("AITF_CONFIG")
-    return cfg.project_root if cfg else Path(".")
 
 
 # ---------------------------------------------------------------------------

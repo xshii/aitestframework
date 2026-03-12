@@ -19,6 +19,9 @@
 .tc-cases-body{display:none;}
 .tc-cases-body.open{display:block;}
 .tc-toggle{cursor:pointer;user-select:none;font-size:11px;color:#6c757d;margin-right:4px;}
+.gp-ver-group{display:inline-flex;flex-wrap:wrap;gap:2px 8px;align-items:center;}
+.gp-ver-group label{font-size:.78rem;cursor:pointer;white-space:nowrap;margin:0;}
+.gp-ver-group input{width:13px;height:13px;margin-right:2px;vertical-align:middle;}
 </style>
 
 <ul class="nav nav-pills mb-2" id="tcSubTabs">
@@ -151,16 +154,8 @@ var _tcOptions={bundles:[],golden_models:[],testplans:[]};
 var _activePlanTests=[];
 var _statusFilter='';
 
-/* ---------- 工具 ---------- */
-function _e(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
-function _pct(v){return(v*100).toFixed(1)+'%';}
-function _fmtTime(ts){
-  if(!ts)return'-';
-  var d=new Date(ts); if(isNaN(d.getTime()))d=new Date(ts+'Z');
-  if(isNaN(d.getTime()))return'-';
-  var p=function(v){return v<10?'0'+v:v;};
-  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());
-}
+/* ---------- 工具 (共享函数来自 aitf-common.js: _esc, _fmtTime, _pct) ---------- */
+var _e = _esc;
 
 function _icon(status){
   if(status==='PASS') return '✅';
@@ -390,7 +385,7 @@ window.tcRenderPlanSuites=function(){
         +'<span class="badge bg-secondary" style="font-size:.65rem">'+s.case_count+'</span>'
         +'<span class="ms-auto d-flex align-items-center gap-1">'
         +'<select class="form-select form-select-sm gp-model" style="width:auto;max-width:150px;padding-right:1.8rem" onchange="tcGpRowModelChanged(this)">'+modelOpts+'</select>'
-        +'<select class="form-select form-select-sm gp-version" style="width:auto;max-width:150px;padding-right:1.8rem">'+_gpVersionOptions('')+'</select>'
+        +'<span class="gp-ver-group"><span class="text-muted" style="font-size:.75rem">选择模型</span></span>'
         +'</span>'
         +'</div>';
     });
@@ -466,16 +461,14 @@ function tcRenderExecutions(){
   var html='';
   items.forEach(function(e){
     var rate=e.total?_pct(e.pass_rate):'—';
-    var failed=(e.failed||0)+(e.errored||0)+(e.timeout||0)+(e.crashed||0);
-    var notRun=e.total-e.passed-failed; if(notRun<0)notRun=0;
     html+='<tr>'
       +'<td><a href="#" onclick="tcShowExeDetail(\''+_e(e.id)+'\');return false;" class="text-decoration-none">'+_e(e.id)+'</a></td>'
       +'<td>'+_fmtTime(e.started_at)+'</td>'
       +'<td>'+_e(e.bundle||'-')+'</td>'
       +'<td>'+e.total+'</td>'
       +'<td class="text-success">'+e.passed+'</td>'
-      +'<td class="text-danger">'+failed+'</td>'
-      +'<td class="text-muted">'+notRun+'</td>'
+      +'<td class="text-danger">'+(e.failed_total||0)+'</td>'
+      +'<td class="text-muted">'+(e.not_run||0)+'</td>'
       +'<td>'+rate+'</td>'
       +'</tr>';
   });
@@ -504,11 +497,9 @@ window.tcShowExeDetail=function(exeId){
         +(d.plan_name?' | 计划: '+_e(d.plan_name):'')
         +'</div>'
         +'<div class="mb-2">';
-      var dFailed=(d.failed||0)+(d.errored||0)+(d.timeout||0)+(d.crashed||0);
-      var dNotRun=d.total-d.passed-dFailed; if(dNotRun<0)dNotRun=0;
       html+='通过 <strong class="text-success">'+d.passed+'</strong>'
-        +' · 失败 <strong class="text-danger">'+dFailed+'</strong>'
-        +' · 未执行 <strong class="text-muted">'+dNotRun+'</strong>'
+        +' · 失败 <strong class="text-danger">'+(d.failed_total||0)+'</strong>'
+        +' · 未执行 <strong class="text-muted">'+(d.not_run||0)+'</strong>'
         +' — 通过率 <strong>'+(d.total?_pct(d.pass_rate):'—')+'</strong>'
         +'</div>';
 
@@ -695,16 +686,19 @@ function _gpModelOptions(){
   (_tcOptions.golden_models||[]).forEach(function(g){html+='<option value="'+_e(g.model)+'">'+_e(g.model)+'</option>';});
   return html;
 }
-function _gpVersionOptions(model){
-  var html='<option value="">不指定</option>';
-  if(model){
-    var g=(_tcOptions.golden_models||[]).find(function(m){return m.model===model;});
-    if(g)(g.versions||[]).forEach(function(v){html+='<option value="'+_e(v)+'">'+_e(v)+'</option>';});
-  }
+function _gpVersionCheckboxes(model){
+  if(!model) return '<span class="text-muted" style="font-size:.75rem">选择模型</span>';
+  var g=(_tcOptions.golden_models||[]).find(function(m){return m.model===model;});
+  if(!g||!(g.versions||[]).length) return '<span class="text-muted" style="font-size:.75rem">无版本</span>';
+  var html='';
+  g.versions.forEach(function(v){
+    var id='gv_'+Math.random().toString(36).substr(2,6);
+    html+='<label for="'+id+'"><input class="form-check-input gp-ver-chk" type="checkbox" id="'+id+'" value="'+_e(v)+'">'+_e(v)+'</label>';
+  });
   return html;
 }
 window.tcGpRowModelChanged=function(sel){
-  sel.closest('.tc-suite-row').querySelector('.gp-version').innerHTML=_gpVersionOptions(sel.value);
+  sel.closest('.tc-suite-row').querySelector('.gp-ver-group').innerHTML=_gpVersionCheckboxes(sel.value);
 };
 
 /* ---------- 加载/删除已有计划 ---------- */
@@ -723,7 +717,7 @@ window.tcLoadPlan=function(){
     // 取消所有勾选，恢复默认
     document.querySelectorAll('.tc-suite-chk').forEach(function(cb){cb.checked=false;});
     document.querySelectorAll('.gp-model').forEach(function(s){s.value='';});
-    document.querySelectorAll('.gp-version').forEach(function(s){s.innerHTML=_gpVersionOptions('');});
+    document.querySelectorAll('.gp-ver-group').forEach(function(s){s.innerHTML='<span class="text-muted" style="font-size:.75rem">选择模型</span>';});
     tcUpdateSelectCount();
     return;
   }
@@ -747,7 +741,7 @@ window.tcLoadPlan=function(){
       // 先全部取消勾选，恢复默认
       document.querySelectorAll('.tc-suite-chk').forEach(function(cb){cb.checked=false;});
       document.querySelectorAll('.gp-model').forEach(function(s){s.value='';});
-      document.querySelectorAll('.gp-version').forEach(function(s){s.innerHTML=_gpVersionOptions('');});
+      document.querySelectorAll('.gp-ver-group').forEach(function(s){s.innerHTML='<span class="text-muted" style="font-size:.75rem">选择模型</span>';});
 
       // 按计划内容勾选并设置
       (d.plans||[]).forEach(function(planItem){
@@ -762,11 +756,16 @@ window.tcLoadPlan=function(){
               if(golden.model){
                 var ms=row.querySelector('.gp-model');
                 if(ms) ms.value=golden.model;
-                var vs=row.querySelector('.gp-version');
-                if(vs){
-                  vs.innerHTML=_gpVersionOptions(golden.model);
-                  if(golden.version) vs.value=golden.version;
-                }
+                // 渲染版本复选框
+                var vg=row.querySelector('.gp-ver-group');
+                if(vg) vg.innerHTML=_gpVersionCheckboxes(golden.model);
+                // 勾选版本（支持 version 单值或 versions 数组）
+                var vers=golden.versions||[];
+                if(golden.version) vers.push(golden.version);
+                vers.forEach(function(v){
+                  var chk=vg&&vg.querySelector('.gp-ver-chk[value="'+v+'"]');
+                  if(chk) chk.checked=true;
+                });
               }
             }
           });
@@ -813,11 +812,13 @@ window.tcSavePlan=function(btn){
     var modPath=row.dataset.module;
     var name=row.dataset['class']||modPath;
     var model=row.querySelector('.gp-model').value;
-    var version=row.querySelector('.gp-version').value;
+    var versions=[];
+    row.querySelectorAll('.gp-ver-chk:checked').forEach(function(c){versions.push(c.value);});
     var entry={name:name,tests:[modPath]};
     if(bundle) entry.bundle=bundle;
-    if(model) entry.golden={model:model};
-    if(model&&version) entry.golden={model:model,version:version};
+    if(model&&versions.length>1) entry.golden={model:model,versions:versions};
+    else if(model&&versions.length===1) entry.golden={model:model,version:versions[0]};
+    else if(model) entry.golden={model:model};
     plans.push(entry);
   });
 
