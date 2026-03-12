@@ -144,14 +144,19 @@ def api_tc_options():
     except Exception:
         pass
 
-    # Testplan files
+    # Testplan files — return {filename, name} pairs
     try:
         from pathlib import Path
         root = cfg.project_root if cfg else "."
-        for f in sorted(Path(root).glob("testplan*.yaml")):
-            testplans.append(f.name)
-        for f in sorted(Path(root).glob("testplan*.yml")):
-            testplans.append(f.name)
+        for pattern in ("testplan*.yaml", "testplan*.yml"):
+            for f in sorted(Path(root).glob(pattern)):
+                try:
+                    with open(f, encoding="utf-8") as fh:
+                        plan_data = yaml.safe_load(fh) or {}
+                    plan_name = plan_data.get("name", f.stem)
+                except Exception:
+                    plan_name = f.stem
+                testplans.append({"filename": f.name, "name": plan_name})
     except Exception:
         pass
 
@@ -160,6 +165,43 @@ def api_tc_options():
         "golden_models": golden_models,
         "testplans": testplans,
     })
+
+
+# ---------------------------------------------------------------------------
+# Testplan read
+# ---------------------------------------------------------------------------
+
+def _safe_plan_path(filename: str) -> Path | None:
+    """Resolve plan path safely, preventing path traversal."""
+    cfg = current_app.config.get("AITF_CONFIG")
+    root = (cfg.project_root if cfg else Path(".")).resolve()
+    plan_path = (root / filename).resolve()
+    if not plan_path.is_relative_to(root):
+        return None
+    if not filename.endswith((".yaml", ".yml")):
+        return None
+    return plan_path
+
+
+@bp.route("/api/tc/plan/<filename>", methods=["GET"])
+def api_get_plan(filename):
+    """Return parsed testplan YAML content."""
+    plan_path = _safe_plan_path(filename)
+    if not plan_path or not plan_path.is_file():
+        return jsonify({"error": "not found"}), 404
+    with open(plan_path, encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    return jsonify(data or {})
+
+
+@bp.route("/api/tc/plan/<filename>", methods=["DELETE"])
+def api_delete_plan(filename):
+    """Delete a testplan YAML file."""
+    plan_path = _safe_plan_path(filename)
+    if not plan_path or not plan_path.is_file():
+        return jsonify({"error": "not found"}), 404
+    plan_path.unlink()
+    return jsonify({"ok": True})
 
 
 # ---------------------------------------------------------------------------

@@ -61,21 +61,14 @@ def log_view(subpath: str):
     offset = request.args.get("offset", 0, type=int)
     limit = request.args.get("limit", _DEFAULT_LIMIT, type=int)
 
-    # Count total lines without loading entire file into memory
+    # Single pass: collect requested page and count total lines
     total = 0
-    with open(target, encoding="utf-8", errors="replace") as fh:
-        for _ in fh:
-            total += 1
-
-    # Read only the requested page
     lines = []
     with open(target, encoding="utf-8", errors="replace") as fh:
         for i, raw in enumerate(fh):
-            if i < offset:
-                continue
-            if i >= offset + limit:
-                break
-            lines.append(raw.rstrip("\n"))
+            if offset <= i < offset + limit:
+                lines.append(raw.rstrip("\n"))
+            total = i + 1
     pages = (total + limit - 1) // limit
 
     parent = str(Path(subpath).parent)

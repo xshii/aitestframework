@@ -136,8 +136,10 @@ def _load_from_file(
 
 def _filter_suite(suite: unittest.TestSuite, k: str) -> unittest.TestSuite:
     filtered = unittest.TestSuite()
+    keywords = [kw.strip().lower() for kw in k.split("|") if kw.strip()]
     for test in _iter_tests(suite):
-        if k.lower() in str(test).lower():
+        test_str = str(test).lower()
+        if any(kw in test_str for kw in keywords):
             filtered.addTest(test)
     return filtered
 
@@ -211,7 +213,32 @@ def _execute_suite(
         _set_run_context(None)
 
     store.finish_execution(execution_id)
+
+    # Sync results to remote server (if running in CLIENT mode)
+    _enqueue_sync(execution_id)
+
     return len(result.failures) == 0 and len(result.errors) == 0
+
+
+# ---------------------------------------------------------------------------
+# Sync — enqueue results for upload to remote server
+# ---------------------------------------------------------------------------
+
+def _enqueue_sync(execution_id: str) -> None:
+    """If a SyncWorker is active, enqueue the execution for upload."""
+    try:
+        from flask import current_app
+        sw = current_app.config.get("SYNC_WORKER")
+        if sw is None:
+            return
+    except (ImportError, RuntimeError):
+        # Not running inside Flask, or no app context
+        return
+
+    detail = store.get_execution_detail(execution_id)
+    if detail:
+        sw.enqueue(detail)
+        logger.info("Enqueued execution %s for sync", execution_id)
 
 
 # ---------------------------------------------------------------------------

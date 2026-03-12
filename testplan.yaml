@@ -1,18 +1,5 @@
-# 示例测试计划
-name: "NPU算子基础测试"
-
+name: NPU算子基础测试
 plans:
-  - name: "conv2d 基础"
-    tests:
-      - npu/operators/test_conv2d.py
-    bundle: default
-
-  - name: "matmul 基础"
-    tests:
-      - npu/operators/test_matmul.py
-    bundle: default
-
-  - name: "全量算子"
-    tests:
-      - npu/operators
-    bundle: default
+- name: TestConv2D
+  tests:
+  - inference/operators/test_conv2d.py

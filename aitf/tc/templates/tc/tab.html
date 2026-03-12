@@ -1,79 +1,141 @@
 {# 用例管理 — REQ-4 / REQ-7.2 #}
 
+<style>
+#sub-suites .form-select-sm,#sub-suites .form-control-sm{width:auto!important;padding-right:2rem;}
+.tc-icon{display:inline-block;width:14px;text-align:center;font-size:12px;line-height:1;}
+.tc-progress{height:6px;border-radius:3px;background:#e9ecef;overflow:hidden;flex:1;}
+.tc-progress-inner{height:100%;display:flex;}
+.tc-progress-pass{background:#198754;} .tc-progress-fail{background:#dc3545;}
+.tc-progress-notrun{background:#adb5bd;}
+.tc-tree-group{border-left:2px solid #dee2e6;margin-left:8px;padding-left:10px;}
+.tc-suite-row{padding:3px 0;border-bottom:1px solid #f0f0f0;}
+.tc-suite-row:hover{background:#f8f9fa;}
+.tc-case-row{padding:1px 0 1px 22px;}
+.tc-case-row:hover{background:#f8f9fa;}
+.tc-filter-btn{border:none;background:none;padding:2px 8px;border-radius:10px;font-size:12px;cursor:pointer;}
+.tc-filter-btn.active{background:#0d6efd;color:#fff;}
+.tc-filter-btn:not(.active):hover{background:#e9ecef;}
+.tc-in-plan{border-left:3px solid #0d6efd!important;padding-left:7px;}
+.tc-cases-body{display:none;}
+.tc-cases-body.open{display:block;}
+.tc-toggle{cursor:pointer;user-select:none;font-size:11px;color:#6c757d;margin-right:4px;}
+</style>
+
 <ul class="nav nav-pills mb-2" id="tcSubTabs">
-  <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#sub-suites">测试套</button></li>
+  <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#sub-suites">用例</button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#sub-plan">测试计划</button></li>
   <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#sub-executions">执行记录</button></li>
 </ul>
 <div class="tab-content">
 
-{# ===== 测试套列表 ===== #}
+{# ===== 用例列表 ===== #}
 <div class="tab-pane show active" id="sub-suites">
-  <div class="d-flex align-items-center mb-2 gap-2 flex-wrap">
-    <span class="fw-bold me-1">测试套</span>
-    <span class="badge bg-secondary" id="tcSuiteCount">0</span>
-    <button class="btn btn-sm btn-outline-secondary py-0 ms-2" id="tcScanBtn" onclick="tcRefreshSuites(this)">扫描用例</button>
-    <small class="text-muted ms-1" id="tcScanTime"></small>
-    <input class="form-control form-control-sm ms-auto" id="tcSuiteFilter" placeholder="筛选..." style="width:160px" oninput="tcRenderSuites()">
-    <select class="form-select form-select-sm" id="tcPlatformFilter" style="width:100px" onchange="tcRenderSuites()">
-      <option value="">全部平台</option>
+  {# 工具栏 #}
+  <div class="d-flex align-items-center mb-1 gap-2 flex-wrap">
+    <button class="btn btn-sm btn-outline-secondary py-0" id="tcScanBtn" onclick="tcRefreshSuites(this)">扫描</button>
+    <small class="text-muted" id="tcScanTime"></small>
+    <input class="form-control form-control-sm" id="tcSuiteFilter" placeholder="搜索..." style="min-width:100px;width:auto" oninput="tcRenderSuites()">
+    <select class="form-select form-select-sm" id="tcPlatformFilter" style="width:auto" onchange="tcRenderSuites()">
+      <option value="">全部场景</option>
+      <option value="inference">推理</option>
+      <option value="search">搜索</option>
+      <option value="training">训练</option>
     </select>
+    <span class="d-flex gap-1 ms-1" id="tcStatusFilter">
+      <button class="tc-filter-btn active" onclick="tcSetStatusFilter('',this)">全部</button>
+      <button class="tc-filter-btn" onclick="tcSetStatusFilter('pass',this)">✅</button>
+      <button class="tc-filter-btn" onclick="tcSetStatusFilter('fail',this)">❌</button>
+      <button class="tc-filter-btn" onclick="tcSetStatusFilter('none',this)">○</button>
+    </span>
   </div>
-  {# 执行参数栏 #}
-  <div class="d-flex align-items-center mb-2 gap-2 flex-wrap" id="tcRunBar">
-    <span class="small text-muted">执行参数:</span>
-    <select class="form-select form-select-sm" id="tcRunBundle" style="width:130px">
-      <option value="">配置集</option>
-    </select>
-    <select class="form-select form-select-sm" id="tcRunModel" style="width:130px" onchange="tcModelChanged()">
-      <option value="">Golden 模型</option>
-    </select>
-    <select class="form-select form-select-sm" id="tcRunVersion" style="width:100px">
-      <option value="">版本</option>
-    </select>
-    <select class="form-select form-select-sm" id="tcRunPlan" style="width:150px">
+  {# 执行参数 #}
+  <div class="d-flex align-items-center mb-1 gap-2 flex-wrap">
+    <select class="form-select form-select-sm" id="tcRunPlan" style="width:auto" onchange="tcPlanSelected()">
       <option value="">测试计划</option>
     </select>
-    <button class="btn btn-sm btn-outline-primary py-0" id="tcRunAllBtn" onclick="tcRunAll(this)">执行全部</button>
-    <button class="btn btn-sm btn-outline-success py-0" id="tcRunPlanBtn" onclick="tcRunPlan(this)">执行计划</button>
-    <button class="btn btn-sm btn-outline-warning py-0" id="tcGenPlanBtn" onclick="tcOpenGenPlan()">生成计划</button>
-    <small class="text-muted ms-1" id="tcRunMsg"></small>
+    <select class="form-select form-select-sm" id="tcRunBundle" style="width:auto">
+      <option value="">配置集</option>
+    </select>
+    <select class="form-select form-select-sm" id="tcRunTarget" style="width:auto">
+      <option value="local" selected>本地</option>
+      <option value="remote">远程</option>
+      <option value="sim">仿真</option>
+    </select>
+    <button class="btn btn-sm btn-primary py-0" onclick="tcRunSelected(this)">▶ 运行勾选</button>
+    <button class="btn btn-sm btn-outline-success py-0" onclick="tcRunPlan(this)">执行计划</button>
+    <button class="btn btn-sm btn-outline-secondary py-0" onclick="tcClearSelection()">清除勾选</button>
+    <small class="text-muted" id="tcRunSelCount"></small>
+    <small class="text-muted" id="tcRunMsg"></small>
   </div>
+  {# 统计条 #}
+  <div class="d-flex align-items-center gap-2 mb-2 small" id="tcStatsBar" style="display:none">
+    <span id="tcStatsSummary"></span>
+    <div class="tc-progress" id="tcProgressBar"></div>
+    <span id="tcStatsRate" class="fw-bold"></span>
+  </div>
+  {# 用例树 #}
+  <div id="tcSuiteList"></div>
+  <p id="tcSuiteEmpty" class="text-muted small d-none">暂无用例。点击「扫描」发现用例。</p>
+</div>
 
-  {# 全选 / 已选计数 #}
-  <div class="d-flex align-items-center mb-1 gap-2" id="tcSelectBar" style="display:none!important">
+{# ===== 测试计划 ===== #}
+<div class="tab-pane" id="sub-plan">
+  <div class="d-flex align-items-center mb-2 gap-2 flex-wrap">
+    <span class="small text-muted">加载已有:</span>
+    <select class="form-select form-select-sm" id="gpLoadPlan" style="width:auto;padding-right:2rem" onchange="tcLoadPlan()">
+      <option value="">新建计划</option>
+    </select>
+    <button class="btn btn-sm btn-outline-danger py-0" id="gpDeleteBtn" style="display:none" onclick="tcDeletePlan(this)">删除</button>
+  </div>
+  <div class="row mb-2 gx-2">
+    <div class="col-3">
+      <label class="form-label small mb-0">计划名称</label>
+      <input class="form-control form-control-sm" id="gpPlanName" placeholder="如: NPU算子回归">
+    </div>
+    <div class="col-3">
+      <label class="form-label small mb-0">文件名</label>
+      <div class="input-group input-group-sm">
+        <input class="form-control" id="gpFilename" placeholder="testplan_custom">
+        <span class="input-group-text">.yaml</span>
+      </div>
+    </div>
+    <div class="col-2">
+      <label class="form-label small mb-0">全局配置集</label>
+      <select class="form-select form-select-sm" id="gpBundle">
+        <option value="">不指定</option>
+      </select>
+    </div>
+    <div class="col-4 d-flex align-items-end gap-2">
+      <button class="btn btn-sm btn-primary py-0" onclick="tcSavePlan(this)">保存计划</button>
+      <small class="text-muted" id="gpMsg"></small>
+    </div>
+  </div>
+  <hr class="my-1">
+  <div class="d-flex align-items-center mb-1 gap-2">
     <div class="form-check form-check-inline mb-0">
       <input class="form-check-input" type="checkbox" id="tcSelectAll" onchange="tcToggleAll(this.checked)">
       <label class="form-check-label small" for="tcSelectAll">全选</label>
     </div>
     <small class="text-muted" id="tcSelectedCount"></small>
+    <input class="form-control form-control-sm ms-auto" id="gpSuiteFilter" placeholder="搜索..." style="width:160px" oninput="tcRenderPlanSuites()">
   </div>
-
-  <div id="tcSuiteList"></div>
-  <p id="tcSuiteEmpty" class="text-muted small d-none">暂无测试套。点击「扫描用例」发现用例。</p>
+  <div id="gpSuiteList" style="max-height:500px;overflow-y:auto"></div>
+  <p id="gpSuiteEmpty" class="text-muted small d-none">暂无测试套。请先在「用例」页签点击「扫描」。</p>
 </div>
 
 {# ===== 执行记录 ===== #}
 <div class="tab-pane" id="sub-executions">
-  <div class="d-flex align-items-center mb-2 gap-2 flex-wrap">
+  <div class="d-flex align-items-center mb-2 gap-2">
     <span class="fw-bold me-1">执行记录</span>
     <span class="badge bg-secondary" id="tcExeCount">0</span>
     <button class="btn btn-sm btn-outline-secondary py-0 ms-2" onclick="tcLoadExecutions()">刷新</button>
   </div>
   <table class="table table-sm table-striped table-hover" id="tcExeTable" style="display:none">
-    <thead>
-      <tr>
-        <th>批次ID</th>
-        <th>开始时间</th>
-        <th>配置集</th>
-        <th>Golden</th>
-        <th>总数</th>
-        <th class="text-success">PASS</th>
-        <th class="text-danger">FAIL</th>
-        <th class="text-warning">TMOUT</th>
-        <th>通过率</th>
-        <th>触发</th>
-      </tr>
-    </thead>
+    <thead><tr>
+      <th>批次</th><th>时间</th><th>配置集</th>
+      <th>总数</th><th class="text-success">通过</th><th class="text-danger">失败</th>
+      <th class="text-muted">未执行</th><th>通过率</th>
+    </tr></thead>
     <tbody id="tcExeBody"></tbody>
   </table>
   <p id="tcExeEmpty" class="text-muted small d-none">暂无执行记录。</p>
@@ -81,203 +143,297 @@
 
 </div>
 
-{# ===== 生成计划弹窗 ===== #}
-<div class="modal fade" id="tcPlanModal" tabindex="-1">
-  <div class="modal-dialog modal-lg">
-    <div class="modal-content">
-      <div class="modal-header py-2">
-        <h6 class="modal-title">生成测试计划</h6>
-        <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <div class="row mb-2">
-          <div class="col-6">
-            <label class="form-label small mb-0">计划名称</label>
-            <input class="form-control form-control-sm" id="gpPlanName" placeholder="如: NPU算子回归">
-          </div>
-          <div class="col-6">
-            <label class="form-label small mb-0">文件名</label>
-            <div class="input-group input-group-sm">
-              <input class="form-control" id="gpFilename" placeholder="testplan_custom">
-              <span class="input-group-text">.yaml</span>
-            </div>
-          </div>
-        </div>
-        <div class="mb-2">
-          <label class="form-label small mb-0">公共参数 (应用到所有选中项)</label>
-          <div class="d-flex gap-2 flex-wrap">
-            <select class="form-select form-select-sm" id="gpBundle" style="width:130px">
-              <option value="">配置集</option>
-            </select>
-            <select class="form-select form-select-sm" id="gpModel" style="width:130px" onchange="tcGpModelChanged()">
-              <option value="">Golden 模型</option>
-            </select>
-            <select class="form-select form-select-sm" id="gpVersion" style="width:100px">
-              <option value="">版本</option>
-            </select>
-          </div>
-        </div>
-        <hr class="my-2">
-        <div class="small fw-bold mb-1">已选测试套 (<span id="gpCount">0</span>)</div>
-        <div id="gpSuiteList" style="max-height:300px;overflow-y:auto"></div>
-      </div>
-      <div class="modal-footer py-1">
-        <small class="text-muted me-auto" id="gpMsg"></small>
-        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">取消</button>
-        <button type="button" class="btn btn-sm btn-primary" onclick="tcSavePlan(this)">保存</button>
-      </div>
-    </div>
-  </div>
-</div>
-
 <script>
-/* ===== 用例管理 JS ===== */
 (function(){
 
-var _suites=[];
-var _executions=[];
+var _suites=[], _executions=[];
 var _tcOptions={bundles:[],golden_models:[],testplans:[]};
-var _selectMode=false;
+var _activePlanTests=[];
+var _statusFilter='';
 
-/* ---------- 工具函数 ---------- */
-function _esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
-
+/* ---------- 工具 ---------- */
+function _e(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function _pct(v){return(v*100).toFixed(1)+'%';}
 function _fmtTime(ts){
   if(!ts)return'-';
-  var d=new Date(ts);
-  if(isNaN(d.getTime())){d=new Date(ts+'Z');}
-  var u=new Date(d.getTime()+8*3600000);
+  var d=new Date(ts); if(isNaN(d.getTime()))d=new Date(ts+'Z');
+  if(isNaN(d.getTime()))return'-';
   var p=function(v){return v<10?'0'+v:v;};
-  return u.getUTCFullYear()+'-'+p(u.getUTCMonth()+1)+'-'+p(u.getUTCDate())+' '+p(u.getUTCHours())+':'+p(u.getUTCMinutes())+':'+p(u.getUTCSeconds());
+  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());
 }
 
-function _statusBadge(s){
-  var cls={'PASS':'bg-success','FAIL':'bg-danger','TIMEOUT':'bg-warning text-dark',
-           'CRASH':'bg-purple','SKIP':'bg-secondary','ERROR':'bg-dark',
-           'RUNNING':'bg-info text-dark','PENDING':'bg-light text-dark border'};
-  return '<span class="badge '+(cls[s]||'bg-secondary')+'">'+_esc(s)+'</span>';
+function _icon(status){
+  if(status==='PASS') return '✅';
+  if(status==='FAIL'||status==='ERROR'||status==='TIMEOUT'||status==='CRASH') return '❌';
+  return '○';
 }
 
-function _pct(v){return (v*100).toFixed(1)+'%';}
+function _suiteStatus(summary){
+  if(!summary||!Object.keys(summary).length) return 'none';
+  if(summary.FAIL||summary.ERROR||summary.CRASH||summary.TIMEOUT) return 'fail';
+  return 'pass';
+}
 
-/* ---------- 测试套 ---------- */
+/* ---------- 状态过滤 ---------- */
+window.tcSetStatusFilter=function(f,btn){
+  _statusFilter=f;
+  document.querySelectorAll('#tcStatusFilter .tc-filter-btn').forEach(function(b){b.classList.remove('active');});
+  btn.classList.add('active');
+  tcRenderSuites();
+};
+
+/* ---------- 扫描 ---------- */
 var _tcScanTs=0;
 window.tcRefreshSuites=function(btn){
   var stEl=document.getElementById('tcScanTime');
-  /* 60s 冷却 */
   if(_tcScanTs){
     var elapsed=(Date.now()/1000)-_tcScanTs;
-    if(elapsed<60){
-      var remain=Math.ceil(60-elapsed);
-      stEl.textContent='冷却中，'+remain+'秒后可刷新';
-      setTimeout(function(){stEl.textContent=_tcScanTs?'扫描于 '+_fmtTime(new Date(_tcScanTs*1000).toISOString()):'';},3000);
-      return;
-    }
+    if(elapsed<60){stEl.textContent='冷却 '+Math.ceil(60-elapsed)+'s';return;}
   }
-  btn.disabled=true;btn.textContent='扫描中...';
+  btn.disabled=true;btn.textContent='...';
   fetch('/api/suites/refresh',{method:'POST'})
     .then(function(r){return r.json();})
     .then(function(d){
-      btn.disabled=false;btn.textContent='扫描用例';
+      btn.disabled=false;btn.textContent='扫描';
       _tcScanTs=Date.now()/1000;
-      stEl.textContent='扫描完成，发现 '+(d.count||0)+' 个测试套';
+      stEl.textContent='发现 '+(d.count||0)+' 套件';
       tcLoadSuites();
     })
-    .catch(function(){btn.disabled=false;btn.textContent='扫描用例';});
+    .catch(function(){btn.disabled=false;btn.textContent='扫描';});
 };
 
+/* ---------- 加载 ---------- */
 function tcLoadSuites(){
   fetch('/api/suites').then(function(r){return r.json();}).then(function(data){
     _suites=data;
-    // populate platform filter
     var pf=document.getElementById('tcPlatformFilter');
-    var cur=pf.value;
-    var platforms={};
-    data.forEach(function(s){if(s.platform)platforms[s.platform]=1;});
-    var opts='<option value="">全部平台</option>';
-    Object.keys(platforms).sort().forEach(function(p){
-      opts+='<option value="'+_esc(p)+'">'+_esc(p)+'</option>';
-    });
-    pf.innerHTML=opts;
-    pf.value=cur;
     tcRenderSuites();
+    tcRenderPlanSuites();
   });
 }
 
+/* ---------- 渲染用例树 ---------- */
 window.tcRenderSuites=function(){
   var filter=(document.getElementById('tcSuiteFilter').value||'').toLowerCase();
   var plat=document.getElementById('tcPlatformFilter').value;
+
   var items=_suites.filter(function(s){
-    if(plat&&s.platform!==plat)return false;
+    if(!s.case_count) return false;
+    if(plat&&s.platform!==plat) return false;
     if(filter){
       var hay=(s.class_name+' '+s.module_path+' '+(s.docstring||'')).toLowerCase();
-      if(hay.indexOf(filter)<0)return false;
+      if(hay.indexOf(filter)<0) return false;
+    }
+    if(_statusFilter){
+      var st=_suiteStatus(s.last_status_summary);
+      if(_statusFilter!==st) return false;
     }
     return true;
   });
 
-  document.getElementById('tcSuiteCount').textContent=items.length;
   var el=document.getElementById('tcSuiteList');
   var empty=document.getElementById('tcSuiteEmpty');
+  if(!items.length){el.innerHTML='';empty.classList.remove('d-none');_renderStats([]);return;}
+  empty.classList.add('d-none');
+  _renderStats(items);
 
-  if(!items.length){
-    el.innerHTML='';
-    empty.classList.remove('d-none');
-    return;
+  // 按 platform/category 分组
+  var tree={};
+  items.forEach(function(s){
+    var grp=(s.platform||'default')+(s.category?'/'+s.category:'');
+    if(!tree[grp])tree[grp]=[];
+    tree[grp].push(s);
+  });
+
+  var html='';
+  var groups=Object.keys(tree).sort();
+  groups.forEach(function(grp){
+    var suites=tree[grp];
+    html+='<div class="mb-1">';
+    if(groups.length>1||grp!=='default'){
+      html+='<div class="small fw-bold text-muted" style="padding:2px 0">📁 '+_e(grp)+'</div>';
+    }
+    html+='<div class="'+(groups.length>1&&grp!=='default'?'tc-tree-group':'')+'">';
+
+    suites.forEach(function(s){
+      var sm=s.last_status_summary||{};
+      var st=_suiteStatus(sm);
+      var icon=st==='pass'?'✅':st==='fail'?'❌':'○';
+      var inPlan=_activePlanTests.length&&_activePlanTests.some(function(t){return s.module_path.indexOf(t)>=0||t.indexOf(s.module_path)>=0;});
+
+      // 套件摘要
+      var smText='';
+      if(st!=='none'){
+        var p=sm.PASS||0, total=0;
+        Object.keys(sm).forEach(function(k){total+=sm[k];});
+        smText=p+'/'+total+' 通过';
+      }else{
+        smText='未执行';
+      }
+
+      var suiteId='tc_s_'+s.id;
+      html+='<div class="tc-suite-row'+(inPlan?' tc-in-plan':'')+'">'
+        +'<div class="d-flex align-items-center">'
+        +'<span class="tc-toggle" onclick="tcToggleCases(\''+suiteId+'\',this)">▶</span>'
+        +'<input class="form-check-input me-1 tc-run-chk-suite" type="checkbox" '
+        +'data-module="'+_e(s.module_path)+'" onchange="tcToggleSuite(this)">'
+        +'<span class="tc-icon me-1">'+icon+'</span>'
+        +'<span class="fw-bold small me-2">'+_e(s.class_name)+'</span>'
+        +'<span class="text-muted small me-2" style="font-size:.75rem">'+_e(s.module_path)+'</span>'
+        +(inPlan?'<span class="badge bg-primary" style="font-size:.6rem;padding:1px 4px">计划</span>':'')
+        +'<span class="ms-auto small text-muted">'+smText+'</span>'
+        +'</div>';
+
+      // 用例列表（默认折叠）
+      var names=s.case_names||[];
+      if(names.length){
+        html+='<div class="tc-cases-body" id="'+suiteId+'">';
+        names.forEach(function(n){
+          html+='<div class="tc-case-row d-flex align-items-center">'
+            +'<input class="form-check-input me-1 tc-run-chk" type="checkbox" '
+            +'data-module="'+_e(s.module_path)+'" data-case="'+_e(n)+'" onchange="tcUpdateRunCount()" style="width:13px;height:13px">'
+            +'<code style="font-size:.78rem">'+_e(n)+'</code>'
+            +'</div>';
+        });
+        html+='</div>';
+      }
+      html+='</div>';
+    });
+    html+='</div></div>';
+  });
+
+  el.innerHTML=html;
+};
+
+function _renderStats(items){
+  var bar=document.getElementById('tcStatsBar');
+  if(!items.length){bar.style.display='none';return;}
+  bar.style.display='';
+
+  var totalS=items.length, totalC=0, sm={};
+  items.forEach(function(s){
+    totalC+=s.case_count||0;
+    var ss=s.last_status_summary||{};
+    Object.keys(ss).forEach(function(k){sm[k]=(sm[k]||0)+ss[k];});
+  });
+
+  var passed=sm.PASS||0;
+  var failed=(sm.FAIL||0)+(sm.ERROR||0)+(sm.CRASH||0)+(sm.TIMEOUT||0);
+  var notRun=totalC-passed-failed;
+  if(notRun<0)notRun=0;
+
+  var parts=[totalS+' 套件', totalC+' 用例'];
+  parts.push('通过 '+passed);
+  parts.push('失败 '+failed);
+  parts.push('未执行 '+notRun);
+  document.getElementById('tcStatsSummary').innerHTML=parts.join(' · ');
+
+  // 进度条
+  var prog=document.getElementById('tcProgressBar');
+  if(totalC>0){
+    var pw=(passed/totalC*100).toFixed(1), fw=(failed/totalC*100).toFixed(1), nw=(notRun/totalC*100).toFixed(1);
+    prog.innerHTML='<div class="tc-progress-inner">'
+      +'<div class="tc-progress-pass" style="width:'+pw+'%"></div>'
+      +'<div class="tc-progress-fail" style="width:'+fw+'%"></div>'
+      +'<div class="tc-progress-notrun" style="width:'+nw+'%"></div>'
+      +'</div>';
+    document.getElementById('tcStatsRate').textContent=totalC>0?_pct(passed/totalC):'';
+  }else{
+    prog.innerHTML='';
+    document.getElementById('tcStatsRate').textContent='';
   }
+}
+
+/* ---------- 测试计划页签 ---------- */
+window.tcRenderPlanSuites=function(){
+  var el=document.getElementById('gpSuiteList');
+  var empty=document.getElementById('gpSuiteEmpty');
+  var activeSuites=_suites.filter(function(s){return s.case_count>0;});
+  if(!activeSuites.length){el.innerHTML='';empty.classList.remove('d-none');tcUpdateSelectCount();return;}
   empty.classList.add('d-none');
 
-  var html='<div class="accordion" id="tcSuiteAcc">';
-  items.forEach(function(s,i){
-    var id='tcS'+i;
-    var summary=s.last_status_summary||{};
-    var summaryHtml='';
-    if(Object.keys(summary).length){
-      Object.keys(summary).forEach(function(k){
-        summaryHtml+=_statusBadge(k)+' '+summary[k]+' ';
-      });
-    }else{
-      summaryHtml='<span class="text-muted small">未执行</span>';
-    }
+  var filter=(document.getElementById('gpSuiteFilter').value||'').toLowerCase();
+  var items=activeSuites;
+  if(filter){
+    items=items.filter(function(s){
+      var hay=(s.class_name+' '+s.module_path).toLowerCase();
+      return hay.indexOf(filter)>=0;
+    });
+  }
+  if(!items.length){el.innerHTML='<p class="text-muted small">无匹配项</p>';tcUpdateSelectCount();return;}
 
-    html+='<div class="accordion-item">'
-      +'<h2 class="accordion-header d-flex align-items-center">'
-      +'<input class="form-check-input me-2 ms-2 tc-suite-chk" type="checkbox" data-module="'+_esc(s.module_path)+'" data-class="'+_esc(s.class_name)+'" onchange="tcUpdateSelectCount()">'
-      +'<button class="accordion-button collapsed py-1 px-2 small flex-grow-1" type="button" data-bs-toggle="collapse" data-bs-target="#'+id+'">'
-      +'<span class="fw-bold me-2">'+_esc(s.class_name)+'</span>'
-      +'<span class="text-muted me-2">'+_esc(s.module_path)+'</span>'
-      +'<span class="badge bg-secondary me-2">'+s.case_count+' 用例</span>'
-      +summaryHtml
-      +'</button></h2>'
-      +'<div id="'+id+'" class="accordion-collapse collapse" data-bs-parent="#tcSuiteAcc">'
-      +'<div class="accordion-body py-2 px-3">';
+  var modelOpts=_gpModelOptions();
 
-    if(s.docstring){
-      html+='<p class="text-muted small mb-1">'+_esc(s.docstring)+'</p>';
-    }
-    html+='<div class="mb-1"><span class="small text-muted">平台: '+_esc(s.platform||'-')
-      +' | 分类: '+_esc(s.category||'-')
-      +' | 扫描时间: '+_fmtTime(s.scanned_at)+'</span></div>';
-
-    // Case method list
-    var names=s.case_names||[];
-    if(names.length){
-      html+='<table class="table table-sm table-bordered mb-0" style="max-width:600px"><thead><tr><th>#</th><th>用例方法</th></tr></thead><tbody>';
-      names.forEach(function(n,j){
-        html+='<tr><td class="text-muted">'+(j+1)+'</td><td><code>'+_esc(n)+'</code></td></tr>';
-      });
-      html+='</tbody></table>';
-    }
-
-    html+='<button class="btn btn-sm btn-outline-primary py-0 mt-1" onclick="tcRunSuite(\''+_esc(s.module_path)+'\',this)">执行此套件</button>';
-    html+='</div></div></div>';
+  // 按 platform/category 分组（与用例页签一致）
+  var tree={};
+  items.forEach(function(s){
+    var grp=(s.platform||'default')+(s.category?'/'+s.category:'');
+    if(!tree[grp])tree[grp]=[];
+    tree[grp].push(s);
   });
-  html+='</div>';
+
+  var html='';
+  var groups=Object.keys(tree).sort();
+  groups.forEach(function(grp){
+    var suites=tree[grp];
+    html+='<div class="mb-1">';
+    if(groups.length>1||grp!=='default'){
+      html+='<div class="small fw-bold text-muted" style="padding:2px 0">📁 '+_e(grp)+'</div>';
+    }
+    html+='<div class="'+(groups.length>1&&grp!=='default'?'tc-tree-group':'')+'">';
+
+    suites.forEach(function(s){
+      html+='<div class="tc-suite-row d-flex align-items-center gap-1 flex-wrap" data-module="'+_e(s.module_path)+'" data-class="'+_e(s.class_name)+'">'
+        +'<input class="form-check-input tc-suite-chk" type="checkbox" onchange="tcUpdateSelectCount()" style="margin:0">'
+        +'<span class="fw-bold small me-1">'+_e(s.class_name)+'</span>'
+        +'<span class="text-muted small me-1" style="font-size:.75rem">'+_e(s.module_path)+'</span>'
+        +'<span class="badge bg-secondary" style="font-size:.65rem">'+s.case_count+'</span>'
+        +'<span class="ms-auto d-flex align-items-center gap-1">'
+        +'<select class="form-select form-select-sm gp-model" style="width:auto;max-width:150px;padding-right:1.8rem" onchange="tcGpRowModelChanged(this)">'+modelOpts+'</select>'
+        +'<select class="form-select form-select-sm gp-version" style="width:auto;max-width:150px;padding-right:1.8rem">'+_gpVersionOptions('')+'</select>'
+        +'</span>'
+        +'</div>';
+    });
+    html+='</div></div>';
+  });
+
   el.innerHTML=html;
   tcUpdateSelectCount();
 };
 
-/* ---------- 勾选管理 ---------- */
+/* ---------- 折叠/展开用例 ---------- */
+window.tcToggleCases=function(id,toggle){
+  var el=document.getElementById(id);
+  if(!el) return;
+  var open=el.classList.toggle('open');
+  toggle.textContent=open?'▼':'▶';
+};
+
+/* ---------- 勾选管理（用例页签） ---------- */
+window.tcToggleSuite=function(cb){
+  var mod=cb.dataset.module, checked=cb.checked;
+  document.querySelectorAll('.tc-run-chk[data-module="'+mod+'"]').forEach(function(c){c.checked=checked;});
+  tcUpdateRunCount();
+};
+
+window.tcUpdateRunCount=function(){
+  var n=document.querySelectorAll('.tc-run-chk:checked').length;
+  document.getElementById('tcRunSelCount').textContent=n?'已选 '+n+' 用例':'';
+  document.querySelectorAll('.tc-run-chk-suite').forEach(function(sc){
+    var mod=sc.dataset.module;
+    var all=document.querySelectorAll('.tc-run-chk[data-module="'+mod+'"]');
+    var chk=document.querySelectorAll('.tc-run-chk[data-module="'+mod+'"]:checked');
+    sc.checked=all.length>0&&chk.length===all.length;
+    sc.indeterminate=chk.length>0&&chk.length<all.length;
+  });
+};
+
+window.tcClearSelection=function(){
+  document.querySelectorAll('.tc-run-chk,.tc-run-chk-suite').forEach(function(c){c.checked=false;c.indeterminate=false;});
+  document.getElementById('tcRunSelCount').textContent='';
+};
+
+/* ---------- 勾选管理（计划页签） ---------- */
 window.tcToggleAll=function(checked){
   document.querySelectorAll('.tc-suite-chk').forEach(function(cb){cb.checked=checked;});
   tcUpdateSelectCount();
@@ -285,31 +441,16 @@ window.tcToggleAll=function(checked){
 
 window.tcUpdateSelectCount=function(){
   var checked=document.querySelectorAll('.tc-suite-chk:checked');
-  var bar=document.getElementById('tcSelectBar');
-  var cnt=document.getElementById('tcSelectedCount');
   var total=document.querySelectorAll('.tc-suite-chk').length;
-  if(total>0){
-    bar.style.display='';bar.classList.add('d-flex');
-  }else{
-    bar.style.display='none';
-  }
-  cnt.textContent=checked.length?'已选 '+checked.length+' 项':'';
+  var cnt=document.getElementById('tcSelectedCount');
+  cnt.textContent=checked.length?'已选 '+checked.length+'/'+total:'0/'+total;
   document.getElementById('tcSelectAll').checked=checked.length===total&&total>0;
 };
-
-function _getSelectedSuites(){
-  var result=[];
-  document.querySelectorAll('.tc-suite-chk:checked').forEach(function(cb){
-    result.push({module_path:cb.dataset.module, class_name:cb.dataset['class']});
-  });
-  return result;
-}
 
 /* ---------- 执行记录 ---------- */
 window.tcLoadExecutions=function(){
   fetch('/api/executions').then(function(r){return r.json();}).then(function(data){
-    _executions=data;
-    tcRenderExecutions();
+    _executions=data; tcRenderExecutions();
   });
 };
 
@@ -319,320 +460,386 @@ function tcRenderExecutions(){
   var tbody=document.getElementById('tcExeBody');
   var table=document.getElementById('tcExeTable');
   var empty=document.getElementById('tcExeEmpty');
-
-  if(!items.length){
-    table.style.display='none';
-    empty.classList.remove('d-none');
-    return;
-  }
-  table.style.display='';
-  empty.classList.add('d-none');
+  if(!items.length){table.style.display='none';empty.classList.remove('d-none');return;}
+  table.style.display='';empty.classList.add('d-none');
 
   var html='';
   items.forEach(function(e){
     var rate=e.total?_pct(e.pass_rate):'—';
+    var failed=(e.failed||0)+(e.errored||0)+(e.timeout||0)+(e.crashed||0);
+    var notRun=e.total-e.passed-failed; if(notRun<0)notRun=0;
     html+='<tr>'
-      +'<td><a href="#" onclick="tcShowExeDetail(\''+_esc(e.id)+'\');return false;" class="text-decoration-none">'+_esc(e.id)+'</a></td>'
+      +'<td><a href="#" onclick="tcShowExeDetail(\''+_e(e.id)+'\');return false;" class="text-decoration-none">'+_e(e.id)+'</a></td>'
       +'<td>'+_fmtTime(e.started_at)+'</td>'
-      +'<td>'+_esc(e.bundle||'-')+'</td>'
-      +'<td>'+_esc(e.golden_model&&e.golden_version?e.golden_model+'/'+e.golden_version:'-')+'</td>'
+      +'<td>'+_e(e.bundle||'-')+'</td>'
       +'<td>'+e.total+'</td>'
       +'<td class="text-success">'+e.passed+'</td>'
-      +'<td class="text-danger">'+e.failed+'</td>'
-      +'<td class="text-warning">'+(e.timeout||0)+'</td>'
+      +'<td class="text-danger">'+failed+'</td>'
+      +'<td class="text-muted">'+notRun+'</td>'
       +'<td>'+rate+'</td>'
-      +'<td>'+_esc(e.trigger||'-')+'</td>'
       +'</tr>';
   });
   tbody.innerHTML=html;
 }
 
-/* ---------- 执行详情 ---------- */
 window.tcShowExeDetail=function(exeId){
   fetch('/api/executions/'+encodeURIComponent(exeId))
     .then(function(r){return r.json();})
     .then(function(d){
       if(d.error){alert(d.error);return;}
-      var cases=d.cases||[];
-      // Group by suite
-      var suites={};
+      var cases=d.cases||[], suites={};
       cases.forEach(function(c){
         if(!suites[c.suite_class])suites[c.suite_class]=[];
         suites[c.suite_class].push(c);
       });
 
       var html='<div class="card mb-2"><div class="card-body py-2">'
-        +'<h6>批次 '+_esc(d.id)+'</h6>'
-        +'<div class="small mb-1">开始: '+_fmtTime(d.started_at)+' | 结束: '+_fmtTime(d.finished_at)
-        +' | 配置集: '+_esc(d.bundle||'-')
-        +(d.golden_model?' | Golden: '+_esc(d.golden_model+'/'+d.golden_version):'')
-        +(d.plan_name?' | 计划: '+_esc(d.plan_name):'')+'</div>'
-        +'<div class="mb-1">'
-        +_statusBadge('PASS')+' '+d.passed+' '
-        +_statusBadge('FAIL')+' '+d.failed+' '
-        +_statusBadge('TIMEOUT')+' '+(d.timeout||0)+' '
-        +_statusBadge('CRASH')+' '+(d.crashed||0)+' '
-        +_statusBadge('ERROR')+' '+(d.errored||0)+' '
-        +'通过率: <strong>'+(d.total?_pct(d.pass_rate):'—')+'</strong>'
+        +'<div class="d-flex align-items-center mb-1">'
+        +'<h6 class="mb-0 me-3">'+_e(d.id)+'</h6>'
+        +'<small class="text-muted">'+_fmtTime(d.started_at)+' → '+_fmtTime(d.finished_at)+'</small>'
+        +'</div>'
+        +'<div class="small mb-1">'
+        +'配置集: '+_e(d.bundle||'-')
+        +(d.golden_model?' | Golden: '+_e(d.golden_model+'/'+d.golden_version):'')
+        +(d.plan_name?' | 计划: '+_e(d.plan_name):'')
+        +'</div>'
+        +'<div class="mb-2">';
+      var dFailed=(d.failed||0)+(d.errored||0)+(d.timeout||0)+(d.crashed||0);
+      var dNotRun=d.total-d.passed-dFailed; if(dNotRun<0)dNotRun=0;
+      html+='通过 <strong class="text-success">'+d.passed+'</strong>'
+        +' · 失败 <strong class="text-danger">'+dFailed+'</strong>'
+        +' · 未执行 <strong class="text-muted">'+dNotRun+'</strong>'
+        +' — 通过率 <strong>'+(d.total?_pct(d.pass_rate):'—')+'</strong>'
         +'</div>';
 
       Object.keys(suites).forEach(function(sn){
-        html+='<h6 class="mt-2 mb-1">'+_esc(sn)+'</h6>'
-          +'<table class="table table-sm table-bordered table-hover mb-1"><thead><tr>'
-          +'<th>用例</th><th>状态</th><th>耗时</th><th>失败原因</th>'
-          +'</tr></thead><tbody>';
+        html+='<div class="fw-bold small mb-1">'+_e(sn)+'</div>';
         suites[sn].forEach(function(c){
-          html+='<tr>'
-            +'<td><code>'+_esc(c.case_method)+'</code></td>'
-            +'<td>'+_statusBadge(c.status)+'</td>'
-            +'<td>'+(c.duration_s!=null?c.duration_s.toFixed(2)+'s':'-')+'</td>'
-            +'<td class="small">'+_esc(c.failure_reason||'')+'</td>'
-            +'</tr>';
+          html+='<div class="d-flex align-items-center small" style="padding:1px 0 1px 16px">'
+            +'<span class="me-1">'+_icon(c.status)+'</span>'
+            +'<code class="me-2">'+_e(c.case_method)+'</code>'
+            +(c.duration_s!=null?'<span class="text-muted me-2">'+c.duration_s.toFixed(2)+'s</span>':'')
+            +(c.failure_reason?'<span class="text-danger text-truncate" style="max-width:400px" title="'+_e(c.failure_reason)+'">'+_e(c.failure_reason.split('\n').pop())+'</span>':'')
+            +'</div>';
         });
-        html+='</tbody></table>';
       });
 
-      html+='<button class="btn btn-sm btn-outline-secondary py-0" onclick="tcLoadExecutions()">返回列表</button>';
+      html+='<button class="btn btn-sm btn-outline-secondary py-0 mt-2" onclick="tcBackToList()">← 返回</button>';
       html+='</div></div>';
 
       document.getElementById('tcExeBody').innerHTML='';
       document.getElementById('tcExeTable').style.display='none';
       document.getElementById('tcExeEmpty').classList.add('d-none');
-      // Reuse the executions pane to show detail
       var container=document.getElementById('tcExeTable').parentNode;
       var detailEl=document.getElementById('tcExeDetail');
-      if(!detailEl){
-        detailEl=document.createElement('div');
-        detailEl.id='tcExeDetail';
-        container.appendChild(detailEl);
-      }
+      if(!detailEl){detailEl=document.createElement('div');detailEl.id='tcExeDetail';container.appendChild(detailEl);}
       detailEl.innerHTML=html;
     });
+};
+
+window.tcBackToList=function(){
+  var detailEl=document.getElementById('tcExeDetail');
+  if(detailEl)detailEl.innerHTML='';
+  tcRenderExecutions();
 };
 
 /* ---------- 执行触发 ---------- */
 var _tcPollTimer=null;
 
-/* ---------- 执行参数 ---------- */
 function _tcRunParams(){
   var p={};
   var b=document.getElementById('tcRunBundle').value;
-  var m=document.getElementById('tcRunModel').value;
-  var v=document.getElementById('tcRunVersion').value;
-  if(b)p.bundle=b;
-  if(m)p.golden_model=m;
-  if(v)p.golden_version=v;
+  var t=document.getElementById('tcRunTarget').value;
+  if(b)p.bundle=b; if(t)p.target=t;
   return p;
 }
 
-function tcLoadOptions(){
-  fetch('/api/tc/options').then(function(r){return r.json();}).then(function(d){
-    _tcOptions=d;
-    // 主界面下拉框
-    var bs=document.getElementById('tcRunBundle');
-    var html='<option value="">配置集</option>';
-    (d.bundles||[]).forEach(function(b){html+='<option value="'+_esc(b)+'">'+_esc(b)+'</option>';});
-    bs.innerHTML=html;
+window.tcRunSelected=function(btn){
+  var checked=document.querySelectorAll('.tc-run-chk:checked');
+  if(!checked.length){document.getElementById('tcRunMsg').textContent='请先勾选用例';return;}
 
-    var ms=document.getElementById('tcRunModel');
-    html='<option value="">Golden 模型</option>';
-    (d.golden_models||[]).forEach(function(g){html+='<option value="'+_esc(g.model)+'">'+_esc(g.model)+'</option>';});
-    ms.innerHTML=html;
-
-    var ps=document.getElementById('tcRunPlan');
-    html='<option value="">测试计划</option>';
-    (d.testplans||[]).forEach(function(p){html+='<option value="'+_esc(p)+'">'+_esc(p)+'</option>';});
-    ps.innerHTML=html;
-
-    // 弹窗下拉框
-    var gpB=document.getElementById('gpBundle');
-    html='<option value="">不指定</option>';
-    (d.bundles||[]).forEach(function(b){html+='<option value="'+_esc(b)+'">'+_esc(b)+'</option>';});
-    gpB.innerHTML=html;
-
-    var gpM=document.getElementById('gpModel');
-    html='<option value="">不指定</option>';
-    (d.golden_models||[]).forEach(function(g){html+='<option value="'+_esc(g.model)+'">'+_esc(g.model)+'</option>';});
-    gpM.innerHTML=html;
+  var byMod={};
+  checked.forEach(function(c){
+    var m=c.dataset.module; if(!byMod[m])byMod[m]=[];
+    byMod[m].push(c.dataset['case']);
   });
-}
 
-window.tcModelChanged=function(){
-  var model=document.getElementById('tcRunModel').value;
-  var vs=document.getElementById('tcRunVersion');
-  var html='<option value="">版本</option>';
-  if(model){
-    var g=(_tcOptions.golden_models||[]).find(function(m){return m.model===model;});
-    if(g)(g.versions||[]).forEach(function(v){html+='<option value="'+_esc(v)+'">'+_esc(v)+'</option>';});
-  }
-  vs.innerHTML=html;
-};
-
-window.tcGpModelChanged=function(){
-  var model=document.getElementById('gpModel').value;
-  var vs=document.getElementById('gpVersion');
-  var html='<option value="">不指定</option>';
-  if(model){
-    var g=(_tcOptions.golden_models||[]).find(function(m){return m.model===model;});
-    if(g)(g.versions||[]).forEach(function(v){html+='<option value="'+_esc(v)+'">'+_esc(v)+'</option>';});
-  }
-  vs.innerHTML=html;
-};
-
-window.tcRunAll=function(btn){
-  btn.disabled=true;btn.textContent='启动中...';
-  var msg=document.getElementById('tcRunMsg');
   var body=_tcRunParams();
+  var paths=Object.keys(byMod);
+  body.paths=paths;
+
+  var allCases=[], totalAvail=0;
+  paths.forEach(function(m){byMod[m].forEach(function(c){allCases.push(c);});});
+  paths.forEach(function(m){totalAvail+=document.querySelectorAll('.tc-run-chk[data-module="'+m+'"]').length;});
+  if(allCases.length<totalAvail) body.filter_k=allCases.join('|');
+
+  btn.disabled=true; var orig=btn.textContent; btn.textContent='...';
+  var msg=document.getElementById('tcRunMsg');
   fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
     .then(function(r){return r.json();})
     .then(function(d){
-      btn.disabled=false;btn.textContent='执行全部';
+      btn.disabled=false;btn.textContent=orig;
       if(d.error){msg.textContent=d.error;return;}
-      msg.textContent='已启动: '+d.execution_id;
+      msg.textContent='已启动 '+allCases.length+' 用例';
       _tcStartPoll(d.execution_id);
     })
-    .catch(function(){btn.disabled=false;btn.textContent='执行全部';});
-};
-
-window.tcRunSuite=function(modulePath,btn){
-  btn.disabled=true;
-  var msg=document.getElementById('tcRunMsg');
-  var body=_tcRunParams();
-  body.paths=[modulePath];
-  fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
-    .then(function(r){return r.json();})
-    .then(function(d){
-      btn.disabled=false;
-      if(d.error){msg.textContent=d.error;return;}
-      msg.textContent='已启动: '+d.execution_id;
-      _tcStartPoll(d.execution_id);
-    })
-    .catch(function(){btn.disabled=false;});
+    .catch(function(){btn.disabled=false;btn.textContent=orig;});
 };
 
 window.tcRunPlan=function(btn){
   var plan=document.getElementById('tcRunPlan').value;
   if(!plan){document.getElementById('tcRunMsg').textContent='请选择测试计划';return;}
-  btn.disabled=true;btn.textContent='启动中...';
+  btn.disabled=true; var orig=btn.textContent; btn.textContent='...';
   var msg=document.getElementById('tcRunMsg');
   fetch('/api/run/plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({plan:plan})})
     .then(function(r){return r.json();})
     .then(function(d){
-      btn.disabled=false;btn.textContent='执行计划';
+      btn.disabled=false;btn.textContent=orig;
       if(d.error){msg.textContent=d.error;return;}
       var ids=d.execution_ids||[];
       msg.textContent='已启动 '+ids.length+' 个执行';
       if(ids.length)_tcStartPoll(ids[ids.length-1]);
     })
-    .catch(function(){btn.disabled=false;btn.textContent='执行计划';});
+    .catch(function(){btn.disabled=false;btn.textContent=orig;});
 };
 
 function _tcStartPoll(exeId){
-  if(_tcPollTimer)clearInterval(_tcPollTimer);
-  _tcPollTimer=setInterval(function(){
+  if(_tcPollTimer)clearTimeout(_tcPollTimer);
+  var interval=2000;
+  function poll(){
     fetch('/api/executions/'+encodeURIComponent(exeId))
       .then(function(r){return r.json();})
       .then(function(d){
         if(d.finished_at){
-          clearInterval(_tcPollTimer);_tcPollTimer=null;
-          document.getElementById('tcRunMsg').textContent='执行完成: '+exeId+' 通过率 '+(d.total?_pct(d.pass_rate):'—');
-          tcLoadSuites();
-          tcLoadExecutions();
+          _tcPollTimer=null;
+          document.getElementById('tcRunMsg').textContent='完成 '+_pct(d.pass_rate);
+          tcLoadSuites(); tcLoadExecutions();
+        } else {
+          interval=Math.min(interval*1.5,15000);
+          _tcPollTimer=setTimeout(poll,interval);
         }
+      })
+      .catch(function(){
+        interval=Math.min(interval*2,15000);
+        _tcPollTimer=setTimeout(poll,interval);
       });
-  },3000);
+  }
+  _tcPollTimer=setTimeout(poll,interval);
 }
 
-/* ---------- 生成测试计划 ---------- */
-window.tcOpenGenPlan=function(){
-  var selected=_getSelectedSuites();
-  if(!selected.length){
-    document.getElementById('tcRunMsg').textContent='请先勾选要加入计划的测试套';
+/* ---------- 选择计划 → 高亮 ---------- */
+window.tcPlanSelected=function(){
+  var plan=document.getElementById('tcRunPlan').value;
+  if(!plan){_activePlanTests=[];tcRenderSuites();tcClearSelection();return;}
+  fetch('/api/tc/plan/'+encodeURIComponent(plan))
+    .then(function(r){return r.json();})
+    .then(function(d){
+      _activePlanTests=[];
+      (d.plans||[]).forEach(function(p){(p.tests||[]).forEach(function(t){_activePlanTests.push(t);});});
+      tcRenderSuites();
+      // 自动勾选计划中的用例
+      _autoCheckPlanCases();
+    })
+    .catch(function(){_activePlanTests=[];tcRenderSuites();});
+};
+
+function _autoCheckPlanCases(){
+  if(!_activePlanTests.length) return;
+  // 先清除
+  document.querySelectorAll('.tc-run-chk,.tc-run-chk-suite').forEach(function(c){c.checked=false;c.indeterminate=false;});
+  // 勾选匹配的
+  document.querySelectorAll('.tc-run-chk-suite').forEach(function(sc){
+    var mod=sc.dataset.module;
+    var match=_activePlanTests.some(function(t){return mod.indexOf(t)>=0||t.indexOf(mod)>=0;});
+    if(match){
+      sc.checked=true;
+      document.querySelectorAll('.tc-run-chk[data-module="'+mod+'"]').forEach(function(c){c.checked=true;});
+    }
+  });
+  tcUpdateRunCount();
+}
+
+/* ---------- 选项加载 ---------- */
+function tcLoadOptions(){
+  fetch('/api/tc/options').then(function(r){return r.json();}).then(function(d){
+    _tcOptions=d;
+    var bs=document.getElementById('tcRunBundle');
+    var html='<option value="">配置集</option>';
+    (d.bundles||[]).forEach(function(b){html+='<option value="'+_e(b)+'">'+_e(b)+'</option>';});
+    bs.innerHTML=html;
+
+    var ps=document.getElementById('tcRunPlan');
+    html='<option value="">测试计划</option>';
+    (d.testplans||[]).forEach(function(p){html+='<option value="'+_e(p.filename)+'">'+_e(p.name)+'</option>';});
+    ps.innerHTML=html;
+
+    var gpB=document.getElementById('gpBundle');
+    html='<option value="">不指定</option>';
+    (d.bundles||[]).forEach(function(b){html+='<option value="'+_e(b)+'">'+_e(b)+'</option>';});
+    gpB.innerHTML=html;
+
+    // 加载已有计划下拉框
+    var lp=document.getElementById('gpLoadPlan');
+    var curLp=lp.value;
+    html='<option value="">新建计划</option>';
+    (d.testplans||[]).forEach(function(p){html+='<option value="'+_e(p.filename)+'">'+_e(p.name)+'</option>';});
+    lp.innerHTML=html;
+    if(curLp) lp.value=curLp;
+
+    tcRenderPlanSuites();
+  });
+}
+
+function _gpModelOptions(){
+  var html='<option value="">不指定</option>';
+  (_tcOptions.golden_models||[]).forEach(function(g){html+='<option value="'+_e(g.model)+'">'+_e(g.model)+'</option>';});
+  return html;
+}
+function _gpVersionOptions(model){
+  var html='<option value="">不指定</option>';
+  if(model){
+    var g=(_tcOptions.golden_models||[]).find(function(m){return m.model===model;});
+    if(g)(g.versions||[]).forEach(function(v){html+='<option value="'+_e(v)+'">'+_e(v)+'</option>';});
+  }
+  return html;
+}
+window.tcGpRowModelChanged=function(sel){
+  sel.closest('.tc-suite-row').querySelector('.gp-version').innerHTML=_gpVersionOptions(sel.value);
+};
+
+/* ---------- 加载/删除已有计划 ---------- */
+window.tcLoadPlan=function(){
+  var sel=document.getElementById('gpLoadPlan');
+  var filename=sel.value;
+  var delBtn=document.getElementById('gpDeleteBtn');
+  document.getElementById('gpMsg').textContent='';
+
+  if(!filename){
+    // 新建模式：清空表单
+    document.getElementById('gpPlanName').value='';
+    document.getElementById('gpFilename').value='';
+    document.getElementById('gpBundle').value='';
+    delBtn.style.display='none';
+    // 取消所有勾选，恢复默认
+    document.querySelectorAll('.tc-suite-chk').forEach(function(cb){cb.checked=false;});
+    document.querySelectorAll('.gp-model').forEach(function(s){s.value='';});
+    document.querySelectorAll('.gp-version').forEach(function(s){s.innerHTML=_gpVersionOptions('');});
+    tcUpdateSelectCount();
     return;
   }
 
-  // 填充弹窗内容
-  document.getElementById('gpCount').textContent=selected.length;
-  document.getElementById('gpPlanName').value='';
-  document.getElementById('gpFilename').value='';
-  document.getElementById('gpBundle').value='';
-  document.getElementById('gpModel').value='';
-  document.getElementById('gpVersion').innerHTML='<option value="">不指定</option>';
-  document.getElementById('gpMsg').textContent='';
+  delBtn.style.display='';
+  // 加载计划内容
+  fetch('/api/tc/plan/'+encodeURIComponent(filename))
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.error){document.getElementById('gpMsg').textContent=d.error;return;}
 
-  var html='<table class="table table-sm table-bordered mb-0"><thead><tr>'
-    +'<th>测试套</th><th>文件路径</th><th>用例数</th>'
-    +'</tr></thead><tbody>';
-  selected.forEach(function(sel){
-    var s=_suites.find(function(x){return x.module_path===sel.module_path&&x.class_name===sel.class_name;});
-    html+='<tr>'
-      +'<td><strong>'+_esc(sel.class_name)+'</strong></td>'
-      +'<td class="text-muted small">'+_esc(sel.module_path)+'</td>'
-      +'<td>'+((s&&s.case_count)||'?')+'</td>'
-      +'</tr>';
-  });
-  html+='</tbody></table>';
-  document.getElementById('gpSuiteList').innerHTML=html;
+      // 填充表单
+      document.getElementById('gpPlanName').value=d.name||'';
+      document.getElementById('gpFilename').value=filename.replace(/\.ya?ml$/,'');
 
-  new bootstrap.Modal(document.getElementById('tcPlanModal')).show();
+      // 提取全局 bundle（取第一个 plan 的 bundle）
+      var globalBundle='';
+      (d.plans||[]).forEach(function(p){if(p.bundle&&!globalBundle) globalBundle=p.bundle;});
+      document.getElementById('gpBundle').value=globalBundle;
+
+      // 先全部取消勾选，恢复默认
+      document.querySelectorAll('.tc-suite-chk').forEach(function(cb){cb.checked=false;});
+      document.querySelectorAll('.gp-model').forEach(function(s){s.value='';});
+      document.querySelectorAll('.gp-version').forEach(function(s){s.innerHTML=_gpVersionOptions('');});
+
+      // 按计划内容勾选并设置
+      (d.plans||[]).forEach(function(planItem){
+        var tests=planItem.tests||[];
+        tests.forEach(function(testPath){
+          document.querySelectorAll('#gpSuiteList .tc-suite-row').forEach(function(row){
+            var mod=row.dataset.module;
+            if(mod&&(mod.indexOf(testPath)>=0||testPath.indexOf(mod)>=0)){
+              var cb=row.querySelector('.tc-suite-chk');
+              if(cb) cb.checked=true;
+              var golden=planItem.golden||{};
+              if(golden.model){
+                var ms=row.querySelector('.gp-model');
+                if(ms) ms.value=golden.model;
+                var vs=row.querySelector('.gp-version');
+                if(vs){
+                  vs.innerHTML=_gpVersionOptions(golden.model);
+                  if(golden.version) vs.value=golden.version;
+                }
+              }
+            }
+          });
+        });
+      });
+
+      tcUpdateSelectCount();
+      document.getElementById('gpMsg').textContent='已加载 '+filename;
+    })
+    .catch(function(){document.getElementById('gpMsg').textContent='加载失败';});
 };
 
+window.tcDeletePlan=function(btn){
+  var filename=document.getElementById('gpLoadPlan').value;
+  if(!filename) return;
+  if(!confirm('确定删除计划 '+filename+' ？')) return;
+  btn.disabled=true;
+  fetch('/api/tc/plan/'+encodeURIComponent(filename),{method:'DELETE'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      btn.disabled=false;
+      if(d.error){document.getElementById('gpMsg').textContent=d.error;return;}
+      document.getElementById('gpMsg').textContent='✅ 已删除';
+      document.getElementById('gpLoadPlan').value='';
+      tcLoadPlan(); // 重置表单
+      tcLoadOptions(); // 刷新下拉
+    })
+    .catch(function(){btn.disabled=false;});
+};
+
+/* ---------- 保存计划 ---------- */
 window.tcSavePlan=function(btn){
-  var selected=_getSelectedSuites();
-  if(!selected.length){document.getElementById('gpMsg').textContent='没有选中的测试套';return;}
+  var rows=document.querySelectorAll('#gpSuiteList .tc-suite-row');
+  var checkedRows=[];
+  rows.forEach(function(row){var cb=row.querySelector('.tc-suite-chk');if(cb&&cb.checked)checkedRows.push(row);});
+  if(!checkedRows.length){document.getElementById('gpMsg').textContent='请先勾选测试套';return;}
 
   var planName=document.getElementById('gpPlanName').value.trim()||'自定义计划';
   var filename=document.getElementById('gpFilename').value.trim()||'testplan_custom';
   var bundle=document.getElementById('gpBundle').value;
-  var model=document.getElementById('gpModel').value;
-  var version=document.getElementById('gpVersion').value;
-
-  // 按文件路径去重合并 (同文件的多个类合入一个 plan item)
-  var byFile={};
-  selected.forEach(function(sel){
-    if(!byFile[sel.module_path])byFile[sel.module_path]=[];
-    byFile[sel.module_path].push(sel.class_name);
-  });
 
   var plans=[];
-  Object.keys(byFile).forEach(function(modPath){
-    var classes=byFile[modPath];
-    var entry={
-      name: classes.join(' + '),
-      tests: [modPath]
-    };
+  checkedRows.forEach(function(row){
+    var modPath=row.dataset.module;
+    var name=row.dataset['class']||modPath;
+    var model=row.querySelector('.gp-model').value;
+    var version=row.querySelector('.gp-version').value;
+    var entry={name:name,tests:[modPath]};
     if(bundle) entry.bundle=bundle;
-    if(model&&version) entry.golden={model:model, version:version};
-    else if(model) entry.golden={model:model};
+    if(model) entry.golden={model:model};
+    if(model&&version) entry.golden={model:model,version:version};
     plans.push(entry);
   });
 
-  btn.disabled=true;btn.textContent='保存中...';
-  fetch('/api/tc/plan',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({name:planName, filename:filename, plans:plans})
-  })
+  btn.disabled=true;btn.textContent='...';
+  fetch('/api/tc/plan',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name:planName,filename:filename,plans:plans})})
   .then(function(r){return r.json();})
   .then(function(d){
-    btn.disabled=false;btn.textContent='保存';
+    btn.disabled=false;btn.textContent='保存计划';
     if(d.error){document.getElementById('gpMsg').textContent=d.error;return;}
-    document.getElementById('gpMsg').textContent='已保存: '+d.filename;
-    // 刷新下拉框
+    document.getElementById('gpMsg').textContent='✅ 已保存 '+d.filename;
     tcLoadOptions();
-    // 2秒后关闭弹窗
-    setTimeout(function(){
-      var modal=bootstrap.Modal.getInstance(document.getElementById('tcPlanModal'));
-      if(modal)modal.hide();
-    },1500);
   })
-  .catch(function(){btn.disabled=false;btn.textContent='保存';});
+  .catch(function(){btn.disabled=false;btn.textContent='保存计划';});
 };
 
 /* ---------- 初始化 ---------- */
-tcLoadSuites();
-tcLoadExecutions();
-tcLoadOptions();
+tcLoadSuites(); tcLoadExecutions(); tcLoadOptions();
+
+/* 切换到「执行记录」时自动刷新 */
+var _exeTab=document.querySelector('[data-bs-target="#sub-executions"]');
+if(_exeTab) _exeTab.addEventListener('shown.bs.tab',function(){tcLoadExecutions();});
 
 })();
 </script>

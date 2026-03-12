@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast
-import hashlib
 import json
 import logging
 import time
@@ -300,6 +299,6 @@ def finish_execution(execution_id: str) -> None:
 
 def generate_execution_id() -> str:
     """Generate a unique execution ID based on timestamp."""
+    import uuid
     ts = time.strftime("%Y%m%d-%H%M%S")
-    h = hashlib.md5(str(time.time()).encode()).hexdigest()[:6]
-    return f"{ts}-{h}"
+    return f"{ts}-{uuid.uuid4().hex[:6]}"

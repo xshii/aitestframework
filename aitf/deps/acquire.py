@@ -112,7 +112,7 @@ def _verify_sha256(archive: Path, expected: str, label: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Archive location (2-tier: local -> script)
+# Archive location (3-tier: local -> script -> remote server)
 # ---------------------------------------------------------------------------
 
 def _locate_archive(
@@ -123,21 +123,48 @@ def _locate_archive(
     downloads.mkdir(parents=True, exist_ok=True)
     plat = detect_platform()
 
+    # Tier 1: local directory
     if acquire.local_dir:
         found = _find_archive(project_root / acquire.local_dir, name, version, plat)
         if found:
             return found
 
+    # Tier 2: fetch script
     if acquire.script:
         run_script(acquire.script, [version, str(downloads)], project_root=project_root)
         found = _find_archive(downloads, name, version, plat)
         if found:
             return found
 
+    # Tier 3: remote server (CLIENT mode)
+    found = _try_remote_download(name, version, downloads)
+    if found:
+        return found
+
     raise AcquireError(
         f"Could not find archive for {name}-{version}. "
         f"Place it in '{acquire.local_dir or 'deps/uploads/'}' or provide a fetch script."
     )
+
+
+def _try_remote_download(name: str, version: str, downloads: Path) -> Path | None:
+    """Attempt to download a dep archive from the remote server."""
+    try:
+        from flask import current_app
+        sc = current_app.config.get("SYNC_CLIENT")
+        if sc is None:
+            return None
+    except (ImportError, RuntimeError):
+        return None
+
+    try:
+        dest = sc.deps_download_archive(name, version, downloads)
+        if dest.is_file():
+            logger.info("Downloaded dep %s-%s from remote server", name, version)
+            return dest
+    except Exception as exc:
+        logger.debug("Remote download failed for %s-%s: %s", name, version, exc)
+    return None
 
 
 def _find_archive(directory: Path, name: str, version: str, plat: str) -> Path | None:

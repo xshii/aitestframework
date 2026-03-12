@@ -86,6 +86,24 @@ def create_app(config: dict | None = None, aitf_config=None) -> Flask:
             "dbox_enabled": aitf_config.dbox_enabled,
         }
 
+    # -- Sync setup (client mode) ------------------------------------------
+    from aitf.config import Mode
+    if aitf_config.mode == Mode.CLIENT and aitf_config.server_url:
+        from aitf.sync.client import SyncClient
+        from aitf.sync.worker import SyncWorker
+
+        sc = SyncClient(aitf_config.server_url)
+        app.config["SYNC_CLIENT"] = sc
+
+        sw = SyncWorker(sc, queue_dir=aitf_config.build_root)
+        app.config["SYNC_WORKER"] = sw
+        sw.start()
+
+        import atexit
+        atexit.register(sw.stop)
+
+        _log.info("Sync client mode: server=%s", aitf_config.server_url)
+
     # Auto-discover blueprints from aitf/*/routes.py
     for bp in _discover_blueprints():
         app.register_blueprint(bp)
