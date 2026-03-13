@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-import re
+import logging
 import threading
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 import yaml
 from flask import Blueprint, current_app, jsonify, request, send_file
 
 from aitf.tc import store
+from aitf.tc.models import CaseStatus
 
 bp = Blueprint("tc", __name__, template_folder="templates")
 
@@ -132,7 +135,7 @@ def api_tc_options():
             dcfg = load_deps_config(deps_file)
             bundles = list(dcfg.bundles.keys())
     except Exception:
-        pass
+        logger.debug("Failed to load bundles for tc/options", exc_info=True)
 
     # Golden models/versions from datastore
     try:
@@ -142,11 +145,10 @@ def api_tc_options():
             versions = gs.list_versions(model)
             golden_models.append({"model": model, "versions": versions})
     except Exception:
-        pass
+        logger.debug("Failed to load golden models for tc/options", exc_info=True)
 
     # Testplan files — return {filename, name} pairs
     try:
-        from pathlib import Path
         root = cfg.project_root if cfg else "."
         for pattern in ("testplan*.yaml", "testplan*.yml"):
             for f in sorted(Path(root).glob(pattern)):
@@ -154,11 +156,11 @@ def api_tc_options():
                     with open(f, encoding="utf-8") as fh:
                         plan_data = yaml.safe_load(fh) or {}
                     plan_name = plan_data.get("name", f.stem)
-                except Exception:
+                except (yaml.YAMLError, OSError):
                     plan_name = f.stem
                 testplans.append({"filename": f.name, "name": plan_name})
     except Exception:
-        pass
+        logger.debug("Failed to scan testplans for tc/options", exc_info=True)
 
     return jsonify({
         "bundles": bundles,
@@ -208,7 +210,7 @@ def api_delete_plan(filename):
 # Testplan generation
 # ---------------------------------------------------------------------------
 
-_SAFE_FILENAME_RE = re.compile(r'^[a-zA-Z0-9_\-\u4e00-\u9fff]+$')
+from aitf.tc.models import SAFE_FILENAME_RE as _SAFE_FILENAME_RE
 
 
 @bp.route("/api/tc/plan", methods=["POST"])
@@ -320,9 +322,7 @@ def api_sync_golden_to_remote():
 @bp.route("/api/tc/overview", methods=["GET"])
 def api_tc_overview():
     """Return overview dashboard data: latest execution, suite stats, fail top 10."""
-    from collections import Counter
-
-    from sqlalchemy import select
+    from sqlalchemy import func, select
 
     from aitf.tc.db import get_session
     from aitf.tc.models import CaseResult, Execution, SuiteInfo
@@ -340,28 +340,35 @@ def api_tc_overview():
             if exe:
                 latest_execution = exe.to_dict()
 
-            # Suite stats
-            suites = session.execute(select(SuiteInfo)).scalars().all()
-            suite_stats["total_suites"] = len(suites)
-            suite_stats["total_cases"] = sum(s.case_count or 0 for s in suites)
+            # Suite stats — aggregate in SQL instead of loading all rows
+            stats = session.execute(
+                select(
+                    func.count(SuiteInfo.id),
+                    func.coalesce(func.sum(SuiteInfo.case_count), 0),
+                )
+            ).one()
+            suite_stats["total_suites"] = stats[0]
+            suite_stats["total_cases"] = stats[1]
 
-            # Fail top 10: cases that fail most frequently across all executions
+            # Fail top 10 — aggregate in SQL with GROUP BY
             fail_rows = session.execute(
                 select(
                     CaseResult.suite_class,
                     CaseResult.case_method,
+                    func.count().label("cnt"),
                 )
-                .where(CaseResult.status.in_(["FAIL", "ERROR", "TIMEOUT", "CRASH"]))
+                .where(CaseResult.status.in_(CaseStatus.FAILURE))
+                .group_by(CaseResult.suite_class, CaseResult.case_method)
+                .order_by(func.count().desc())
+                .limit(10)
             ).all()
-            counter: Counter[str] = Counter()
-            for row in fail_rows:
-                counter[f"{row.suite_class}::{row.case_method}"] += 1
             fail_top10 = [
-                {"case_name": name, "fail_count": count}
-                for name, count in counter.most_common(10)
+                {"case_name": f"{row.suite_class}::{row.case_method}",
+                 "fail_count": row.cnt}
+                for row in fail_rows
             ]
     except Exception:
-        pass
+        logger.warning("Failed to load overview data", exc_info=True)
 
     return jsonify({
         "latest_execution": latest_execution,
@@ -404,12 +411,13 @@ def api_webhook():
             exe = session.get(Execution, execution_id)
             if exe is None:
                 # Create new execution record
-                from datetime import datetime
+                from datetime import UTC, datetime
 
+                now = datetime.now(UTC)
                 exe = Execution(
                     id=execution_id,
-                    started_at=datetime.utcnow(),
-                    finished_at=datetime.utcnow(),
+                    started_at=now,
+                    finished_at=now,
                     platform=body.get("platform"),
                     git_commit=body.get("git_commit"),
                     trigger="webhook",
@@ -426,9 +434,9 @@ def api_webhook():
                 session.add(exe)
             else:
                 # Update existing execution
-                from datetime import datetime
+                from datetime import UTC, datetime
 
-                exe.finished_at = datetime.utcnow()
+                exe.finished_at = datetime.now(UTC)
                 exe.platform = body.get("platform") or exe.platform
                 exe.git_commit = body.get("git_commit") or exe.git_commit
                 exe.total = summary.get("total", exe.total)

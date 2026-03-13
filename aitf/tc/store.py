@@ -7,14 +7,14 @@ import json
 import logging
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from aitf.tc.db import get_session
-from aitf.tc.models import CaseResult, Execution, SuiteInfo
+from aitf.tc.models import CaseResult, CaseStatus, Execution, SuiteInfo
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +97,7 @@ def refresh_suites(cases_dir: str | Path) -> int:
     from dataclasses import asdict
 
     discovered = scan_cases_dir(cases_dir)
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
 
     with get_session() as session:
         # Build lookup of existing suites
@@ -182,7 +182,7 @@ def create_execution(
     suite_cases: list of (suite_class, [method_names])
     Returns execution_id.
     """
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
     total = sum(len(methods) for _, methods in (suite_cases or []))
 
     with get_session() as session:
@@ -201,7 +201,7 @@ def create_execution(
                     execution_id=execution_id,
                     suite_class=suite_class,
                     case_method=method,
-                    status="PENDING",
+                    status=CaseStatus.PENDING,
                 ))
 
         session.commit()
@@ -236,10 +236,10 @@ def update_case_status(
             return
 
         row.status = status
-        if status == "RUNNING" and row.started_at is None:
-            row.started_at = datetime.utcnow()
-        if status in ("PASS", "FAIL", "TIMEOUT", "CRASH", "SKIP", "ERROR"):
-            row.finished_at = datetime.utcnow()
+        if status == CaseStatus.RUNNING and row.started_at is None:
+            row.started_at = datetime.now(UTC)
+        if status in CaseStatus.TERMINAL:
+            row.finished_at = datetime.now(UTC)
             if row.started_at:
                 row.duration_s = (row.finished_at - row.started_at).total_seconds()
 
@@ -267,22 +267,21 @@ def finish_execution(execution_id: str) -> None:
             select(CaseResult).where(CaseResult.execution_id == execution_id)
         ).scalars().all()
 
-        counts = {"PASS": 0, "FAIL": 0, "TIMEOUT": 0, "CRASH": 0,
-                  "SKIP": 0, "ERROR": 0}
+        counts: dict[str, int] = {}
         suite_summary: dict[str, dict] = {}
         for c in cases:
             counts[c.status] = counts.get(c.status, 0) + 1
             ss = suite_summary.setdefault(c.suite_class, {})
             ss[c.status] = ss.get(c.status, 0) + 1
 
-        exe.finished_at = datetime.utcnow()
+        exe.finished_at = datetime.now(UTC)
         exe.total = len(cases)
-        exe.passed = counts["PASS"]
-        exe.failed = counts["FAIL"]
-        exe.timeout = counts["TIMEOUT"]
-        exe.crashed = counts["CRASH"]
-        exe.skipped = counts["SKIP"]
-        exe.errored = counts["ERROR"]
+        exe.passed = counts.get(CaseStatus.PASS, 0)
+        exe.failed = counts.get(CaseStatus.FAIL, 0)
+        exe.timeout = counts.get(CaseStatus.TIMEOUT, 0)
+        exe.crashed = counts.get(CaseStatus.CRASH, 0)
+        exe.skipped = counts.get(CaseStatus.SKIP, 0)
+        exe.errored = counts.get(CaseStatus.ERROR, 0)
         exe.pass_rate = exe.passed / exe.total if exe.total else 0.0
 
         # Update suite_info with last execution summary

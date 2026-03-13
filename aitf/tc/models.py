@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 
 from sqlalchemy import (
@@ -17,6 +18,30 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.orm import DeclarativeBase, relationship
+
+# -- shared constants -------------------------------------------------------
+
+SAFE_FILENAME_RE = re.compile(r'^[a-zA-Z0-9_\-\u4e00-\u9fff]+$')
+"""Regex for safe filenames (letters, digits, underscore, hyphen, CJK)."""
+
+
+class CaseStatus:
+    """Test case status constants."""
+
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    PASS = "PASS"
+    FAIL = "FAIL"
+    TIMEOUT = "TIMEOUT"
+    CRASH = "CRASH"
+    SKIP = "SKIP"
+    ERROR = "ERROR"
+
+    TERMINAL = (PASS, FAIL, TIMEOUT, CRASH, SKIP, ERROR)
+    """Statuses that indicate the case has finished."""
+
+    FAILURE = (FAIL, ERROR, TIMEOUT, CRASH)
+    """Statuses that count as failures."""
 
 
 def _ts(dt: datetime | None) -> str | None:

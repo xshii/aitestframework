@@ -12,6 +12,7 @@ from pathlib import Path
 
 from aitf.tc import store
 from aitf.tc.db import get_session, init_db
+from aitf.tc.models import CaseStatus
 from aitf.tc.testplan import RunConfig
 
 logger = logging.getLogger(__name__)
@@ -62,30 +63,30 @@ class AitfTestResult(unittest.TestResult):
 
     def startTest(self, test):
         super().startTest(test)
-        self._update(test, "RUNNING")
+        self._update(test, CaseStatus.RUNNING)
 
     def addSuccess(self, test):
         super().addSuccess(test)
-        self._update(test, "PASS")
+        self._update(test, CaseStatus.PASS)
 
     def addFailure(self, test, err):
         super().addFailure(test, err)
         reason = "".join(traceback.format_exception(*err))
-        self._update(test, "FAIL", failure_reason=reason)
+        self._update(test, CaseStatus.FAIL, failure_reason=reason)
 
     def addError(self, test, err):
         super().addError(test, err)
         reason = "".join(traceback.format_exception(*err))
-        status = "ERROR"
+        status = CaseStatus.ERROR
         if err[0] is TimeoutError:
-            status = "TIMEOUT"
+            status = CaseStatus.TIMEOUT
         elif err[0] is SystemExit or err[0] is KeyboardInterrupt:
-            status = "CRASH"
+            status = CaseStatus.CRASH
         self._update(test, status, failure_reason=reason)
 
     def addSkip(self, test, reason):
         super().addSkip(test, reason)
-        self._update(test, "SKIP", failure_reason=reason)
+        self._update(test, CaseStatus.SKIP, failure_reason=reason)
 
 
 # ---------------------------------------------------------------------------

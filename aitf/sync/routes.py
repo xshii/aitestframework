@@ -47,7 +47,7 @@ def sync_ping():
 def receive_results():
     """Receive execution results from a client and store in server DB."""
     from aitf.tc.db import get_session
-    from aitf.tc.models import CaseResult, Execution
+    from aitf.tc.models import CaseResult, CaseStatus, Execution
 
     body = request.get_json(silent=True)
     if not body or "id" not in body:
@@ -97,7 +97,7 @@ def receive_results():
                 execution_id=eid,
                 suite_class=c.get("suite_class", ""),
                 case_method=c.get("case_method", ""),
-                status=c.get("status", "PENDING"),
+                status=c.get("status", CaseStatus.PENDING),
                 failure_reason=c.get("failure_reason"),
             )
             if c.get("duration_s") is not None:
@@ -263,7 +263,7 @@ def serve_plan(filename: str):
     return jsonify(data or {})
 
 
-_SAFE_PLAN_RE = __import__("re").compile(r'^[a-zA-Z0-9_\-\u4e00-\u9fff]+$')
+from aitf.tc.models import SAFE_FILENAME_RE as _SAFE_PLAN_RE
 
 
 def _save_plan(filename: str, plan_data) -> tuple[str | None, str | None]:

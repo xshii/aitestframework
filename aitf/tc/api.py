@@ -802,9 +802,10 @@ def list_executions(limit: int = 20) -> list[ExecutionStats]:
 
 def _simplify_status(raw: str) -> str:
     """内部状态 → 三态：passed / failed / not_run。"""
-    if raw == "PASS":
+    from aitf.tc.models import CaseStatus
+    if raw == CaseStatus.PASS:
         return "passed"
-    if raw in ("FAIL", "ERROR", "TIMEOUT", "CRASH"):
+    if raw in CaseStatus.FAILURE:
         return "failed"
     return "not_run"  # PENDING / RUNNING / SKIP
 

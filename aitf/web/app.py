@@ -103,6 +103,20 @@ def create_app(config: dict | None = None, aitf_config=None) -> Flask:
 
         _log.info("Sync client mode: server=%s", aitf_config.server_url)
 
+    # -- CSRF mitigation: reject POST/PUT with body but wrong Content-Type
+    @app.before_request
+    def _check_content_type():
+        from flask import request as req
+        if req.method in ("POST", "PUT") and req.content_length:
+            ct = req.content_type or ""
+            if not any(ct.startswith(t) for t in (
+                "application/json",
+                "multipart/form-data",
+                "application/x-www-form-urlencoded",
+            )):
+                from flask import jsonify as _jsonify
+                return _jsonify({"error": "unsupported Content-Type"}), 415
+
     # Auto-discover blueprints from aitf/*/routes.py
     for bp in _discover_blueprints():
         app.register_blueprint(bp)
