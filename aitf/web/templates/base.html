@@ -12,19 +12,21 @@
     <div class="container-fluid">
       <a class="navbar-brand" href="/">aitestframework</a>
       <ul class="navbar-nav" id="navTabs">
-        <li class="nav-item"><a class="nav-link active" href="#" data-tab="tab-data">Data</a></li>
+        <li class="nav-item"><a class="nav-link active" href="#" data-tab="tab-overview">Overview</a></li>
+        <li class="nav-item"><a class="nav-link" href="#" data-tab="tab-data">Data</a></li>
         <li class="nav-item"><a class="nav-link" href="#" data-tab="tab-deps">Deps</a></li>
         <li class="nav-item"><a class="nav-link" href="#" data-tab="tab-cases">Cases</a></li>
         <li class="nav-item"><a class="nav-link" href="#" data-tab="tab-logs">Logs</a></li>
       </ul>
       <span class="navbar-text ms-auto small">
-        {% if aitf_mode == 'server' %}
+        {% if aitf_mode == 'standalone' %}
           <span class="badge bg-success">服务器</span>
         {% elif aitf_mode == 'client' %}
           <span class="badge bg-info text-dark">客户端</span>
-          <span class="text-muted ms-1">{{ aitf_server }}</span>
-        {% else %}
-          <span class="badge bg-secondary">单机</span>
+          <span class="text-muted ms-1">→ {{ aitf_server }}</span>
+        {% elif aitf_mode == 'debug' %}
+          <span class="badge bg-warning text-dark">调试</span>
+          <span class="text-muted ms-1">服务端+客户端</span>
         {% endif %}
       </span>
     </div>

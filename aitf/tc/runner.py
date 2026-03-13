@@ -256,6 +256,7 @@ def run_tests(
     target: str | None = None,
     golden_model: str | None = None,
     golden_version: str | None = None,
+    params: dict | None = None,
     verbosity: int = 1,
 ) -> tuple[str, bool]:
     """Run tests with a single config. Returns (execution_id, all_passed).
@@ -271,6 +272,7 @@ def run_tests(
             filter_k=filter_k,
             bundle=bundle, target=target,
             golden_model=golden_model, golden_version=golden_version,
+            params=params or {},
         )
 
     eid, suite = _prepare_execution(cases_dir, config)
@@ -360,6 +362,7 @@ def run_tests_async(
             target=kwargs.get("target"),
             golden_model=kwargs.get("golden_model"),
             golden_version=kwargs.get("golden_version"),
+            params=kwargs.get("params") or {},
         )
 
     eid, suite = _prepare_execution(cases_dir, config)

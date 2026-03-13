@@ -1,10 +1,26 @@
 """Unified project configuration (config.yaml).
 
-Determines the runtime mode based on the ``server`` field:
+Determines the runtime mode based on ``server`` field:
 
-- **standalone** — ``server`` is empty or config.yaml is missing
-- **server** — ``server`` matches a local IP address
-- **client** — ``server`` is a remote IP address
+- **standalone** — ``server`` is empty or config.yaml is missing.
+  Local machine acts as server, binds to ``0.0.0.0``.
+- **client** — ``server`` is a remote IP.
+  Connects to remote server for sync; also starts local web UI.
+- **debug** — ``server`` equals a local IP.
+  Starts both server and client on the same machine (for testing).
+
+配置示例::
+
+    # 场景 1: 不写 server → 本机即服务器（standalone）
+    port: 8080
+
+    # 场景 2: server 是远程 IP → 客户端，连接远程服务器
+    server: "192.168.1.100"
+    port: 8080
+
+    # 场景 3: server 是本机 IP → 调试模式，同时启动服务端和客户端
+    server: "192.168.1.50"   # 本机 IP
+    port: 8080
 """
 
 from __future__ import annotations
@@ -24,42 +40,49 @@ DEFAULT_CONFIG_FILE = "config.yaml"
 
 class Mode(str, Enum):
     STANDALONE = "standalone"
-    SERVER = "server"
     CLIENT = "client"
+    DEBUG = "debug"          # server IP == local IP → both roles
 
 
-def is_local_ip(ip: str) -> bool:
-    """Return True if *ip* resolves to an address on this machine."""
-    if ip in ("localhost", "127.0.0.1", "::1"):
-        return True
-    local_ips: set[str] = {"127.0.0.1", "::1"}
-    # Addresses from hostname
+def get_local_ips() -> set[str]:
+    """Return all IP addresses on this machine."""
+    local_ips: set[str] = {"127.0.0.1", "::1", "localhost"}
     try:
         for info in socket.getaddrinfo(socket.gethostname(), None):
             local_ips.add(info[4][0])
     except OSError:
         pass
-    # Preferred outbound IP (UDP connect trick)
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
             s.connect(("8.8.8.8", 80))
             local_ips.add(s.getsockname()[0])
     except OSError:
         pass
-    return ip in local_ips
+    return local_ips
+
+
+def is_local_ip(ip: str) -> bool:
+    """Return True if *ip* resolves to an address on this machine."""
+    return ip in get_local_ips()
 
 
 def _determine_mode(server: str) -> Mode:
     if not server:
         return Mode.STANDALONE
     if is_local_ip(server):
-        return Mode.SERVER
+        return Mode.DEBUG
     return Mode.CLIENT
 
 
 @dataclass
 class AitfConfig:
-    """Global configuration loaded from ``config.yaml``."""
+    """Global configuration loaded from ``config.yaml``.
+
+    Attributes:
+        server: 服务器 IP。空 = 本机即服务器; 远程 IP = 客户端模式;
+                本机 IP = 调试模式（同时启动服务端和客户端）。
+        port: Web 服务端口。
+    """
 
     server: str = ""
     port: int = 5000
@@ -68,40 +91,53 @@ class AitfConfig:
     dbox_enabled: bool = False
     dbox_server: str = ""
     dbox_upload_path: str = "/api/upload"
-    # None → derive from project_root at access time
     _build_root: Path | None = field(default=None, repr=False)
     _datastore_dir: Path | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         self.mode = _determine_mode(self.server)
 
-    # -- path properties (default = project_root-relative) -------------------
+    # -- path properties ---------------------------------------------------
 
     @property
     def build_root(self) -> Path:
-        """Root for build artefacts (cache, repos). Default: ``<project_root>/build``."""
         if self._build_root is not None:
             return self._build_root
         return self.project_root / "build"
 
     @property
     def datastore_dir(self) -> Path:
-        """Golden-data store location. Default: ``<project_root>/datastore``."""
         if self._datastore_dir is not None:
             return self._datastore_dir
         return self.project_root / "datastore"
 
     @property
     def server_url(self) -> str | None:
-        """Full base URL for client mode, ``None`` otherwise."""
-        if self.mode == Mode.CLIENT:
+        """Full base URL for client/debug sync. None for standalone."""
+        if self.mode in (Mode.CLIENT, Mode.DEBUG):
             return f"http://{self.server}:{self.port}"
         return None
 
     @property
     def bind_host(self) -> str:
-        """Host address the web server should bind to."""
-        return "0.0.0.0" if self.mode == Mode.SERVER else "127.0.0.1"
+        """Host address the web server should bind to.
+
+        standalone/debug → 0.0.0.0 (accept remote connections)
+        client → 127.0.0.1 (local only, sync to remote server)
+        """
+        if self.mode == Mode.CLIENT:
+            return "127.0.0.1"
+        return "0.0.0.0"
+
+    @property
+    def is_server(self) -> bool:
+        """Whether this instance acts as a server (accepts data from clients)."""
+        return self.mode in (Mode.STANDALONE, Mode.DEBUG)
+
+    @property
+    def is_client(self) -> bool:
+        """Whether this instance syncs data to a remote server."""
+        return self.mode in (Mode.CLIENT, Mode.DEBUG)
 
 
 def load_config(

@@ -7,12 +7,14 @@
 - ``load_golden_inputs()``— 只加载 input 类别的 golden 数据
 - ``load_golden_outputs()``— 只加载 output 类别的 golden 数据（期望结果）
 - ``get_golden_file()``   — 获取单个 golden 数据文件路径
+- ``save_golden()``       — 上传文件为 golden 基准数据
 - ``ensure_dep()``     — 确保单个依赖已安装（含构建）并返回路径
 - ``rebuild_dep()``    — 强制重新构建指定依赖
 - ``ensure_bundle()``  — 确保 bundle 所有依赖已安装（含构建）
 - ``get_dep_path()``   — 获取已安装依赖路径（不触发安装）
 - ``get_dep_env()``    — 获取单个依赖的环境变量
 - ``get_bundle_env()`` — 获取 bundle 所有环境变量
+- ``run_vscode_task()``— 执行仓库 .vscode/tasks.json 中的 task
 - ``run_script()``     — 运行项目下的 shell 脚本
 - ``get_last_stats()`` — 获取最近一次执行统计
 - ``get_stats()``      — 获取指定执行的统计
@@ -455,6 +457,84 @@ def get_bundle_env(name: str | None = None) -> dict[str, str]:
         return {}
 
 
+# ---------------------------------------------------------------------------
+# 执行环境 / 命令执行 (REQ-4.2 / REQ-6)
+# ---------------------------------------------------------------------------
+
+def select_env(target_name: str = "local",
+               targets_file: str | None = None) -> Any:
+    """选择执行环境，返回 Environment 对象。
+
+    Args:
+        target_name: 目标名（对应 runner/targets.yaml 中的配置），
+                     如 "local", "sim-server", "fpga-board"。
+        targets_file: targets.yaml 路径，默认自动查找。
+
+    Returns:
+        Environment 对象，封装本地或远程执行能力。
+
+    用法示例::
+
+        env = select_env("sim-server")
+        result = execute(env, "ls -la")
+        env.cleanup()
+    """
+    from aitf.runner.executor import TargetConfig, load_targets
+    from aitf.runner.environment import Environment
+
+    if targets_file is None:
+        # 尝试多个默认路径
+        dm = _get_deps_manager()
+        root = Path(dm.project_root) if dm else Path(".")
+        for candidate in [root / "runner" / "targets.yaml",
+                          root / "targets.yaml",
+                          root / "config" / "targets.yaml"]:
+            if candidate.is_file():
+                targets_file = str(candidate)
+                break
+
+    if targets_file and Path(targets_file).is_file():
+        targets = load_targets(targets_file)
+        if target_name not in targets:
+            raise KeyError(f"Target '{target_name}' not found in {targets_file}. "
+                           f"Available: {list(targets.keys())}")
+        config = targets[target_name]
+    else:
+        # 无配置文件时，"local" 使用默认配置
+        if target_name == "local":
+            config = TargetConfig(name="local", type="local")
+        else:
+            raise FileNotFoundError(
+                f"No targets.yaml found and target '{target_name}' is not 'local'")
+
+    return Environment(target_name, config)
+
+
+def execute(env: Any, command: str, timeout: int = 300,
+            env_vars: dict[str, str] | None = None,
+            cwd: str | None = None) -> Any:
+    """在指定环境中执行命令。
+
+    Args:
+        env: select_env() 返回的 Environment 对象。
+        command: 要执行的 shell 命令字符串。
+        timeout: 超时秒数，默认 300。
+        env_vars: 额外环境变量。
+        cwd: 工作目录（仅本地执行有效）。
+
+    Returns:
+        ExecuteResult，包含 returncode, stdout, stderr, duration_s。
+
+    用法示例::
+
+        env = select_env("local")
+        result = execute(env, "echo hello")
+        assert result.returncode == 0
+        print(result.stdout)
+    """
+    return env.run(command, timeout=timeout, env=env_vars, cwd=cwd)
+
+
 def run_script(script: str, args: list[str] | None = None,
                timeout: int = 600) -> bool:
     """运行项目根目录下的 shell 脚本。
@@ -484,6 +564,139 @@ def run_script(script: str, args: list[str] | None = None,
         return True
     except Exception as exc:
         logger.warning("Script '%s' failed: %s", script, exc)
+        return False
+
+
+# ---------------------------------------------------------------------------
+# VSCode Task 执行
+# ---------------------------------------------------------------------------
+
+def run_vscode_task(repo_dir: str | Path, label: str,
+                    *,
+                    env_vars: dict[str, str] | None = None,
+                    timeout: int = 300,
+                    skip_deps: bool = False) -> Any:
+    """执行仓库 .vscode/tasks.json 中指定 label 的 task.
+
+    自动解析 ``dependsOn`` 依赖链，按顺序执行前置任务。
+    如果前置任务失败会抛出 RuntimeError。
+
+    Args:
+        repo_dir: 仓库根目录（包含 ``.vscode/tasks.json``）。
+        label: task label（如 ``"[stub] 01-构建桩代码 (app)"``）。
+        env_vars: 额外环境变量，会与系统环境合并。
+        timeout: 每个 task 的超时秒数（默认 300）。
+        skip_deps: 为 True 时跳过 dependsOn，仅执行目标 task。
+
+    Returns:
+        ExecuteResult，包含 returncode / stdout / stderr / duration_s。
+
+    Raises:
+        FileNotFoundError: .vscode/tasks.json 不存在。
+        KeyError: label 不存在。
+        RuntimeError: 依赖 task 执行失败。
+
+    用法示例::
+
+        from aitf.tc.api import run_vscode_task
+
+        # 执行构建任务（自动先执行 dependsOn 的前置任务）
+        result = run_vscode_task("/path/to/repo",
+                                 "[stub] 01-构建桩代码 (app)")
+        assert result.returncode == 0
+
+        # 带 bundle 环境变量执行
+        result = run_vscode_task(
+            repo_dir, "[stub] 03-运行桩代码",
+            env_vars=get_bundle_env("npu_v2"),
+        )
+    """
+    from aitf.runner.vscode_task import run_vscode_task as _run
+    return _run(repo_dir, label, env_vars=env_vars,
+                timeout=timeout, skip_deps=skip_deps)
+
+
+# ---------------------------------------------------------------------------
+# Golden 数据上传
+# ---------------------------------------------------------------------------
+
+def save_golden(operator: str, files: list[Path],
+                model: str | None = None,
+                version: str | None = None,
+                categories: list[str] | None = None) -> bool:
+    """上传文件为 golden 基准数据.
+
+    将指定文件保存到 ``datastore/store/<model>/<version>/<operator>/``，
+    并自动生成元数据。
+
+    Args:
+        operator: 算子名（对应 golden 目录下的子目录名）。
+        files: 要上传的文件路径列表。
+        model: golden 模型名，默认从运行上下文获取。
+        version: golden 版本，默认从运行上下文获取。
+        categories: 每个文件的类别（input/output/...），
+                    默认根据文件名中的 Input/Output 关键字推断。
+
+    Returns:
+        True 成功，False 失败。
+
+    用法示例::
+
+        # 上传解析后的输出文件为 golden 基准
+        save_golden("tdd", [Path("output0.txt"), Path("output1.txt")])
+
+        # 指定 model/version
+        save_golden("matmul", parsed_files,
+                    model="npu_model", version="v2.0")
+    """
+    import shutil
+    model, version = _resolve_model_version(model, version)
+    if not model or not version:
+        logger.warning("save_golden: 未指定 model/version，无法上传")
+        return False
+
+    gs = get_golden_store()
+    if gs is None:
+        logger.warning("save_golden: GoldenStore 不可用")
+        return False
+
+    try:
+        from aitf.ds.store import DataItem, OperatorMeta, build_golden_filename
+
+        meta_items: list[DataItem] = []
+        saved_names: list[str] = []
+
+        for i, fp in enumerate(files):
+            fp = Path(fp)
+
+            # 推断 category
+            if categories and i < len(categories):
+                cat = categories[i]
+            elif "Input" in fp.name or "input" in fp.name:
+                cat = "input"
+            elif "Output" in fp.name or "output" in fp.name:
+                cat = "output"
+            else:
+                cat = "other"
+
+            item = DataItem(seq=i, category=cat)
+            meta_items.append(item)
+
+            golden_fname = build_golden_filename(operator, item, ext=fp.suffix)
+            dest = gs.save_file(model, version, operator, golden_fname)
+            shutil.copy2(fp, dest)
+            saved_names.append(golden_fname)
+
+        gs.save_meta(model, version, operator,
+                     OperatorMeta(name=operator, data=meta_items))
+        gs.log("save_golden", model=model, version=version,
+               operator=operator, files=saved_names,
+               source="auto")
+        logger.info("save_golden: %s/%s/%s — %d 文件已上传",
+                     model, version, operator, len(saved_names))
+        return True
+    except Exception as exc:
+        logger.warning("save_golden failed: %s", exc)
         return False
 
 

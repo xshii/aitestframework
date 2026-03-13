@@ -108,9 +108,32 @@
         <option value="">不指定</option>
       </select>
     </div>
-    <div class="col-4 d-flex align-items-end gap-2">
+    <div class="col-2">
+      <label class="form-label small mb-0">全局 Target</label>
+      <select class="form-select form-select-sm" id="gpTarget">
+        <option value="">不指定</option>
+        <option value="local">本地</option>
+        <option value="remote">远程</option>
+        <option value="sim">仿真</option>
+      </select>
+    </div>
+    <div class="col-2 d-flex align-items-end gap-2 flex-wrap">
       <button class="btn btn-sm btn-primary py-0" onclick="tcSavePlan(this)">保存计划</button>
+      {% if aitf_mode in ('client', 'debug') %}
+      <button class="btn btn-sm btn-outline-success py-0" onclick="tcUploadPlan(this)" title="上传测试计划到服务器，并检查golden集同步状态">上传到服务器</button>
+      {% endif %}
       <small class="text-muted" id="gpMsg"></small>
+    </div>
+  </div>
+  {# 全局 params 编辑器 #}
+  <div class="mb-2">
+    <div class="d-flex align-items-center gap-2 mb-1">
+      <label class="form-label small mb-0 fw-bold">全局参数 (params)</label>
+      <button class="btn btn-sm btn-outline-secondary py-0" style="font-size:.7rem" onclick="gpToggleParams()">展开/收起</button>
+    </div>
+    <div id="gpParamsWrap" style="display:none">
+      <textarea class="form-control form-control-sm" id="gpGlobalParams" rows="4" placeholder='{"tid_names": {"2": "matmul_layer0"}, "filter_cases": ["tdd"], "addr_shift": 16}' style="font-family:monospace;font-size:.8rem"></textarea>
+      <small class="text-muted">JSON 格式，将写入每个测试套的 params 字段（可被单个测试套覆盖）</small>
     </div>
   </div>
   <hr class="my-1">
@@ -122,8 +145,20 @@
     <small class="text-muted" id="tcSelectedCount"></small>
     <input class="form-control form-control-sm ms-auto" id="gpSuiteFilter" placeholder="搜索..." style="width:160px" oninput="tcRenderPlanSuites()">
   </div>
-  <div id="gpSuiteList" style="max-height:500px;overflow-y:auto"></div>
+  <div id="gpSuiteList" style="max-height:500px;overflow-y:auto;padding-right:8px"></div>
   <p id="gpSuiteEmpty" class="text-muted small d-none">暂无测试套。请先在「用例」页签点击「扫描」。</p>
+
+  {# Golden 同步确认对话框 #}
+  <div id="gpGoldenSyncDialog" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.4);z-index:1050;align-items:center;justify-content:center">
+    <div style="background:#fff;border-radius:8px;padding:20px;max-width:600px;width:90%;max-height:80vh;overflow-y:auto;box-shadow:0 4px 20px rgba(0,0,0,.3)">
+      <h6 style="margin:0 0 12px">Golden 集同步检查</h6>
+      <div id="gpGoldenSyncBody" style="font-size:.85rem"></div>
+      <div class="d-flex gap-2 mt-3 justify-content-end">
+        <button class="btn btn-sm btn-secondary" onclick="gpCloseGoldenSync()">取消</button>
+        <button class="btn btn-sm btn-success" id="gpGoldenSyncConfirm" onclick="gpConfirmGoldenSync()">确认上传</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 {# ===== 执行记录 ===== #}
@@ -378,15 +413,27 @@ window.tcRenderPlanSuites=function(){
     html+='<div class="'+(groups.length>1&&grp!=='default'?'tc-tree-group':'')+'">';
 
     suites.forEach(function(s){
-      html+='<div class="tc-suite-row d-flex align-items-center gap-1 flex-wrap" data-module="'+_e(s.module_path)+'" data-class="'+_e(s.class_name)+'">'
+      var rowId='gp_r_'+s.id;
+      var tidId='gp_tid_'+s.id;
+      html+='<div class="tc-suite-row" data-module="'+_e(s.module_path)+'" data-class="'+_e(s.class_name)+'">'
+        +'<div class="d-flex align-items-center gap-1 flex-wrap">'
         +'<input class="form-check-input tc-suite-chk" type="checkbox" onchange="tcUpdateSelectCount()" style="margin:0">'
         +'<span class="fw-bold small me-1">'+_e(s.class_name)+'</span>'
         +'<span class="text-muted small me-1" style="font-size:.75rem">'+_e(s.module_path)+'</span>'
         +'<span class="badge bg-secondary" style="font-size:.65rem">'+s.case_count+'</span>'
+        +'<button class="btn btn-sm btn-outline-secondary py-0 ms-1" style="font-size:.65rem" onclick="gpToggleRowParams(\''+rowId+'\')">参数</button>'
         +'<span class="ms-auto d-flex align-items-center gap-1">'
         +'<select class="form-select form-select-sm gp-model" style="width:auto;max-width:150px;padding-right:1.8rem" onchange="tcGpRowModelChanged(this)">'+modelOpts+'</select>'
         +'<span class="gp-ver-group"><span class="text-muted" style="font-size:.75rem">选择模型</span></span>'
+        +'<button class="btn btn-sm btn-outline-info py-0 gp-tid-btn" style="font-size:.65rem;display:none" onclick="gpShowTidPanel(this,\''+tidId+'\')">配置TID</button>'
         +'</span>'
+        +'</div>'
+        +'<div class="gp-row-params" id="'+rowId+'" style="display:none;padding:2px 0 2px 22px">'
+        +'<input class="form-control form-control-sm gp-suite-params" placeholder="单套参数 JSON（覆盖全局）" style="font-family:monospace;font-size:.75rem">'
+        +'</div>'
+        +'<div class="gp-tid-panel" id="'+tidId+'" style="display:none;padding:4px 0 4px 22px">'
+        +'<div class="gp-tid-content"><span class="text-muted small">请先选择模型和版本</span></div>'
+        +'</div>'
         +'</div>';
     });
     html+='</div></div>';
@@ -506,10 +553,21 @@ window.tcShowExeDetail=function(exeId){
       Object.keys(suites).forEach(function(sn){
         html+='<div class="fw-bold small mb-1">'+_e(sn)+'</div>';
         suites[sn].forEach(function(c){
+          var cmpHtml='';
+          if(c.compare_detail){
+            var cd=c.compare_detail;
+            cmpHtml='<span class="badge bg-info text-dark ms-1" style="font-size:.65rem" title="'+_e(JSON.stringify(cd))+'">';
+            if(cd.total_compared!=null) cmpHtml+='比对 '+cd.total_compared+' 文件';
+            if(cd.operators) cmpHtml+=' · '+cd.operators.length+' 算子';
+            if(cd.first_diff) cmpHtml+=' · '+_e(cd.first_diff);
+            if(cd.golden_uploaded) cmpHtml+='已上传 golden';
+            cmpHtml+='</span>';
+          }
           html+='<div class="d-flex align-items-center small" style="padding:1px 0 1px 16px">'
             +'<span class="me-1">'+_icon(c.status)+'</span>'
             +'<code class="me-2">'+_e(c.case_method)+'</code>'
             +(c.duration_s!=null?'<span class="text-muted me-2">'+c.duration_s.toFixed(2)+'s</span>':'')
+            +cmpHtml
             +(c.failure_reason?'<span class="text-danger text-truncate" style="max-width:400px" title="'+_e(c.failure_reason)+'">'+_e(c.failure_reason.split('\n').pop())+'</span>':'')
             +'</div>';
         });
@@ -698,7 +756,246 @@ function _gpVersionCheckboxes(model){
   return html;
 }
 window.tcGpRowModelChanged=function(sel){
-  sel.closest('.tc-suite-row').querySelector('.gp-ver-group').innerHTML=_gpVersionCheckboxes(sel.value);
+  var row=sel.closest('.tc-suite-row');
+  row.querySelector('.gp-ver-group').innerHTML=_gpVersionCheckboxes(sel.value);
+  var tidBtn=row.querySelector('.gp-tid-btn');
+  if(tidBtn) tidBtn.style.display=sel.value?'':'none';
+  // 版本勾选变化时更新 TID 按钮可见性
+  setTimeout(function(){
+    row.querySelectorAll('.gp-ver-chk').forEach(function(chk){
+      chk.addEventListener('change',function(){
+        if(tidBtn) tidBtn.style.display=(sel.value&&_gpGetSelectedVersions(row).length)?'':'none';
+      });
+    });
+  },0);
+};
+
+/* ---------- TID 配置面板（多版本并排） ---------- */
+function _gpGetSelectedVersion(row){
+  var chk=row.querySelector('.gp-ver-chk:checked');
+  return chk?chk.value:'';
+}
+function _gpGetSelectedVersions(row){
+  var vs=[];
+  row.querySelectorAll('.gp-ver-chk:checked').forEach(function(c){vs.push(c.value);});
+  return vs;
+}
+
+window.gpShowTidPanel=function(btn,tidId){
+  var panel=document.getElementById(tidId);
+  if(!panel) return;
+  if(panel.style.display!=='none'){panel.style.display='none';return;}
+  panel.style.display='';
+
+  var row=btn.closest('.tc-suite-row');
+  var model=row.querySelector('.gp-model').value;
+  var versions=_gpGetSelectedVersions(row);
+  if(!model||!versions.length){
+    panel.querySelector('.gp-tid-content').innerHTML='<span class="text-muted small">请先选择模型并勾选版本</span>';
+    return;
+  }
+
+  var ct=panel.querySelector('.gp-tid-content');
+  ct.innerHTML='<span class="text-muted small">加载算子列表...</span>';
+
+  // 读取已有 tid_names（支持按版本分组或共享格式）
+  var existingByVer={};  // {version: {tid: opName}}
+  var pi=row.querySelector('.gp-suite-params');
+  var paramObj=(pi&&pi.value)?_parseJsonSafe(pi.value):null;
+  if(!paramObj){
+    paramObj=_parseJsonSafe(document.getElementById('gpGlobalParams').value);
+  }
+  if(paramObj){
+    if(paramObj.tid_names_by_version){
+      // 按版本分组: {v1: {2: "matmul"}, v2: {2: "matmul"}}
+      existingByVer=paramObj.tid_names_by_version;
+    }else if(paramObj.tid_names){
+      // 共享格式: 所有版本相同
+      versions.forEach(function(v){existingByVer[v]=paramObj.tid_names;});
+    }
+  }
+
+  // 并行获取所有版本的算子列表
+  var fetches=versions.map(function(v){
+    return fetch('/api/golden/'+encodeURIComponent(model)+'/'+encodeURIComponent(v)+'/operators')
+      .then(function(r){return r.json();})
+      .then(function(ops){return {ver:v, ops:ops||[]};});
+  });
+
+  Promise.all(fetches).then(function(results){
+    // 合并所有算子名（保持顺序，取并集）
+    var allOps=[], opSet={};
+    results.forEach(function(r){
+      r.ops.forEach(function(op){
+        if(!opSet[op]){opSet[op]=true;allOps.push(op);}
+      });
+    });
+    if(!allOps.length){
+      ct.innerHTML='<span class="text-muted small">所有版本下均无算子</span>';
+      return;
+    }
+
+    // 每个版本的算子集合（用于标记缺失）
+    var verOpSets={};
+    results.forEach(function(r){
+      var s={};r.ops.forEach(function(op){s[op]=true;});
+      verOpSets[r.ver]=s;
+    });
+
+    // 构建表头
+    var nVer=versions.length;
+    var colTemplate='180px '+versions.map(function(){return '70px';}).join(' ');
+    var h='<div class="small fw-bold mb-1">算子 → TID 绑定 <span class="text-muted fw-normal">('+_e(model)+')</span></div>';
+    h+='<div style="display:grid;grid-template-columns:'+colTemplate+';gap:2px 6px;align-items:center;overflow-x:auto">';
+    // 表头行
+    h+='<span class="small fw-bold text-muted">算子名</span>';
+    versions.forEach(function(v,vi){
+      h+='<span class="small fw-bold text-center" style="font-size:.7rem">'
+        +_e(v)
+        +(vi>0?' <button class="btn btn-outline-secondary py-0 px-1" style="font-size:.6rem;line-height:1" onclick="gpCopyTidCol(this,'+vi+')" title="复制前一版本 TID">←</button>':'')
+        +'</span>';
+    });
+
+    // 数据行
+    allOps.forEach(function(op){
+      var hasAny=false;
+      versions.forEach(function(v){if(verOpSets[v]&&verOpSets[v][op])hasAny=true;});
+      h+='<span class="small'+(hasAny?'':' text-decoration-line-through text-muted')+'" title="'+_e(op)+'">'+_e(op)+'</span>';
+      versions.forEach(function(v){
+        var exists=verOpSets[v]&&verOpSets[v][op];
+        // 反转 tid_names: {tid: opName} → 找出该 op 的 tid
+        var tid='';
+        var verTids=existingByVer[v]||{};
+        Object.keys(verTids).forEach(function(t){if(verTids[t]===op)tid=t;});
+        if(exists){
+          h+='<input class="form-control form-control-sm gp-tid-input" type="number" min="0" '
+            +'data-op="'+_e(op)+'" data-ver="'+_e(v)+'" value="'+_e(tid)+'" placeholder="-" '
+            +'style="font-size:.75rem;padding:1px 4px;height:22px;text-align:center">';
+        }else{
+          h+='<span class="text-center text-muted" style="font-size:.7rem" title="此版本无该算子">—</span>';
+        }
+      });
+    });
+    h+='</div>';
+
+    // 操作按钮
+    h+='<div class="mt-1">';
+    h+='<button class="btn btn-sm btn-primary py-0" style="font-size:.7rem" onclick="gpApplyTids(this)">应用 TID</button>';
+    h+=' <button class="btn btn-sm btn-outline-secondary py-0" style="font-size:.7rem" onclick="gpClearTids(this)">清除全部</button>';
+    if(nVer>1){
+      h+=' <button class="btn btn-sm btn-outline-info py-0" style="font-size:.7rem" onclick="gpCopyTidAllCols(this)">全部版本复制首版</button>';
+    }
+    h+=' <span class="gp-tid-msg small text-success ms-1"></span>';
+    h+='</div>';
+    ct.innerHTML=h;
+  }).catch(function(){
+    ct.innerHTML='<span class="text-danger small">加载失败</span>';
+  });
+};
+
+/* 复制前一列的 TID 到当前列 */
+window.gpCopyTidCol=function(btn,colIdx){
+  var panel=btn.closest('.gp-tid-panel');
+  var inputs=panel.querySelectorAll('.gp-tid-input');
+  // 按 data-ver 分组
+  var byVer={};
+  inputs.forEach(function(inp){
+    var v=inp.dataset.ver;
+    if(!byVer[v])byVer[v]=[];
+    byVer[v].push(inp);
+  });
+  var verKeys=Object.keys(byVer);
+  if(colIdx<1||colIdx>=verKeys.length) return;
+  var srcVer=verKeys[colIdx-1], dstVer=verKeys[colIdx];
+  var srcByOp={};
+  byVer[srcVer].forEach(function(inp){srcByOp[inp.dataset.op]=inp.value;});
+  byVer[dstVer].forEach(function(inp){
+    if(srcByOp[inp.dataset.op]!=null) inp.value=srcByOp[inp.dataset.op];
+  });
+  var msg=panel.querySelector('.gp-tid-msg');
+  if(msg) msg.textContent='已从 '+srcVer+' 复制到 '+dstVer;
+};
+
+/* 所有版本复制首版 */
+window.gpCopyTidAllCols=function(btn){
+  var panel=btn.closest('.gp-tid-panel');
+  var inputs=panel.querySelectorAll('.gp-tid-input');
+  var byVer={};
+  inputs.forEach(function(inp){
+    var v=inp.dataset.ver;
+    if(!byVer[v])byVer[v]=[];
+    byVer[v].push(inp);
+  });
+  var verKeys=Object.keys(byVer);
+  if(verKeys.length<2) return;
+  var srcByOp={};
+  byVer[verKeys[0]].forEach(function(inp){srcByOp[inp.dataset.op]=inp.value;});
+  for(var i=1;i<verKeys.length;i++){
+    byVer[verKeys[i]].forEach(function(inp){
+      if(srcByOp[inp.dataset.op]!=null) inp.value=srcByOp[inp.dataset.op];
+    });
+  }
+  var msg=panel.querySelector('.gp-tid-msg');
+  if(msg) msg.textContent='已将 '+verKeys[0]+' 的 TID 复制到其他 '+(verKeys.length-1)+' 个版本';
+};
+
+/* 应用 TID — 按版本分组写入 params */
+window.gpApplyTids=function(btn){
+  var panel=btn.closest('.gp-tid-panel');
+  var row=panel.closest('.tc-suite-row');
+  var inputs=panel.querySelectorAll('.gp-tid-input');
+
+  // 按版本收集 {ver: {tid: opName}}
+  var byVer={};
+  inputs.forEach(function(inp){
+    var tid=inp.value.trim(), op=inp.dataset.op, ver=inp.dataset.ver;
+    if(!ver) return;
+    if(!byVer[ver]) byVer[ver]={};
+    if(tid!==''&&op) byVer[ver][tid]=op;
+  });
+
+  // 检查所有版本 tid_names 是否相同
+  var verKeys=Object.keys(byVer);
+  var allSame=verKeys.length>0;
+  if(verKeys.length>1){
+    var first=JSON.stringify(byVer[verKeys[0]]);
+    allSame=verKeys.every(function(v){return JSON.stringify(byVer[v])===first;});
+  }
+
+  var pi=row.querySelector('.gp-suite-params');
+  if(!pi) return;
+  var existing=_parseJsonSafe(pi.value)||{};
+
+  var totalTids=0;
+  if(verKeys.length===0||Object.values(byVer).every(function(m){return !Object.keys(m).length;})){
+    // 全空 → 清除
+    delete existing.tid_names;
+    delete existing.tid_names_by_version;
+  }else if(allSame){
+    // 所有版本相同 → 用共享 tid_names
+    existing.tid_names=byVer[verKeys[0]];
+    delete existing.tid_names_by_version;
+    totalTids=Object.keys(existing.tid_names).length;
+  }else{
+    // 不同版本不同 → 按版本分组
+    existing.tid_names_by_version=byVer;
+    delete existing.tid_names;
+    verKeys.forEach(function(v){totalTids+=Object.keys(byVer[v]).length;});
+  }
+
+  pi.value=Object.keys(existing).length?JSON.stringify(existing):'';
+  var pw=pi.closest('.gp-row-params');
+  if(pw&&Object.keys(existing).length) pw.style.display='';
+
+  var msg=panel.querySelector('.gp-tid-msg');
+  if(msg) msg.textContent='已应用 '+totalTids+' 个 TID 绑定'+(allSame&&verKeys.length>1?' (所有版本相同)':'');
+};
+
+window.gpClearTids=function(btn){
+  var panel=btn.closest('.gp-tid-panel');
+  panel.querySelectorAll('.gp-tid-input').forEach(function(inp){inp.value='';});
+  var msg=panel.querySelector('.gp-tid-msg');
+  if(msg) msg.textContent='已清除';
 };
 
 /* ---------- 加载/删除已有计划 ---------- */
@@ -713,11 +1010,14 @@ window.tcLoadPlan=function(){
     document.getElementById('gpPlanName').value='';
     document.getElementById('gpFilename').value='';
     document.getElementById('gpBundle').value='';
+    document.getElementById('gpTarget').value='';
+    document.getElementById('gpGlobalParams').value='';
     delBtn.style.display='none';
     // 取消所有勾选，恢复默认
     document.querySelectorAll('.tc-suite-chk').forEach(function(cb){cb.checked=false;});
     document.querySelectorAll('.gp-model').forEach(function(s){s.value='';});
     document.querySelectorAll('.gp-ver-group').forEach(function(s){s.innerHTML='<span class="text-muted" style="font-size:.75rem">选择模型</span>';});
+    document.querySelectorAll('.gp-suite-params').forEach(function(s){s.value='';});
     tcUpdateSelectCount();
     return;
   }
@@ -733,15 +1033,32 @@ window.tcLoadPlan=function(){
       document.getElementById('gpPlanName').value=d.name||'';
       document.getElementById('gpFilename').value=filename.replace(/\.ya?ml$/,'');
 
-      // 提取全局 bundle（取第一个 plan 的 bundle）
-      var globalBundle='';
-      (d.plans||[]).forEach(function(p){if(p.bundle&&!globalBundle) globalBundle=p.bundle;});
+      // 提取全局 bundle 和 target（取第一个 plan 的值）
+      var globalBundle='', globalTarget='';
+      (d.plans||[]).forEach(function(p){
+        if(p.bundle&&!globalBundle) globalBundle=p.bundle;
+        if(p.target&&!globalTarget) globalTarget=p.target;
+      });
       document.getElementById('gpBundle').value=globalBundle;
+      document.getElementById('gpTarget').value=globalTarget;
+
+      // 提取共有 params（如果所有 plan 的 params 相同，则设为全局）
+      var allParams=(d.plans||[]).map(function(p){return p.params||null;});
+      var commonParams=null;
+      if(allParams.length>0&&allParams[0]){
+        var first=JSON.stringify(allParams[0]);
+        var allSame=allParams.every(function(p){return JSON.stringify(p)===first;});
+        if(allSame) commonParams=allParams[0];
+      }
+      document.getElementById('gpGlobalParams').value=commonParams?JSON.stringify(commonParams,null,2):'';
 
       // 先全部取消勾选，恢复默认
       document.querySelectorAll('.tc-suite-chk').forEach(function(cb){cb.checked=false;});
       document.querySelectorAll('.gp-model').forEach(function(s){s.value='';});
       document.querySelectorAll('.gp-ver-group').forEach(function(s){s.innerHTML='<span class="text-muted" style="font-size:.75rem">选择模型</span>';});
+      document.querySelectorAll('.gp-suite-params').forEach(function(s){s.value='';});
+      document.querySelectorAll('.gp-tid-btn').forEach(function(b){b.style.display='none';});
+      document.querySelectorAll('.gp-tid-panel').forEach(function(p){p.style.display='none';p.querySelector('.gp-tid-content').innerHTML='<span class="text-muted small">请先选择模型和版本</span>';});
 
       // 按计划内容勾选并设置
       (d.plans||[]).forEach(function(planItem){
@@ -766,6 +1083,28 @@ window.tcLoadPlan=function(){
                   var chk=vg&&vg.querySelector('.gp-ver-chk[value="'+v+'"]');
                   if(chk) chk.checked=true;
                 });
+              }
+              // 显示 TID 按钮（如果有模型和版本）
+              var tidBtn=row.querySelector('.gp-tid-btn');
+              if(tidBtn&&golden.model&&(golden.version||(golden.versions&&golden.versions.length))){
+                tidBtn.style.display='';
+              }
+
+              // 恢复单套 params（如果与全局不同）
+              var suiteParams=planItem.params||null;
+              if(suiteParams&&!commonParams){
+                var pi=row.querySelector('.gp-suite-params');
+                if(pi){pi.value=JSON.stringify(suiteParams);
+                  // 展开 params 区域
+                  var pw=pi.closest('.gp-row-params');
+                  if(pw) pw.style.display='';
+                }
+              }else if(suiteParams&&commonParams&&JSON.stringify(suiteParams)!==JSON.stringify(commonParams)){
+                var pi=row.querySelector('.gp-suite-params');
+                if(pi){pi.value=JSON.stringify(suiteParams);
+                  var pw=pi.closest('.gp-row-params');
+                  if(pw) pw.style.display='';
+                }
               }
             }
           });
@@ -796,35 +1135,29 @@ window.tcDeletePlan=function(btn){
     .catch(function(){btn.disabled=false;});
 };
 
+/* ---------- params 展开/收起 ---------- */
+window.gpToggleParams=function(){
+  var w=document.getElementById('gpParamsWrap');
+  w.style.display=w.style.display==='none'?'':'none';
+};
+window.gpToggleRowParams=function(id){
+  var w=document.getElementById(id);
+  if(w) w.style.display=w.style.display==='none'?'':'none';
+};
+
+function _parseJsonSafe(str){
+  if(!str||!str.trim()) return null;
+  try{return JSON.parse(str);}catch(e){return null;}
+}
+
 /* ---------- 保存计划 ---------- */
 window.tcSavePlan=function(btn){
-  var rows=document.querySelectorAll('#gpSuiteList .tc-suite-row');
-  var checkedRows=[];
-  rows.forEach(function(row){var cb=row.querySelector('.tc-suite-chk');if(cb&&cb.checked)checkedRows.push(row);});
-  if(!checkedRows.length){document.getElementById('gpMsg').textContent='请先勾选测试套';return;}
-
-  var planName=document.getElementById('gpPlanName').value.trim()||'自定义计划';
-  var filename=document.getElementById('gpFilename').value.trim()||'testplan_custom';
-  var bundle=document.getElementById('gpBundle').value;
-
-  var plans=[];
-  checkedRows.forEach(function(row){
-    var modPath=row.dataset.module;
-    var name=row.dataset['class']||modPath;
-    var model=row.querySelector('.gp-model').value;
-    var versions=[];
-    row.querySelectorAll('.gp-ver-chk:checked').forEach(function(c){versions.push(c.value);});
-    var entry={name:name,tests:[modPath]};
-    if(bundle) entry.bundle=bundle;
-    if(model&&versions.length>1) entry.golden={model:model,versions:versions};
-    else if(model&&versions.length===1) entry.golden={model:model,version:versions[0]};
-    else if(model) entry.golden={model:model};
-    plans.push(entry);
-  });
+  var data=_gpCollectPlanData();
+  if(!data){document.getElementById('gpMsg').textContent='请先勾选测试套（或检查 JSON 格式）';return;}
 
   btn.disabled=true;btn.textContent='...';
   fetch('/api/tc/plan',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({name:planName,filename:filename,plans:plans})})
+    body:JSON.stringify({name:data.name,filename:data.filename,plans:data.plans})})
   .then(function(r){return r.json();})
   .then(function(d){
     btn.disabled=false;btn.textContent='保存计划';
@@ -833,6 +1166,182 @@ window.tcSavePlan=function(btn){
     tcLoadOptions();
   })
   .catch(function(){btn.disabled=false;btn.textContent='保存计划';});
+};
+
+/* ---------- 上传测试计划到服务器 ---------- */
+
+/* 提取当前计划数据（与 tcSavePlan 共享逻辑） */
+function _gpCollectPlanData(){
+  var rows=document.querySelectorAll('#gpSuiteList .tc-suite-row');
+  var checkedRows=[];
+  rows.forEach(function(row){var cb=row.querySelector('.tc-suite-chk');if(cb&&cb.checked)checkedRows.push(row);});
+  if(!checkedRows.length) return null;
+
+  var planName=document.getElementById('gpPlanName').value.trim()||'自定义计划';
+  var filename=document.getElementById('gpFilename').value.trim()||'testplan_custom';
+  var bundle=document.getElementById('gpBundle').value;
+  var target=document.getElementById('gpTarget').value;
+  var globalParamsStr=document.getElementById('gpGlobalParams').value.trim();
+  var globalParams=_parseJsonSafe(globalParamsStr);
+  if(globalParamsStr&&!globalParams) return null;
+
+  var plans=[];
+  var goldenSets={}; // {model/version: true}
+  checkedRows.forEach(function(row){
+    var modPath=row.dataset.module;
+    var name=row.dataset['class']||modPath;
+    var model=row.querySelector('.gp-model').value;
+    var versions=[];
+    row.querySelectorAll('.gp-ver-chk:checked').forEach(function(c){versions.push(c.value);});
+    var entry={name:name,tests:[modPath]};
+    if(bundle) entry.bundle=bundle;
+    if(target) entry.target=target;
+    if(model&&versions.length>1) entry.golden={model:model,versions:versions};
+    else if(model&&versions.length===1) entry.golden={model:model,version:versions[0]};
+    else if(model) entry.golden={model:model};
+
+    var suiteParamsInput=row.querySelector('.gp-suite-params');
+    var suiteParams=suiteParamsInput?_parseJsonSafe(suiteParamsInput.value):null;
+    var mergedParams=null;
+    if(globalParams&&suiteParams) mergedParams=Object.assign({},globalParams,suiteParams);
+    else if(suiteParams) mergedParams=suiteParams;
+    else if(globalParams) mergedParams=globalParams;
+    if(mergedParams) entry.params=mergedParams;
+
+    // 收集 golden model/version 对
+    if(model){
+      versions.forEach(function(v){goldenSets[model+'/'+v]=true;});
+      if(!versions.length){
+        // model without version - list all versions from options
+        var g=(_tcOptions.golden_models||[]).find(function(m){return m.model===model;});
+        if(g) g.versions.forEach(function(v){goldenSets[model+'/'+v]=true;});
+      }
+    }
+    plans.push(entry);
+  });
+
+  return {name:planName,filename:filename,plans:plans,goldenSets:Object.keys(goldenSets)};
+}
+
+/* 缓存上传状态 */
+var _gpUploadState={planData:null,goldenStatus:[]};
+
+window.tcUploadPlan=function(btn){
+  var data=_gpCollectPlanData();
+  if(!data){document.getElementById('gpMsg').textContent='请先勾选测试套（或检查 JSON 格式）';return;}
+
+  btn.disabled=true;btn.textContent='检查中...';
+  document.getElementById('gpMsg').textContent='';
+
+  // 先获取本地 golden 指纹
+  var fpPromises=data.goldenSets.map(function(key){
+    var parts=key.split('/');
+    return fetch('/api/golden/'+encodeURIComponent(parts[0])+'/'+encodeURIComponent(parts[1])+'/fingerprint')
+      .then(function(r){return r.json();})
+      .then(function(d){return {key:key,operators:d.operators||{}};})
+      .catch(function(){return {key:key,operators:{}};});
+  });
+
+  Promise.all(fpPromises).then(function(results){
+    var localFps={};
+    results.forEach(function(r){localFps[r.key]={operators:r.operators};});
+
+    // 上传计划并检查 golden
+    return fetch('/api/sync/plans/upload_with_check',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        filename:data.filename,
+        plan:{name:data.name,plans:data.plans},
+        golden_fingerprints:localFps
+      })
+    }).then(function(r){return r.json();});
+  }).then(function(resp){
+    btn.disabled=false;btn.textContent='上传到服务器';
+    if(resp.error){document.getElementById('gpMsg').textContent='上传失败: '+resp.error;return;}
+
+    document.getElementById('gpMsg').textContent='✅ 测试计划已上传: '+resp.filename;
+
+    var gs=resp.golden_status||[];
+    var needSync=gs.filter(function(s){return s.status!=='match';});
+    if(!needSync.length){
+      document.getElementById('gpMsg').textContent+=' (golden 已同步)';
+      return;
+    }
+
+    // 有不一致的 golden，显示确认对话框
+    _gpUploadState.planData=data;
+    _gpUploadState.goldenStatus=needSync;
+    _gpRenderGoldenSyncDialog(needSync);
+  }).catch(function(e){
+    btn.disabled=false;btn.textContent='上传到服务器';
+    document.getElementById('gpMsg').textContent='上传失败: '+e;
+  });
+};
+
+function _gpRenderGoldenSyncDialog(items){
+  var html='<p>以下 golden 集在远端与本地不一致：</p>';
+  html+='<table class="table table-sm table-bordered mb-0"><thead><tr><th></th><th>Golden 集</th><th>状态</th><th>详情</th></tr></thead><tbody>';
+  items.forEach(function(s,i){
+    var statusLabel={'missing':'<span class="text-danger">远端不存在</span>',
+                     'partial':'<span class="text-warning">部分缺失</span>',
+                     'diff':'<span class="text-info">内容不同</span>'}[s.status]||s.status;
+    var detail=[];
+    if(s.missing_ops&&s.missing_ops.length) detail.push('缺少: '+s.missing_ops.join(', '));
+    if(s.diff_ops&&s.diff_ops.length) detail.push('差异: '+s.diff_ops.join(', '));
+    html+='<tr><td><input type="checkbox" class="gp-sync-chk" data-idx="'+i+'" checked></td>'
+      +'<td>'+_e(s.model)+'/'+_e(s.version)+'</td>'
+      +'<td>'+statusLabel+'</td>'
+      +'<td style="font-size:.78rem">'+(detail.join('; ')||'-')+'</td></tr>';
+  });
+  html+='</tbody></table>';
+  html+='<p class="small text-muted mt-2 mb-0">勾选需要同步的 golden 集，点击「确认上传」将本地 golden 数据推送到服务器。</p>';
+  document.getElementById('gpGoldenSyncBody').innerHTML=html;
+  var dlg=document.getElementById('gpGoldenSyncDialog');
+  dlg.style.display='flex';
+}
+
+window.gpCloseGoldenSync=function(){
+  document.getElementById('gpGoldenSyncDialog').style.display='none';
+};
+
+window.gpConfirmGoldenSync=function(){
+  var items=_gpUploadState.goldenStatus;
+  var checks=document.querySelectorAll('.gp-sync-chk');
+  var selected=[];
+  checks.forEach(function(chk){
+    if(chk.checked) selected.push(items[parseInt(chk.dataset.idx)]);
+  });
+  if(!selected.length){gpCloseGoldenSync();return;}
+
+  var confirmBtn=document.getElementById('gpGoldenSyncConfirm');
+  confirmBtn.disabled=true;confirmBtn.textContent='上传中...';
+
+  // 通过本地代理路由同步 golden 到远端服务器
+  var syncItems=selected.map(function(s){
+    var ops=(s.missing_ops||[]).concat(s.diff_ops||[]);
+    return {model:s.model, version:s.version, operators:s.status==='missing'?[]:ops};
+  });
+
+  fetch('/api/tc/sync_golden',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({items:syncItems})
+  })
+  .then(function(r){return r.json();})
+  .then(function(resp){
+    confirmBtn.disabled=false;confirmBtn.textContent='确认上传';
+    gpCloseGoldenSync();
+    if(resp.error){
+      document.getElementById('gpMsg').textContent='golden 同步失败: '+resp.error;
+    }else{
+      document.getElementById('gpMsg').textContent='✅ golden 同步完成 ('+resp.success+'/'+resp.total+' 集)';
+    }
+  })
+  .catch(function(e){
+    confirmBtn.disabled=false;confirmBtn.textContent='确认上传';
+    document.getElementById('gpMsg').textContent='golden 同步出错: '+e;
+  });
 };
 
 /* ---------- 初始化 ---------- */

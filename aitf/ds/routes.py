@@ -433,6 +433,15 @@ def download_all_golden():
                      mimetype="application/zip")
 
 
+# -- fingerprint ------------------------------------------------------------
+
+@bp.route("/api/golden/<model>/<version>/fingerprint", methods=["GET"])
+def version_fingerprint(model, version):
+    store = _store()
+    fps = store.version_fingerprint(model, version)
+    return jsonify({"model": model, "version": version, "operators": fps})
+
+
 # -- import / migrate -------------------------------------------------------
 
 @bp.route("/api/golden/import", methods=["POST"])

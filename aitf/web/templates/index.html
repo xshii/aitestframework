@@ -4,8 +4,13 @@
 
 <div class="tab-content" id="mainTabContent">
 
+{# ===== OVERVIEW (Dashboard — REQ-7.1) ===== #}
+<div class="tab-pane show active" id="tab-overview">
+  {% include 'overview/tab.html' %}
+</div>
+
 {# ===== DATA (Golden 数据管理 — provided by aitf.ds plugin) ===== #}
-<div class="tab-pane show active" id="tab-data">
+<div class="tab-pane" id="tab-data">
   {% include 'datastore/tab.html' %}
 </div>
 

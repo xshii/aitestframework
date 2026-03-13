@@ -86,9 +86,8 @@ def create_app(config: dict | None = None, aitf_config=None) -> Flask:
             "dbox_enabled": aitf_config.dbox_enabled,
         }
 
-    # -- Sync setup (client mode) ------------------------------------------
-    from aitf.config import Mode
-    if aitf_config.mode == Mode.CLIENT and aitf_config.server_url:
+    # -- Sync setup (client or debug mode) ---------------------------------
+    if aitf_config.is_client and aitf_config.server_url:
         from aitf.sync.client import SyncClient
         from aitf.sync.worker import SyncWorker
 

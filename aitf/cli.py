@@ -54,15 +54,16 @@ def _cmd_web(args: argparse.Namespace) -> None:
     from aitf.web.app import create_app
 
     cfg = load_config()
-    if cfg.mode == Mode.CLIENT:
-        print(
-            f"Error: config.yaml server is a remote IP ({cfg.server}), "
-            "cannot start web server in client mode.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
     host = args.host if args.host is not None else cfg.bind_host
     port = args.port if args.port is not None else cfg.port
+
+    mode_desc = {
+        Mode.STANDALONE: f"单机模式 (本机即服务器, 绑定 {host}:{port})",
+        Mode.CLIENT: f"客户端模式 (服务器: {cfg.server}:{cfg.port}, 本地绑定 {host}:{port})",
+        Mode.DEBUG: f"调试模式 (服务端+客户端同机, 绑定 {host}:{port}, 同步到 {cfg.server}:{cfg.port})",
+    }
+    print(f"[aitf] {mode_desc.get(cfg.mode, cfg.mode)}")
+
     app = create_app(aitf_config=cfg)
     app.run(host=host, port=port, debug=args.debug)
 

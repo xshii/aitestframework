@@ -41,9 +41,9 @@ class TestDetermineMode:
     def test_remote_ip_client(self):
         assert _determine_mode("192.0.2.1") == Mode.CLIENT
 
-    def test_local_ip_server(self):
+    def test_local_ip_debug(self):
         with patch("aitf.config.is_local_ip", return_value=True):
-            assert _determine_mode("10.0.0.100") == Mode.SERVER
+            assert _determine_mode("10.0.0.100") == Mode.DEBUG
 
 
 # ---------------------------------------------------------------------------
@@ -54,15 +54,19 @@ class TestAitfConfig:
     def test_default_standalone(self):
         cfg = AitfConfig()
         assert cfg.mode == Mode.STANDALONE
-        assert cfg.bind_host == "127.0.0.1"
+        assert cfg.bind_host == "0.0.0.0"  # standalone = server, binds all
         assert cfg.server_url is None
+        assert cfg.is_server is True
+        assert cfg.is_client is False
 
-    def test_server_mode(self):
+    def test_debug_mode(self):
         with patch("aitf.config.is_local_ip", return_value=True):
             cfg = AitfConfig(server="10.0.0.100", port=8080)
-        assert cfg.mode == Mode.SERVER
+        assert cfg.mode == Mode.DEBUG
         assert cfg.bind_host == "0.0.0.0"
-        assert cfg.server_url is None
+        assert cfg.server_url == "http://10.0.0.100:8080"
+        assert cfg.is_server is True
+        assert cfg.is_client is True
 
     def test_client_mode(self):
         cfg = AitfConfig(server="192.0.2.1", port=5000)
@@ -115,13 +119,13 @@ class TestLoadConfig:
         assert cfg.port == 8080
         assert cfg.mode == Mode.CLIENT
 
-    def test_server_mode_via_mock(self, tmp_path):
+    def test_debug_mode_via_mock(self, tmp_path):
         (tmp_path / "config.yaml").write_text(
             yaml.dump({"server": "10.0.0.100"})
         )
         with patch("aitf.config.is_local_ip", return_value=True):
             cfg = load_config(project_root=tmp_path)
-        assert cfg.mode == Mode.SERVER
+        assert cfg.mode == Mode.DEBUG
 
     def test_project_root_resolved(self, tmp_path):
         cfg = load_config(project_root=tmp_path)

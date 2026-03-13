@@ -295,3 +295,53 @@ class SyncClient:
             return result.get("ok", False)
         except SyncError:
             return False
+
+    # ------------------------------------------------------------------
+    # Test plans with golden check
+    # ------------------------------------------------------------------
+
+    def golden_version_fingerprint(self, model: str, version: str) -> dict:
+        """Get operator-level fingerprints for a golden version on the remote server."""
+        return self._get_json(f"/api/golden/{model}/{version}/fingerprint")
+
+    def upload_plan_with_golden_check(self, filename: str, plan_data: dict,
+                                       local_fingerprints: dict) -> dict:
+        """Upload testplan and check golden availability on remote.
+
+        Args:
+            filename: testplan filename
+            plan_data: testplan YAML content as dict
+            local_fingerprints: {"{model}/{version}": {"operators": {op: fp}}}
+
+        Returns dict with:
+            - ok: bool
+            - golden_status: [{model, version, status, missing_ops, diff_ops}]
+              status: "match" | "missing" | "partial" | "diff"
+        """
+        return self._post_json("/api/sync/plans/upload_with_check", {
+            "filename": filename,
+            "plan": plan_data,
+            "golden_fingerprints": local_fingerprints,
+        })
+
+    def golden_upload_zip(self, model: str, version: str,
+                          operator: str | None,
+                          zip_data: bytes, zip_name: str = "golden.zip") -> dict:
+        """Upload a golden zip archive to the remote server.
+
+        Uses upload_version endpoint if operator is None,
+        otherwise upload_operator.
+        """
+        fields = {"model": model, "version": version}
+        if operator:
+            fields["operator"] = operator
+            endpoint = "/api/sync/golden/upload_operator"
+        else:
+            endpoint = "/api/sync/golden/upload_version"
+
+        return self._post_multipart(
+            endpoint,
+            fields=fields,
+            files={"file": (zip_name, zip_data, "application/zip")},
+            timeout=300,
+        )

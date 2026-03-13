@@ -15,6 +15,8 @@ _LAZY_IMPORTS = {
     "get_dep_env": "aitf.tc.api",
     "get_bundle_env": "aitf.tc.api",
     "run_script": "aitf.tc.api",
+    "select_env": "aitf.tc.api",
+    "execute": "aitf.tc.api",
 }
 
 

@@ -1,6 +1,6 @@
 {# Golden 数据管理 — 数据总览 + 模型管理 #}
 
-{% if aitf_mode == 'client' %}
+{% if aitf_mode in ('client', 'debug') %}
 <div class="alert alert-info py-1 mb-2 d-flex align-items-center">
   <span class="me-2">服务器: <strong>{{ aitf_server }}</strong></span>
   <button class="btn btn-sm btn-primary" onclick="gSyncFromServer()">从服务器同步</button>
@@ -179,7 +179,7 @@
             </select>
             <button class="btn btn-sm btn-primary py-0 ms-auto" onclick="gCvtRunAll()">转换并下载</button>
           </div>
-          <div class="table-responsive" style="max-height:500px;overflow-y:auto">
+          <div class="table-responsive" style="max-height:500px;overflow-y:auto;padding-right:8px">
             <table class="table table-sm table-hover mb-0" style="font-size:0.78rem">
               <thead class="table-light sticky-top">
                 <tr>
@@ -1084,7 +1084,7 @@ function gPreviewFile(model,ver,op,fname){
 /* ========== 操作日志 ========== */
 var _gLogActions={'create_operator':'创建算子','delete_operator':'删除算子','delete_version':'删除版本',
   'delete_model':'删除模型','upload_files':'上传文件','update_meta':'更新元数据',
-  'reorder_operators':'排序算子','convert_layout':'分型转换'};
+  'reorder_operators':'排序算子','convert_layout':'分型转换','save_golden':'自动上传基准','convert':'格式转换'};
 var _gLogLoaded=false;
 function gLoadLog(){
   fetch('/api/golden/log?limit=50').then(function(r){return r.json()}).then(function(entries){
@@ -1101,6 +1101,7 @@ function gLoadLog(){
       if(e.operator) detail.push('算子:'+e.operator);
       if(e.files) detail.push(e.files.length+'个文件');
       if(e.data_items!=null) detail.push(e.data_items+'条数据');
+      if(e.source==='auto') detail.push('🤖自动');
       h+='<tr><td class="text-nowrap">'+t+'</td><td>'+_gEsc(act)+'</td><td class="text-muted">'+_gEsc(detail.join(', '))+'</td><td class="text-muted text-nowrap">'+(e.ip||'-')+'</td></tr>';
     });
     h+='</tbody></table>';

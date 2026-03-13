@@ -263,30 +263,163 @@ def serve_plan(filename: str):
     return jsonify(data or {})
 
 
-@bp.route("/api/sync/plans/upload", methods=["POST"])
-def receive_plan():
-    """Receive a test plan from a client and save as YAML."""
-    import re
-    body = request.get_json(silent=True) or {}
-    filename = body.get("filename", "").strip()
-    plan_data = body.get("plan")
-    if not filename or not plan_data:
-        return jsonify({"error": "filename and plan are required"}), 400
+_SAFE_PLAN_RE = __import__("re").compile(r'^[a-zA-Z0-9_\-\u4e00-\u9fff]+$')
 
+
+def _save_plan(filename: str, plan_data) -> tuple[str | None, str | None]:
+    """Validate and save a testplan YAML. Returns (saved_filename, error)."""
+    if not filename or not plan_data:
+        return None, "filename and plan are required"
     if not filename.endswith((".yaml", ".yml")):
         filename += ".yaml"
-
-    # Sanitise filename — prevent path traversal
     stem = Path(filename).stem
-    if not re.match(r'^[a-zA-Z0-9_\-\u4e00-\u9fff]+$', stem):
-        return jsonify({"error": "invalid filename"}), 400
+    if not _SAFE_PLAN_RE.match(stem):
+        return None, "invalid filename"
     filename = stem + ".yaml"
-
     root = _project_root()
     out = root / filename
     with open(out, "w", encoding="utf-8") as fh:
         yaml.dump(plan_data, fh, allow_unicode=True, default_flow_style=False,
                   sort_keys=False)
-
     logger.info("Received test plan: %s", filename)
-    return jsonify({"ok": True, "filename": filename})
+    return filename, None
+
+
+@bp.route("/api/sync/plans/upload", methods=["POST"])
+def receive_plan():
+    """Receive a test plan from a client and save as YAML."""
+    body = request.get_json(silent=True) or {}
+    saved, err = _save_plan(body.get("filename", "").strip(), body.get("plan"))
+    if err:
+        return jsonify({"error": err}), 400
+    return jsonify({"ok": True, "filename": saved})
+
+
+@bp.route("/api/sync/plans/upload_with_check", methods=["POST"])
+def receive_plan_with_golden_check():
+    """Receive testplan and compare golden fingerprints.
+
+    Body: {
+        "filename": "testplan_xxx.yaml",
+        "plan": {...},
+        "golden_fingerprints": {
+            "model/version": {"operators": {"op1": "sha256...", ...}},
+            ...
+        }
+    }
+    """
+    body = request.get_json(silent=True) or {}
+    client_fps = body.get("golden_fingerprints", {})
+
+    filename, err = _save_plan(body.get("filename", "").strip(), body.get("plan"))
+    if err:
+        return jsonify({"error": err}), 400
+
+    # Compare golden fingerprints
+    gs = _golden_store()
+    golden_status = []
+
+    for key, client_info in client_fps.items():
+        parts = key.split("/", 1)
+        if len(parts) != 2:
+            continue
+        model, version = parts
+        client_ops = client_info.get("operators", {})
+
+        # Get server fingerprints
+        server_ops = gs.version_fingerprint(model, version)
+
+        if not server_ops:
+            # Server has no data for this version at all
+            golden_status.append({
+                "model": model,
+                "version": version,
+                "status": "missing",
+                "missing_ops": list(client_ops.keys()),
+                "diff_ops": [],
+            })
+            continue
+
+        missing = [op for op in client_ops if op not in server_ops]
+        diff = [op for op in client_ops
+                if op in server_ops and client_ops[op] != server_ops[op]]
+
+        if not missing and not diff:
+            status = "match"
+        elif missing and not diff:
+            status = "partial"
+        else:
+            status = "diff"
+
+        golden_status.append({
+            "model": model,
+            "version": version,
+            "status": status,
+            "missing_ops": missing,
+            "diff_ops": diff,
+        })
+
+    logger.info("Received test plan with golden check: %s (golden sets: %d)",
+                filename, len(golden_status))
+    return jsonify({
+        "ok": True,
+        "filename": filename,
+        "golden_status": golden_status,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Golden data — receive from clients
+# ---------------------------------------------------------------------------
+
+@bp.route("/api/sync/golden/upload_version", methods=["POST"])
+def receive_golden_version():
+    """Receive a golden version zip from a client and import it."""
+    import io
+    import zipfile
+
+    model = request.form.get("model", "").strip()
+    version = request.form.get("version", "").strip()
+    f = request.files.get("file")
+    if not model or not version or not f:
+        return jsonify({"error": "model, version, and file are required"}), 400
+
+    gs = _golden_store()
+    try:
+        buf = io.BytesIO(f.read())
+        imported = gs.import_archive(buf)
+        gs.log("sync_receive", model=model, version=version,
+               files_count=len(imported), source="client")
+        logger.info("Received golden version %s/%s (%d files)",
+                    model, version, len(imported))
+        return jsonify({"ok": True, "model": model, "version": version,
+                        "imported": len(imported)})
+    except (zipfile.BadZipFile, OSError) as exc:
+        return jsonify({"error": f"invalid zip: {exc}"}), 400
+
+
+@bp.route("/api/sync/golden/upload_operator", methods=["POST"])
+def receive_golden_operator():
+    """Receive a single golden operator zip from a client and import it."""
+    import io
+    import zipfile
+
+    model = request.form.get("model", "").strip()
+    version = request.form.get("version", "").strip()
+    operator = request.form.get("operator", "").strip()
+    f = request.files.get("file")
+    if not model or not version or not operator or not f:
+        return jsonify({"error": "model, version, operator, and file are required"}), 400
+
+    gs = _golden_store()
+    try:
+        buf = io.BytesIO(f.read())
+        imported = gs.import_archive(buf)
+        gs.log("sync_receive", model=model, version=version,
+               operator=operator, files_count=len(imported), source="client")
+        logger.info("Received golden operator %s/%s/%s (%d files)",
+                    model, version, operator, len(imported))
+        return jsonify({"ok": True, "model": model, "version": version,
+                        "operator": operator, "imported": len(imported)})
+    except (zipfile.BadZipFile, OSError) as exc:
+        return jsonify({"error": f"invalid zip: {exc}"}), 400

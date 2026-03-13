@@ -9,6 +9,7 @@ Files are stored under ``datastore/store/<model>/<version>/<operator>/``.
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import logging
@@ -24,6 +25,7 @@ logger = logging.getLogger(__name__)
 ALLOWED_EXT = (".txt", ".pth", ".bin", ".zip", ".tar", ".tar.gz")
 
 META_FILE = "golden_meta.json"
+FP_FILE = "fingerprint.sha256"
 
 CATEGORY_CHOICES = ("input", "output", "weight", "bias", "mask", "index", "other")
 PRECISION_CHOICES = ("BFP8", "BFP16", "FP16", "FP32", "BF16", "INT8", "INT4", "UINT8", "INT16", "INT32", "BOOL", "BITMAP")
@@ -328,7 +330,7 @@ class GoldenStore:
                     file_sizes: dict[str, int] = {}
                     total = 0
                     for f in sorted(op_dir.iterdir()):
-                        if f.is_file() and f.name != META_FILE:
+                        if f.is_file() and f.name not in (META_FILE, FP_FILE):
                             sz = f.stat().st_size
                             files.append(f.name)
                             file_sizes[f.name] = sz
@@ -346,7 +348,7 @@ class GoldenStore:
 
     def get_file(self, model: str, version: str, operator: str, filename: str) -> Path | None:
         fp = self._root / model / version / operator / filename
-        if fp.is_file() and fp.name != META_FILE:
+        if fp.is_file() and fp.name not in (META_FILE, FP_FILE):
             return fp
         return None
 
@@ -354,7 +356,7 @@ class GoldenStore:
                      filename: str, max_bytes: int = 4096) -> str | None:
         """Read up to max_bytes of a file and return hex representation (1 byte per line)."""
         fp = self._root / model / version / operator / filename
-        if not fp.is_file() or fp.name == META_FILE:
+        if not fp.is_file() or fp.name in (META_FILE, FP_FILE):
             return None
         data = fp.read_bytes()[:max_bytes]
         return "\n".join(f"{b:02X}" for b in data)
@@ -363,7 +365,7 @@ class GoldenStore:
         d = self._root / model / version / operator
         if not d.is_dir():
             return []
-        return sorted(f for f in d.iterdir() if f.is_file() and f.name != META_FILE)
+        return sorted(f for f in d.iterdir() if f.is_file() and f.name not in (META_FILE, FP_FILE))
 
     @staticmethod
     def _zip_add_operator(zf: zipfile.ZipFile, op_dir: Path, arc_prefix: str) -> None:
@@ -372,7 +374,7 @@ class GoldenStore:
         if meta_path.is_file():
             zf.write(meta_path, f"{arc_prefix}/{META_FILE}")
         for f in sorted(op_dir.iterdir()):
-            if f.is_file() and f.name != META_FILE:
+            if f.is_file() and f.name not in (META_FILE, FP_FILE):
                 zf.write(f, f"{arc_prefix}/{f.name}")
 
     def _zip_operators(self, zf: zipfile.ZipFile, model: str, version: str) -> None:
@@ -428,6 +430,7 @@ class GoldenStore:
 
     def import_archive(self, buf: io.BytesIO) -> list[str]:
         imported = []
+        touched_ops: set[tuple[str, str, str]] = set()
         with zipfile.ZipFile(buf, "r") as zf:
             for name in zf.namelist():
                 parts = name.rstrip("/").split("/")
@@ -440,10 +443,21 @@ class GoldenStore:
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     dest.write_bytes(zf.read(name))
                     imported.append(name)
+                    # Track model/version/operator for fingerprint invalidation
+                    if len(parts) >= 3:
+                        touched_ops.add((parts[0], parts[1], parts[2]))
+        # Invalidate fingerprints for all touched operators
+        for model, version, operator in touched_ops:
+            self._invalidate_fingerprint(model, version, operator)
         logger.info("import_archive: %d files imported", len(imported))
         return imported
 
     # -- mutations -----------------------------------------------------------
+
+    def _invalidate_fingerprint(self, model: str, version: str, operator: str) -> None:
+        cache = self._root / model / version / operator / FP_FILE
+        if cache.is_file():
+            cache.unlink()
 
     def save_file(self, model: str, version: str, operator: str, filename: str) -> Path:
         dest = self._root / model / version / operator
@@ -451,6 +465,7 @@ class GoldenStore:
         target = dest / filename
         if target.exists():
             target.unlink()
+        self._invalidate_fingerprint(model, version, operator)
         return target
 
     def delete_operator(self, model: str, version: str, operator: str) -> bool:
@@ -478,9 +493,10 @@ class GoldenStore:
 
     def delete_file(self, model: str, version: str, operator: str, filename: str) -> bool:
         fp = self._root / model / version / operator / filename
-        if not fp.is_file() or fp.name == META_FILE:
+        if not fp.is_file() or fp.name in (META_FILE, FP_FILE):
             return False
         fp.unlink()
+        self._invalidate_fingerprint(model, version, operator)
         return True
 
     def copy_version_structure(self, model: str, src_ver: str, dst_ver: str) -> list[str]:
@@ -515,3 +531,49 @@ class GoldenStore:
                 break
             if not any(parent.iterdir()):
                 parent.rmdir()
+
+    # -- fingerprinting -------------------------------------------------------
+
+    def _compute_fingerprint(self, op_dir: Path) -> str:
+        """Compute SHA-256 fingerprint from data files in an operator dir."""
+        file_hashes: dict[str, str] = {}
+        for f in op_dir.iterdir():
+            if f.is_file() and f.name not in (META_FILE, FP_FILE):
+                content_hash = hashlib.sha256(f.read_bytes()).hexdigest()
+                file_hashes[f.name] = content_hash
+        parts = [f"{name}:{file_hashes[name]}" for name in sorted(file_hashes)]
+        return hashlib.sha256("".join(parts).encode("utf-8")).hexdigest()
+
+    def update_fingerprint(self, model: str, version: str, operator: str) -> str | None:
+        """Recompute and cache fingerprint for an operator. Returns the new fingerprint."""
+        op_dir = self._root / model / version / operator
+        if not op_dir.is_dir():
+            return None
+        fp = self._compute_fingerprint(op_dir)
+        (op_dir / FP_FILE).write_text(fp, encoding="utf-8")
+        return fp
+
+    def operator_fingerprint(self, model: str, version: str, operator: str) -> str | None:
+        """Return cached SHA-256 fingerprint for an operator's data files.
+
+        Reads from ``fingerprint.sha256`` cache file if present;
+        otherwise computes, caches, and returns.
+
+        Returns ``None`` if the operator directory does not exist.
+        """
+        op_dir = self._root / model / version / operator
+        if not op_dir.is_dir():
+            return None
+        cache = op_dir / FP_FILE
+        if cache.is_file():
+            return cache.read_text(encoding="utf-8").strip()
+        return self.update_fingerprint(model, version, operator)
+
+    def version_fingerprint(self, model: str, version: str) -> dict[str, str]:
+        """Return ``{operator_name: fingerprint}`` for all operators under a version."""
+        result: dict[str, str] = {}
+        for op_name in self.list_operators(model, version):
+            fp = self.operator_fingerprint(model, version, op_name)
+            if fp is not None:
+                result[op_name] = fp
+        return result
