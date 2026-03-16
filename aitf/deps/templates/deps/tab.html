@@ -297,8 +297,8 @@ function syncFromServer(){
   var msg=document.getElementById('syncMsg');
   if(msg) msg.textContent='同步中...';
   fetch('/api/deps/sync',{method:'POST'}).then(function(r){return r.json();}).then(function(d){
-    if(d.error){if(msg) msg.textContent=d.error;}
-    else{if(msg) msg.textContent='同步完成';dLoad();bLoadList();setTimeout(function(){if(msg) msg.textContent='';},3000);}
+    if(d.error){if(msg) msg.textContent='同步失败: '+d.error;}
+    else{if(msg) msg.textContent='✓ 同步完成';dLoad();bLoadList();setTimeout(function(){if(msg) msg.textContent='';},3000);}
   }).catch(function(e){if(msg) msg.textContent='同步失败: '+e;});
 }
 

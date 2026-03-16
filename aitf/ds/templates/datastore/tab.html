@@ -992,7 +992,16 @@ function gSync(){
     if(!d.error){gLoadModels();gLoadOverview();}
   });
 }
-function gSyncFromServer(){var msg=document.getElementById('gSyncMsg');if(msg)msg.textContent='同步中...';fetch('/api/golden/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source:''})}).then(function(r){return r.json()}).then(function(d){if(d.error){if(msg)msg.textContent=d.error;}else{if(msg)msg.textContent='同步完成';gLoadModels();gLoadOverview();setTimeout(function(){if(msg)msg.textContent='';},3000);}});}
+function gSyncFromServer(){
+  var msg=document.getElementById('gSyncMsg');
+  if(msg) msg.textContent='同步中...';
+  fetch('/api/golden/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source:''})})
+  .then(function(r){return r.json()})
+  .then(function(d){
+    if(d.error){if(msg) msg.textContent='同步失败: '+d.error;}
+    else{if(msg) msg.textContent='✓ 同步完成';gLoadModels();gLoadOverview();setTimeout(function(){if(msg) msg.textContent='';},3000);}
+  }).catch(function(e){if(msg) msg.textContent='同步失败: '+e;});
+}
 
 /* ========== 分型转换 ========== */
 var _gConversions=null;
