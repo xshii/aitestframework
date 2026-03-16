@@ -10,15 +10,24 @@ from flask import current_app, g
 
 
 def get_golden_store():
-    """Return a GoldenStore (or CachedGoldenStore in CLIENT mode), cached per request."""
+    """Return a GoldenStore (or CachedGoldenStore in pure CLIENT mode), cached per request.
+
+    In DEBUG mode the local instance is also a server, so we must NOT use
+    CachedGoldenStore (which would call SyncClient back to ourselves and
+    cause an infinite request loop).  CachedGoldenStore is only used when
+    running as a pure client (is_client=True, is_server=False).
+    """
     if "golden_store" not in g:
+        from aitf.ds.store import GoldenStore
+
+        cfg = current_app.config.get("AITF_CONFIG")
         sc = current_app.config.get("SYNC_CLIENT")
         base = current_app.config.get("DATASTORE_BASE_DIR", "datastore")
-        if sc:
+        use_cache = sc and cfg and cfg.is_client and not cfg.is_server
+        if use_cache:
             from aitf.sync.cache import CachedGoldenStore
             g.golden_store = CachedGoldenStore(base, sc)
         else:
-            from aitf.ds.store import GoldenStore
             g.golden_store = GoldenStore(base)
     return g.golden_store
 
