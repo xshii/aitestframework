@@ -1355,26 +1355,14 @@ window.gpConfirmGoldenSync=function(){
 
 /* ---------- 从服务器同步 ---------- */
 function tcSyncPlansFromServer(){
-  var msg=document.getElementById('tcSyncMsg');
-  if(msg) msg.textContent='同步中...';
-  fetch('/api/tc/sync_plans',{method:'POST',headers:{'Content-Type':'application/json'}})
-  .then(function(r){return r.json();})
-  .then(function(d){
-    if(d.error){if(msg) msg.textContent='同步失败: '+d.error;}
-    else{if(msg) msg.textContent='✓ 同步完成: '+d.saved+'/'+d.total+' 个测试计划';tcLoadOptions();setTimeout(function(){if(msg) msg.textContent='';},3000);}
-  })
-  .catch(function(e){if(msg) msg.textContent='同步失败: '+e;});
+  _syncAction('/api/tc/sync_plans','tcSyncMsg',
+    {headers:{'Content-Type':'application/json'}},
+    function(d){tcLoadOptions();return '✓ 同步完成: '+d.saved+'/'+d.total+' 个测试计划';});
 }
 function tcSyncResultsFromServer(){
-  var msg=document.getElementById('tcSyncMsg');
-  if(msg) msg.textContent='同步中...';
-  fetch('/api/tc/sync_results',{method:'POST',headers:{'Content-Type':'application/json'}})
-  .then(function(r){return r.json();})
-  .then(function(d){
-    if(d.error){if(msg) msg.textContent='同步失败: '+d.error;}
-    else{if(msg) msg.textContent='✓ 同步完成: 新增 '+d.imported+'/'+d.total+' 条记录';tcLoadExecutions();setTimeout(function(){if(msg) msg.textContent='';},3000);}
-  })
-  .catch(function(e){if(msg) msg.textContent='同步失败: '+e;});
+  _syncAction('/api/tc/sync_results','tcSyncMsg',
+    {headers:{'Content-Type':'application/json'}},
+    function(d){tcLoadExecutions();return '✓ 同步完成: 新增 '+d.imported+'/'+d.total+' 条记录';});
 }
 
 /* ---------- 初始化 ---------- */

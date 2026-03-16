@@ -993,14 +993,9 @@ function gSync(){
   });
 }
 function gSyncFromServer(){
-  var msg=document.getElementById('gSyncMsg');
-  if(msg) msg.textContent='同步中...';
-  fetch('/api/golden/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source:''})})
-  .then(function(r){return r.json()})
-  .then(function(d){
-    if(d.error){if(msg) msg.textContent='同步失败: '+d.error;}
-    else{if(msg) msg.textContent='✓ 同步完成';gLoadModels();gLoadOverview();setTimeout(function(){if(msg) msg.textContent='';},3000);}
-  }).catch(function(e){if(msg) msg.textContent='同步失败: '+e;});
+  _syncAction('/api/golden/sync','gSyncMsg',
+    {headers:{'Content-Type':'application/json'},body:JSON.stringify({source:''})},
+    function(){gLoadModels();gLoadOverview();return '✓ 同步完成';});
 }
 
 /* ========== 分型转换 ========== */
