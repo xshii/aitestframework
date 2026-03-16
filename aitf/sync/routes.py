@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import socket
 import tempfile
-from pathlib import Path
 
 import yaml
 from flask import Blueprint, current_app, jsonify, request, send_file
 
+from aitf.tc.testplan import list_plan_files, safe_plan_path, save_plan_yaml
 from aitf.web.extensions import (
     get_bundle_manager as _bundle_manager,
     get_deps_manager as _deps_manager,
@@ -46,74 +45,18 @@ def sync_ping():
 @bp.route("/api/sync/results", methods=["POST"])
 def receive_results():
     """Receive execution results from a client and store in server DB."""
-    from aitf.tc.db import get_session
-    from aitf.tc.models import CaseResult, CaseStatus, Execution
+    from aitf.tc import store
 
     body = request.get_json(silent=True)
     if not body or "id" not in body:
         return jsonify({"error": "invalid payload"}), 400
 
     eid = body["id"]
+    # Deduplicate
+    if store.get_execution_detail(eid):
+        return jsonify({"ok": True, "msg": "already exists"})
 
-    with get_session() as session:
-        # Deduplicate — skip if already exists
-        existing = session.get(Execution, eid)
-        if existing:
-            return jsonify({"ok": True, "msg": "already exists"})
-
-        exe = Execution(
-            id=eid,
-            bundle=body.get("bundle"),
-            target=body.get("target"),
-            golden_model=body.get("golden_model"),
-            golden_version=body.get("golden_version"),
-            plan_name=body.get("plan_name"),
-            platform=body.get("platform"),
-            git_commit=body.get("git_commit"),
-            trigger=body.get("trigger", "remote"),
-            total=body.get("total", 0),
-            passed=body.get("passed", 0),
-            failed=body.get("failed", 0),
-            timeout=body.get("timeout", 0),
-            crashed=body.get("crashed", 0),
-            skipped=body.get("skipped", 0),
-            errored=body.get("errored", 0),
-            pass_rate=body.get("pass_rate", 0.0),
-        )
-        # Parse timestamps
-        from datetime import datetime
-        for ts_field in ("started_at", "finished_at"):
-            val = body.get(ts_field)
-            if val:
-                try:
-                    setattr(exe, ts_field, datetime.fromisoformat(val))
-                except (ValueError, TypeError):
-                    pass
-
-        session.add(exe)
-
-        for c in body.get("cases", []):
-            cr = CaseResult(
-                execution_id=eid,
-                suite_class=c.get("suite_class", ""),
-                case_method=c.get("case_method", ""),
-                status=c.get("status", CaseStatus.PENDING),
-                failure_reason=c.get("failure_reason"),
-            )
-            if c.get("duration_s") is not None:
-                cr.duration_s = c["duration_s"]
-            if c.get("compare_detail"):
-                cr.compare_detail = (
-                    json.dumps(c["compare_detail"])
-                    if not isinstance(c["compare_detail"], str)
-                    else c["compare_detail"]
-                )
-            session.add(cr)
-
-        session.commit()
-
-    logger.info("Received execution %s from client (%d cases)",
-                eid, len(body.get("cases", [])))
+    store.import_execution_from_dict(body, trigger="remote")
     return jsonify({"ok": True, "execution_id": eid})
 
 
@@ -235,26 +178,14 @@ def receive_bundle():
 @bp.route("/api/sync/plans", methods=["GET"])
 def serve_plans():
     """List available test plans on the server."""
-    root = _project_root()
-    plans = []
-    for pattern in ("testplan*.yaml", "testplan*.yml"):
-        for f in sorted(root.glob(pattern)):
-            try:
-                with open(f, encoding="utf-8") as fh:
-                    data = yaml.safe_load(fh) or {}
-                plan_name = data.get("name", f.stem)
-            except Exception:
-                plan_name = f.stem
-            plans.append({"filename": f.name, "name": plan_name})
-    return jsonify(plans)
+    return jsonify(list_plan_files(_project_root()))
 
 
 @bp.route("/api/sync/plans/<filename>", methods=["GET"])
 def serve_plan(filename: str):
     """Serve a test plan YAML as JSON."""
-    root = _project_root().resolve()
-    plan_path = (root / filename).resolve()
-    if not plan_path.is_relative_to(root):
+    plan_path = safe_plan_path(_project_root(), filename)
+    if plan_path is None:
         return jsonify({"error": "invalid path"}), 400
     if not plan_path.is_file():
         return jsonify({"error": "not found"}), 404
@@ -263,35 +194,16 @@ def serve_plan(filename: str):
     return jsonify(data or {})
 
 
-from aitf.tc.models import SAFE_FILENAME_RE as _SAFE_PLAN_RE
-
-
-def _save_plan(filename: str, plan_data) -> tuple[str | None, str | None]:
-    """Validate and save a testplan YAML. Returns (saved_filename, error)."""
-    if not filename or not plan_data:
-        return None, "filename and plan are required"
-    if not filename.endswith((".yaml", ".yml")):
-        filename += ".yaml"
-    stem = Path(filename).stem
-    if not _SAFE_PLAN_RE.match(stem):
-        return None, "invalid filename"
-    filename = stem + ".yaml"
-    root = _project_root()
-    out = root / filename
-    with open(out, "w", encoding="utf-8") as fh:
-        yaml.dump(plan_data, fh, allow_unicode=True, default_flow_style=False,
-                  sort_keys=False)
-    logger.info("Received test plan: %s", filename)
-    return filename, None
-
-
 @bp.route("/api/sync/plans/upload", methods=["POST"])
 def receive_plan():
     """Receive a test plan from a client and save as YAML."""
     body = request.get_json(silent=True) or {}
-    saved, err = _save_plan(body.get("filename", "").strip(), body.get("plan"))
+    saved, err = save_plan_yaml(
+        _project_root(), body.get("filename", "").strip(), body.get("plan"),
+    )
     if err:
         return jsonify({"error": err}), 400
+    logger.info("Received test plan: %s", saved)
     return jsonify({"ok": True, "filename": saved})
 
 
@@ -311,7 +223,9 @@ def receive_plan_with_golden_check():
     body = request.get_json(silent=True) or {}
     client_fps = body.get("golden_fingerprints", {})
 
-    filename, err = _save_plan(body.get("filename", "").strip(), body.get("plan"))
+    filename, err = save_plan_yaml(
+        _project_root(), body.get("filename", "").strip(), body.get("plan"),
+    )
     if err:
         return jsonify({"error": err}), 400
 

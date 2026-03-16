@@ -301,3 +301,71 @@ def generate_execution_id() -> str:
     import uuid
     ts = time.strftime("%Y%m%d-%H%M%S")
     return f"{ts}-{uuid.uuid4().hex[:6]}"
+
+
+def import_execution_from_dict(data: dict, *, trigger: str = "sync") -> str:
+    """Import an execution (with cases) from a dict into the local DB.
+
+    Used by both sync receive (server-side) and sync pull (client-side).
+    Returns the execution ID.
+    """
+    eid = data["id"]
+
+    with get_session() as session:
+        # Deduplicate
+        existing = session.get(Execution, eid)
+        if existing:
+            return eid
+
+        exe = Execution(
+            id=eid,
+            bundle=data.get("bundle"),
+            target=data.get("target"),
+            golden_model=data.get("golden_model"),
+            golden_version=data.get("golden_version"),
+            plan_name=data.get("plan_name"),
+            platform=data.get("platform"),
+            git_commit=data.get("git_commit"),
+            trigger=data.get("trigger", trigger),
+            total=data.get("total", 0),
+            passed=data.get("passed", 0),
+            failed=data.get("failed", 0),
+            timeout=data.get("timeout", 0),
+            crashed=data.get("crashed", 0),
+            skipped=data.get("skipped", 0),
+            errored=data.get("errored", 0),
+            pass_rate=data.get("pass_rate", 0.0),
+        )
+        for ts_field in ("started_at", "finished_at"):
+            val = data.get(ts_field)
+            if val:
+                try:
+                    setattr(exe, ts_field, datetime.fromisoformat(val)
+                            if isinstance(val, str) else val)
+                except (ValueError, TypeError):
+                    pass
+        session.add(exe)
+
+        for c in data.get("cases", []):
+            cr = CaseResult(
+                execution_id=eid,
+                suite_class=c.get("suite_class", ""),
+                case_method=c.get("case_method", ""),
+                status=c.get("status", CaseStatus.PENDING),
+                failure_reason=c.get("failure_reason"),
+            )
+            if c.get("duration_s") is not None:
+                cr.duration_s = c["duration_s"]
+            if c.get("compare_detail"):
+                cr.compare_detail = (
+                    json.dumps(c["compare_detail"])
+                    if not isinstance(c["compare_detail"], str)
+                    else c["compare_detail"]
+                )
+            session.add(cr)
+
+        session.commit()
+
+    logger.info("Imported execution %s (%d cases)",
+                eid, len(data.get("cases", [])))
+    return eid

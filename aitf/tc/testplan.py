@@ -44,7 +44,65 @@ from typing import Any
 
 import yaml
 
+from aitf.tc.models import SAFE_FILENAME_RE
+
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Plan file I/O helpers (shared by tc/routes and sync/routes)
+# ---------------------------------------------------------------------------
+
+def list_plan_files(root: str | Path) -> list[dict]:
+    """Scan *root* for testplan YAML files. Returns [{filename, name}, ...]."""
+    root = Path(root)
+    plans: list[dict] = []
+    for pattern in ("testplan*.yaml", "testplan*.yml"):
+        for f in sorted(root.glob(pattern)):
+            try:
+                with open(f, encoding="utf-8") as fh:
+                    data = yaml.safe_load(fh) or {}
+                plan_name = data.get("name", f.stem)
+            except (yaml.YAMLError, OSError):
+                plan_name = f.stem
+            plans.append({"filename": f.name, "name": plan_name})
+    return plans
+
+
+def save_plan_yaml(
+    root: str | Path, filename: str, plan_data,
+) -> tuple[str | None, str | None]:
+    """Validate filename and save plan_data as YAML.
+
+    Returns ``(saved_filename, None)`` on success or ``(None, error)`` on failure.
+    """
+    if not filename or not plan_data:
+        return None, "filename and plan are required"
+    if not filename.endswith((".yaml", ".yml")):
+        filename += ".yaml"
+    stem = Path(filename).stem
+    if not SAFE_FILENAME_RE.match(stem):
+        return None, "文件名只能包含字母、数字、下划线、中文"
+    filename = stem + ".yaml"
+    out = Path(root) / filename
+    with open(out, "w", encoding="utf-8") as fh:
+        yaml.dump(plan_data, fh, allow_unicode=True, default_flow_style=False,
+                  sort_keys=False)
+    return filename, None
+
+
+def safe_plan_path(root: str | Path, filename: str) -> Path | None:
+    """Resolve plan path safely, preventing path traversal.
+
+    Returns the resolved Path if safe, or None.
+    """
+    root = Path(root).resolve()
+    plan_path = (root / filename).resolve()
+    if not plan_path.is_relative_to(root):
+        return None
+    if not filename.endswith((".yaml", ".yml")):
+        return None
+    return plan_path
 
 
 @dataclass

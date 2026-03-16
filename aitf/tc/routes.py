@@ -29,6 +29,16 @@ def _db_path():
     return cfg.build_root / "aitf.db" if cfg else "build/aitf.db"
 
 
+def _project_root() -> Path:
+    cfg = current_app.config.get("AITF_CONFIG")
+    return cfg.project_root if cfg else Path(".")
+
+
+def _require_sync_client():
+    """Return SyncClient or None. If None, caller should return 400."""
+    return current_app.config.get("SYNC_CLIENT")
+
+
 # ---------------------------------------------------------------------------
 # Suite discovery
 # ---------------------------------------------------------------------------
@@ -149,16 +159,8 @@ def api_tc_options():
 
     # Testplan files — return {filename, name} pairs
     try:
-        root = cfg.project_root if cfg else "."
-        for pattern in ("testplan*.yaml", "testplan*.yml"):
-            for f in sorted(Path(root).glob(pattern)):
-                try:
-                    with open(f, encoding="utf-8") as fh:
-                        plan_data = yaml.safe_load(fh) or {}
-                    plan_name = plan_data.get("name", f.stem)
-                except (yaml.YAMLError, OSError):
-                    plan_name = f.stem
-                testplans.append({"filename": f.name, "name": plan_name})
+        from aitf.tc.testplan import list_plan_files
+        testplans = list_plan_files(_project_root())
     except Exception:
         logger.debug("Failed to scan testplans for tc/options", exc_info=True)
 
@@ -175,14 +177,8 @@ def api_tc_options():
 
 def _safe_plan_path(filename: str) -> Path | None:
     """Resolve plan path safely, preventing path traversal."""
-    cfg = current_app.config.get("AITF_CONFIG")
-    root = (cfg.project_root if cfg else Path(".")).resolve()
-    plan_path = (root / filename).resolve()
-    if not plan_path.is_relative_to(root):
-        return None
-    if not filename.endswith((".yaml", ".yml")):
-        return None
-    return plan_path
+    from aitf.tc.testplan import safe_plan_path
+    return safe_plan_path(_project_root(), filename)
 
 
 @bp.route("/api/tc/plan/<filename>", methods=["GET"])
@@ -210,9 +206,6 @@ def api_delete_plan(filename):
 # Testplan generation
 # ---------------------------------------------------------------------------
 
-from aitf.tc.models import SAFE_FILENAME_RE as _SAFE_FILENAME_RE
-
-
 @bp.route("/api/tc/plan", methods=["POST"])
 def api_save_plan():
     """Save a generated testplan YAML file.
@@ -221,21 +214,16 @@ def api_save_plan():
     Each plan item: {"name": "...", "tests": [...], "bundle": "...",
                      "golden": {"model": "...", "version": "..."}}
     """
+    from aitf.tc.testplan import save_plan_yaml
+
     body = request.get_json(silent=True) or {}
     plans = body.get("plans", [])
     if not plans:
         return jsonify({"error": "plans 不能为空"}), 400
 
-    filename = body.get("filename", "").strip()
-    if not filename:
-        filename = "testplan_custom.yaml"
-    # Sanitise — only allow safe names
-    stem = Path(filename).stem
-    if not _SAFE_FILENAME_RE.match(stem):
-        return jsonify({"error": "文件名只能包含字母、数字、下划线、中文"}), 400
-    filename = stem + ".yaml"
+    filename = body.get("filename", "").strip() or "testplan_custom"
 
-    plan_data = {"name": body.get("name", stem), "plans": []}
+    plan_data = {"name": body.get("name", Path(filename).stem), "plans": []}
     for item in plans:
         entry = {"name": item.get("name", ""), "tests": item.get("tests", [])}
         if item.get("bundle"):
@@ -250,15 +238,10 @@ def api_save_plan():
             entry["params"] = params
         plan_data["plans"].append(entry)
 
-    cfg = current_app.config.get("AITF_CONFIG")
-    root = cfg.project_root if cfg else Path(".")
-    out_path = root / filename
-
-    with open(out_path, "w", encoding="utf-8") as fh:
-        yaml.dump(plan_data, fh, allow_unicode=True, default_flow_style=False,
-                  sort_keys=False)
-
-    return jsonify({"ok": True, "filename": filename})
+    saved, err = save_plan_yaml(_project_root(), filename, plan_data)
+    if err:
+        return jsonify({"error": err}), 400
+    return jsonify({"ok": True, "filename": saved})
 
 
 # ---------------------------------------------------------------------------
@@ -272,9 +255,9 @@ def api_sync_golden_to_remote():
     Body: {"items": [{"model": "m", "version": "v", "operators": ["op1"]}]}
     If operators is empty/missing, uploads the entire version.
     """
-    sc = current_app.config.get("SYNC_CLIENT")
+    sc = _require_sync_client()
     if not sc:
-        return jsonify({"error": "未配置远端服务器（仅 client/debug 模式可用）"}), 400
+        return jsonify({"error": "未配置远端服务器"}), 400
 
     from aitf.web.extensions import get_golden_store
     gs = get_golden_store()
@@ -318,12 +301,13 @@ def api_sync_golden_to_remote():
 @bp.route("/api/tc/sync_plans", methods=["POST"])
 def api_sync_plans_from_server():
     """Pull testplans from remote server and save locally."""
-    sc = current_app.config.get("SYNC_CLIENT")
+    from aitf.tc.testplan import save_plan_yaml
+
+    sc = _require_sync_client()
     if not sc:
         return jsonify({"error": "未配置远端服务器"}), 400
 
-    cfg = current_app.config.get("AITF_CONFIG")
-    root = cfg.project_root if cfg else Path(".")
+    root = _project_root()
     try:
         plans = sc.list_plans()
         saved = 0
@@ -333,10 +317,7 @@ def api_sync_plans_from_server():
                 continue
             try:
                 plan_data = sc.download_plan(filename)
-                out = root / filename
-                with open(out, "w", encoding="utf-8") as fh:
-                    yaml.dump(plan_data, fh, allow_unicode=True,
-                              default_flow_style=False, sort_keys=False)
+                save_plan_yaml(root, filename, plan_data)
                 saved += 1
             except Exception:
                 logger.debug("Failed to download plan %s", filename, exc_info=True)
@@ -348,7 +329,7 @@ def api_sync_plans_from_server():
 @bp.route("/api/tc/sync_results", methods=["POST"])
 def api_sync_results_from_server():
     """Pull execution results from remote server and save to local DB."""
-    sc = current_app.config.get("SYNC_CLIENT")
+    sc = _require_sync_client()
     if not sc:
         return jsonify({"error": "未配置远端服务器"}), 400
 
@@ -359,64 +340,20 @@ def api_sync_results_from_server():
             eid = exe_summary.get("id", "")
             if not eid:
                 continue
-            # Check if already exists locally
             local = store.get_execution_detail(eid)
             if local:
                 continue
-            # Fetch full detail and import
             try:
                 detail = sc.get_execution_detail(eid)
                 if not detail:
                     continue
-                _import_execution(detail)
+                store.import_execution_from_dict(detail, trigger="sync")
                 imported += 1
             except Exception:
                 logger.debug("Failed to import execution %s", eid, exc_info=True)
         return jsonify({"ok": True, "total": len(remote_execs), "imported": imported})
     except Exception as exc:
         return jsonify({"error": f"同步失败: {exc}"}), 502
-
-
-def _import_execution(detail: dict) -> None:
-    """Import a single execution record from remote into local DB."""
-    from datetime import datetime
-
-    from aitf.tc.db import get_session
-    from aitf.tc.models import CaseResult, Execution
-
-    with get_session() as session:
-        exe = Execution(
-            id=detail["id"],
-            started_at=datetime.fromisoformat(detail["started_at"]) if detail.get("started_at") else None,
-            finished_at=datetime.fromisoformat(detail["finished_at"]) if detail.get("finished_at") else None,
-            bundle=detail.get("bundle"),
-            target=detail.get("target"),
-            platform=detail.get("platform"),
-            golden_model=detail.get("golden_model"),
-            golden_version=detail.get("golden_version"),
-            plan_name=detail.get("plan_name"),
-            git_commit=detail.get("git_commit"),
-            trigger=detail.get("trigger", "sync"),
-            total=detail.get("total", 0),
-            passed=detail.get("passed", 0),
-            failed=detail.get("failed", 0),
-            timeout=detail.get("timeout", 0),
-            crashed=detail.get("crashed", 0),
-            skipped=detail.get("skipped", 0),
-            errored=detail.get("errored", 0),
-            pass_rate=detail.get("pass_rate", 0.0),
-        )
-        session.add(exe)
-        for c in detail.get("cases", []):
-            session.add(CaseResult(
-                execution_id=detail["id"],
-                suite_class=c.get("suite_class", ""),
-                case_method=c.get("case_method", ""),
-                status=c.get("status", "PENDING"),
-                failure_reason=c.get("failure_reason"),
-                duration_s=c.get("duration_s"),
-            ))
-        session.commit()
 
 
 # ---------------------------------------------------------------------------
