@@ -63,8 +63,9 @@
             <th>时间</th>
             <th>Bundle</th>
             <th>总数</th>
-            <th>通过</th>
-            <th>失败</th>
+            <th class="text-success">通过</th>
+            <th class="text-danger">失败</th>
+            <th class="text-muted">未执行</th>
             <th>通过率</th>
           </tr>
         </thead>
@@ -90,7 +91,6 @@
 
 <script>
 (function(){
-  var _e = _esc;
 
   function loadOverview() {
     /* Fetch overview stats from tc API */
@@ -124,7 +124,7 @@
           fbody.innerHTML = '<tr><td colspan="2" class="text-muted">暂无数据</td></tr>';
         } else {
           fbody.innerHTML = ft.map(function(item){
-            return '<tr><td>' + _e(item.case_name) + '</td><td>' + item.fail_count + '</td></tr>';
+            return '<tr><td>' + _esc(item.case_name) + '</td><td>' + item.fail_count + '</td></tr>';
           }).join('');
         }
       })
@@ -136,20 +136,10 @@
       .then(function(execs){
         var tbody = document.getElementById('ov-exec-body');
         if (!execs || execs.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="7" class="text-muted">暂无执行记录</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="8" class="text-muted">暂无执行记录</td></tr>';
           return;
         }
-        tbody.innerHTML = execs.map(function(ex){
-          return '<tr>'
-            + '<td><small>' + _e(ex.id) + '</small></td>'
-            + '<td>' + _fmtTime(ex.started_at) + '</td>'
-            + '<td>' + _e(ex.bundle || '-') + '</td>'
-            + '<td>' + (ex.total || 0) + '</td>'
-            + '<td class="text-success">' + (ex.passed || 0) + '</td>'
-            + '<td class="text-danger">' + (ex.failed_total || 0) + '</td>'
-            + '<td>' + _pct(ex.pass_rate || 0) + '</td>'
-            + '</tr>';
-        }).join('');
+        tbody.innerHTML = execs.map(function(ex){ return _renderExeRow(ex, {showNotRun: true}); }).join('');
       })
       .catch(function(err){ console.error('overview execs error', err); });
   }

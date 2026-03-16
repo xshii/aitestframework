@@ -24,7 +24,7 @@
 .gp-ver-group input{width:13px;height:13px;margin-right:2px;vertical-align:middle;}
 </style>
 
-{% from "macros.html" import sync_bar %}
+{% from "macros.html" import sync_bar with context %}
 {% call() sync_bar() %}
   <button class="btn btn-sm btn-primary me-1" onclick="tcSyncPlansFromServer()">同步测试计划</button>
   <button class="btn btn-sm btn-outline-primary" onclick="tcSyncResultsFromServer()">同步执行记录</button>
@@ -196,8 +196,7 @@ var _tcOptions={bundles:[],golden_models:[],testplans:[]};
 var _activePlanTests=[];
 var _statusFilter='';
 
-/* ---------- 工具 (共享函数来自 aitf-common.js: _esc, _fmtTime, _pct) ---------- */
-var _e = _esc;
+/* ---------- 工具 (共享函数来自 aitf-common.js: _esc, _fmtTime, _pct, _renderExeRow, _buildVerSelect) ---------- */
 
 function _icon(status){
   if(status==='PASS') return '✅';
@@ -288,7 +287,7 @@ window.tcRenderSuites=function(){
     var suites=tree[grp];
     html+='<div class="mb-1">';
     if(groups.length>1||grp!=='default'){
-      html+='<div class="small fw-bold text-muted" style="padding:2px 0">📁 '+_e(grp)+'</div>';
+      html+='<div class="small fw-bold text-muted" style="padding:2px 0">📁 '+_esc(grp)+'</div>';
     }
     html+='<div class="'+(groups.length>1&&grp!=='default'?'tc-tree-group':'')+'">';
 
@@ -313,10 +312,10 @@ window.tcRenderSuites=function(){
         +'<div class="d-flex align-items-center">'
         +'<span class="tc-toggle" onclick="tcToggleCases(\''+suiteId+'\',this)">▶</span>'
         +'<input class="form-check-input me-1 tc-run-chk-suite" type="checkbox" '
-        +'data-module="'+_e(s.module_path)+'" onchange="tcToggleSuite(this)">'
+        +'data-module="'+_esc(s.module_path)+'" onchange="tcToggleSuite(this)">'
         +'<span class="tc-icon me-1">'+icon+'</span>'
-        +'<span class="fw-bold small me-2">'+_e(s.class_name)+'</span>'
-        +'<span class="text-muted small me-2" style="font-size:.75rem">'+_e(s.module_path)+'</span>'
+        +'<span class="fw-bold small me-2">'+_esc(s.class_name)+'</span>'
+        +'<span class="text-muted small me-2" style="font-size:.75rem">'+_esc(s.module_path)+'</span>'
         +(inPlan?'<span class="badge bg-primary" style="font-size:.6rem;padding:1px 4px">计划</span>':'')
         +'<span class="ms-auto small text-muted">'+smText+'</span>'
         +'</div>';
@@ -328,8 +327,8 @@ window.tcRenderSuites=function(){
         names.forEach(function(n){
           html+='<div class="tc-case-row d-flex align-items-center">'
             +'<input class="form-check-input me-1 tc-run-chk" type="checkbox" '
-            +'data-module="'+_e(s.module_path)+'" data-case="'+_e(n)+'" onchange="tcUpdateRunCount()" style="width:13px;height:13px">'
-            +'<code style="font-size:.78rem">'+_e(n)+'</code>'
+            +'data-module="'+_esc(s.module_path)+'" data-case="'+_esc(n)+'" onchange="tcUpdateRunCount()" style="width:13px;height:13px">'
+            +'<code style="font-size:.78rem">'+_esc(n)+'</code>'
             +'</div>';
         });
         html+='</div>';
@@ -415,18 +414,18 @@ window.tcRenderPlanSuites=function(){
     var suites=tree[grp];
     html+='<div class="mb-1">';
     if(groups.length>1||grp!=='default'){
-      html+='<div class="small fw-bold text-muted" style="padding:2px 0">📁 '+_e(grp)+'</div>';
+      html+='<div class="small fw-bold text-muted" style="padding:2px 0">📁 '+_esc(grp)+'</div>';
     }
     html+='<div class="'+(groups.length>1&&grp!=='default'?'tc-tree-group':'')+'">';
 
     suites.forEach(function(s){
       var rowId='gp_r_'+s.id;
       var tidId='gp_tid_'+s.id;
-      html+='<div class="tc-suite-row" data-module="'+_e(s.module_path)+'" data-class="'+_e(s.class_name)+'">'
+      html+='<div class="tc-suite-row" data-module="'+_esc(s.module_path)+'" data-class="'+_esc(s.class_name)+'">'
         +'<div class="d-flex align-items-center gap-1 flex-wrap">'
         +'<input class="form-check-input tc-suite-chk" type="checkbox" onchange="tcUpdateSelectCount()" style="margin:0">'
-        +'<span class="fw-bold small me-1">'+_e(s.class_name)+'</span>'
-        +'<span class="text-muted small me-1" style="font-size:.75rem">'+_e(s.module_path)+'</span>'
+        +'<span class="fw-bold small me-1">'+_esc(s.class_name)+'</span>'
+        +'<span class="text-muted small me-1" style="font-size:.75rem">'+_esc(s.module_path)+'</span>'
         +'<span class="badge bg-secondary" style="font-size:.65rem">'+s.case_count+'</span>'
         +'<button class="btn btn-sm btn-outline-secondary py-0 ms-1" style="font-size:.65rem" onclick="gpToggleRowParams(\''+rowId+'\')">参数</button>'
         +'<span class="ms-auto d-flex align-items-center gap-1">'
@@ -512,21 +511,7 @@ function tcRenderExecutions(){
   if(!items.length){table.style.display='none';empty.classList.remove('d-none');return;}
   table.style.display='';empty.classList.add('d-none');
 
-  var html='';
-  items.forEach(function(e){
-    var rate=e.total?_pct(e.pass_rate):'—';
-    html+='<tr>'
-      +'<td><a href="#" onclick="tcShowExeDetail(\''+_e(e.id)+'\');return false;" class="text-decoration-none">'+_e(e.id)+'</a></td>'
-      +'<td>'+_fmtTime(e.started_at)+'</td>'
-      +'<td>'+_e(e.bundle||'-')+'</td>'
-      +'<td>'+e.total+'</td>'
-      +'<td class="text-success">'+e.passed+'</td>'
-      +'<td class="text-danger">'+(e.failed_total||0)+'</td>'
-      +'<td class="text-muted">'+(e.not_run||0)+'</td>'
-      +'<td>'+rate+'</td>'
-      +'</tr>';
-  });
-  tbody.innerHTML=html;
+  tbody.innerHTML=items.map(function(e){return _renderExeRow(e,{onClick:'tcShowExeDetail',showNotRun:true});}).join('');
 }
 
 window.tcShowExeDetail=function(exeId){
@@ -542,13 +527,13 @@ window.tcShowExeDetail=function(exeId){
 
       var html='<div class="card mb-2"><div class="card-body py-2">'
         +'<div class="d-flex align-items-center mb-1">'
-        +'<h6 class="mb-0 me-3">'+_e(d.id)+'</h6>'
+        +'<h6 class="mb-0 me-3">'+_esc(d.id)+'</h6>'
         +'<small class="text-muted">'+_fmtTime(d.started_at)+' → '+_fmtTime(d.finished_at)+'</small>'
         +'</div>'
         +'<div class="small mb-1">'
-        +'配置集: '+_e(d.bundle||'-')
-        +(d.golden_model?' | Golden: '+_e(d.golden_model+'/'+d.golden_version):'')
-        +(d.plan_name?' | 计划: '+_e(d.plan_name):'')
+        +'配置集: '+_esc(d.bundle||'-')
+        +(d.golden_model?' | Golden: '+_esc(d.golden_model+'/'+d.golden_version):'')
+        +(d.plan_name?' | 计划: '+_esc(d.plan_name):'')
         +'</div>'
         +'<div class="mb-2">';
       html+='通过 <strong class="text-success">'+d.passed+'</strong>'
@@ -558,24 +543,24 @@ window.tcShowExeDetail=function(exeId){
         +'</div>';
 
       Object.keys(suites).forEach(function(sn){
-        html+='<div class="fw-bold small mb-1">'+_e(sn)+'</div>';
+        html+='<div class="fw-bold small mb-1">'+_esc(sn)+'</div>';
         suites[sn].forEach(function(c){
           var cmpHtml='';
           if(c.compare_detail){
             var cd=c.compare_detail;
-            cmpHtml='<span class="badge bg-info text-dark ms-1" style="font-size:.65rem" title="'+_e(JSON.stringify(cd))+'">';
+            cmpHtml='<span class="badge bg-info text-dark ms-1" style="font-size:.65rem" title="'+_esc(JSON.stringify(cd))+'">';
             if(cd.total_compared!=null) cmpHtml+='比对 '+cd.total_compared+' 文件';
             if(cd.operators) cmpHtml+=' · '+cd.operators.length+' 算子';
-            if(cd.first_diff) cmpHtml+=' · '+_e(cd.first_diff);
+            if(cd.first_diff) cmpHtml+=' · '+_esc(cd.first_diff);
             if(cd.golden_uploaded) cmpHtml+='已上传 golden';
             cmpHtml+='</span>';
           }
           html+='<div class="d-flex align-items-center small" style="padding:1px 0 1px 16px">'
             +'<span class="me-1">'+_icon(c.status)+'</span>'
-            +'<code class="me-2">'+_e(c.case_method)+'</code>'
+            +'<code class="me-2">'+_esc(c.case_method)+'</code>'
             +(c.duration_s!=null?'<span class="text-muted me-2">'+c.duration_s.toFixed(2)+'s</span>':'')
             +cmpHtml
-            +(c.failure_reason?'<span class="text-danger text-truncate" style="max-width:400px" title="'+_e(c.failure_reason)+'">'+_e(c.failure_reason.split('\n').pop())+'</span>':'')
+            +(c.failure_reason?'<span class="text-danger text-truncate" style="max-width:400px" title="'+_esc(c.failure_reason)+'">'+_esc(c.failure_reason.split('\n').pop())+'</span>':'')
             +'</div>';
         });
       });
@@ -721,24 +706,24 @@ function tcLoadOptions(){
     _tcOptions=d;
     var bs=document.getElementById('tcRunBundle');
     var html='<option value="">配置集</option>';
-    (d.bundles||[]).forEach(function(b){html+='<option value="'+_e(b)+'">'+_e(b)+'</option>';});
+    (d.bundles||[]).forEach(function(b){html+='<option value="'+_esc(b)+'">'+_esc(b)+'</option>';});
     bs.innerHTML=html;
 
     var ps=document.getElementById('tcRunPlan');
     html='<option value="">测试计划</option>';
-    (d.testplans||[]).forEach(function(p){html+='<option value="'+_e(p.filename)+'">'+_e(p.name)+'</option>';});
+    (d.testplans||[]).forEach(function(p){html+='<option value="'+_esc(p.filename)+'">'+_esc(p.name)+'</option>';});
     ps.innerHTML=html;
 
     var gpB=document.getElementById('gpBundle');
     html='<option value="">不指定</option>';
-    (d.bundles||[]).forEach(function(b){html+='<option value="'+_e(b)+'">'+_e(b)+'</option>';});
+    (d.bundles||[]).forEach(function(b){html+='<option value="'+_esc(b)+'">'+_esc(b)+'</option>';});
     gpB.innerHTML=html;
 
     // 加载已有计划下拉框
     var lp=document.getElementById('gpLoadPlan');
     var curLp=lp.value;
     html='<option value="">新建计划</option>';
-    (d.testplans||[]).forEach(function(p){html+='<option value="'+_e(p.filename)+'">'+_e(p.name)+'</option>';});
+    (d.testplans||[]).forEach(function(p){html+='<option value="'+_esc(p.filename)+'">'+_esc(p.name)+'</option>';});
     lp.innerHTML=html;
     if(curLp) lp.value=curLp;
 
@@ -748,7 +733,7 @@ function tcLoadOptions(){
 
 function _gpModelOptions(){
   var html='<option value="">不指定</option>';
-  (_tcOptions.golden_models||[]).forEach(function(g){html+='<option value="'+_e(g.model)+'">'+_e(g.model)+'</option>';});
+  (_tcOptions.golden_models||[]).forEach(function(g){html+='<option value="'+_esc(g.model)+'">'+_esc(g.model)+'</option>';});
   return html;
 }
 function _gpVersionCheckboxes(model){
@@ -758,7 +743,7 @@ function _gpVersionCheckboxes(model){
   var html='';
   g.versions.forEach(function(v){
     var id='gv_'+Math.random().toString(36).substr(2,6);
-    html+='<label for="'+id+'"><input class="form-check-input gp-ver-chk" type="checkbox" id="'+id+'" value="'+_e(v)+'">'+_e(v)+'</label>';
+    html+='<label for="'+id+'"><input class="form-check-input gp-ver-chk" type="checkbox" id="'+id+'" value="'+_esc(v)+'">'+_esc(v)+'</label>';
   });
   return html;
 }
@@ -852,13 +837,13 @@ window.gpShowTidPanel=function(btn,tidId){
     // 构建表头
     var nVer=versions.length;
     var colTemplate='180px '+versions.map(function(){return '70px';}).join(' ');
-    var h='<div class="small fw-bold mb-1">算子 → TID 绑定 <span class="text-muted fw-normal">('+_e(model)+')</span></div>';
+    var h='<div class="small fw-bold mb-1">算子 → TID 绑定 <span class="text-muted fw-normal">('+_esc(model)+')</span></div>';
     h+='<div style="display:grid;grid-template-columns:'+colTemplate+';gap:2px 6px;align-items:center;overflow-x:auto">';
     // 表头行
     h+='<span class="small fw-bold text-muted">算子名</span>';
     versions.forEach(function(v,vi){
       h+='<span class="small fw-bold text-center" style="font-size:.7rem">'
-        +_e(v)
+        +_esc(v)
         +(vi>0?' <button class="btn btn-outline-secondary py-0 px-1" style="font-size:.6rem;line-height:1" onclick="gpCopyTidCol(this,'+vi+')" title="复制前一版本 TID">←</button>':'')
         +'</span>';
     });
@@ -867,7 +852,7 @@ window.gpShowTidPanel=function(btn,tidId){
     allOps.forEach(function(op){
       var hasAny=false;
       versions.forEach(function(v){if(verOpSets[v]&&verOpSets[v][op])hasAny=true;});
-      h+='<span class="small'+(hasAny?'':' text-decoration-line-through text-muted')+'" title="'+_e(op)+'">'+_e(op)+'</span>';
+      h+='<span class="small'+(hasAny?'':' text-decoration-line-through text-muted')+'" title="'+_esc(op)+'">'+_esc(op)+'</span>';
       versions.forEach(function(v){
         var exists=verOpSets[v]&&verOpSets[v][op];
         // 反转 tid_names: {tid: opName} → 找出该 op 的 tid
@@ -876,7 +861,7 @@ window.gpShowTidPanel=function(btn,tidId){
         Object.keys(verTids).forEach(function(t){if(verTids[t]===op)tid=t;});
         if(exists){
           h+='<input class="form-control form-control-sm gp-tid-input" type="number" min="0" '
-            +'data-op="'+_e(op)+'" data-ver="'+_e(v)+'" value="'+_e(tid)+'" placeholder="-" '
+            +'data-op="'+_esc(op)+'" data-ver="'+_esc(v)+'" value="'+_esc(tid)+'" placeholder="-" '
             +'style="font-size:.75rem;padding:1px 4px;height:22px;text-align:center">';
         }else{
           h+='<span class="text-center text-muted" style="font-size:.7rem" title="此版本无该算子">—</span>';
@@ -1297,7 +1282,7 @@ function _gpRenderGoldenSyncDialog(items){
     if(s.missing_ops&&s.missing_ops.length) detail.push('缺少: '+s.missing_ops.join(', '));
     if(s.diff_ops&&s.diff_ops.length) detail.push('差异: '+s.diff_ops.join(', '));
     html+='<tr><td><input type="checkbox" class="gp-sync-chk" data-idx="'+i+'" checked></td>'
-      +'<td>'+_e(s.model)+'/'+_e(s.version)+'</td>'
+      +'<td>'+_esc(s.model)+'/'+_esc(s.version)+'</td>'
       +'<td>'+statusLabel+'</td>'
       +'<td style="font-size:.78rem">'+(detail.join('; ')||'-')+'</td></tr>';
   });

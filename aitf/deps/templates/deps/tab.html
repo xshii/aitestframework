@@ -1,4 +1,4 @@
-{% from "macros.html" import sync_bar %}
+{% from "macros.html" import sync_bar with context %}
 {% call() sync_bar() %}
   <button class="btn btn-sm btn-primary" onclick="syncFromServer()">从服务器同步</button>
   <span id="syncMsg" class="ms-2 small"></span>
@@ -100,9 +100,7 @@ function dLoad(){
     items.sort(function(a,b){return a.order-b.order;});
     var rows='';
     items.forEach(function(dep){
-      var sel='<select class="form-select form-select-sm d-inline-block" style="width:auto;min-width:90px" id="ver-'+_esc(dep.name)+'">';
-      dep.versions.forEach(function(v){sel+='<option value="'+_esc(v)+'"'+(v===dep.version?' selected':'')+'>'+_esc(v)+'</option>';});
-      sel+='</select>';
+      var sel=_buildVerSelect(dep.versions,dep.version,'id="ver-'+_esc(dep.name)+'"');
       rows+='<tr draggable="true" data-name="'+_esc(dep.name)+'" style="cursor:grab">'
         +'<td class="text-muted" style="cursor:grab">☰</td>'
         +'<td><strong>'+_esc(dep.name)+'</strong></td><td>'+sel+'</td>'
@@ -210,9 +208,7 @@ function _renderBundleItems(){
   names.forEach(function(dn){
     var cv=_bundleItems[dn],dep=_allDeps.find(function(d){return d.name===dn;}),vs=dep?dep.versions:[cv];
     if(vs.indexOf(cv)<0) vs.push(cv);
-    var sel='<select class="form-select form-select-sm" style="width:auto;min-width:90px" onchange="_bundleItems[\''+_esc(dn).replace(/'/g,"\\'")+'\']'+'=this.value">';
-    vs.forEach(function(v){sel+='<option value="'+_esc(v)+'"'+(v===cv?' selected':'')+'>'+_esc(v)+'</option>';});
-    sel+='</select>';
+    var sel=_buildVerSelect(vs,cv,'onchange="_bundleItems[\''+_esc(dn).replace(/'/g,"\\'")+'\']'+'=this.value"');
     rows+='<tr draggable="true" data-name="'+_esc(dn)+'" style="cursor:grab">'
       +'<td class="text-muted" style="cursor:grab">☰</td>'
       +'<td>'+_esc(dn)+'</td><td>'+sel+'</td><td><button class="btn btn-sm btn-outline-danger py-0" onclick="bRemoveItem(\''+_esc(dn).replace(/'/g,"\\'")+'\')">移除</button></td></tr>';

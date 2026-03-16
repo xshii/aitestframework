@@ -1,6 +1,6 @@
 {# Golden 数据管理 — 数据总览 + 模型管理 #}
 
-{% from "macros.html" import sync_bar %}
+{% from "macros.html" import sync_bar with context %}
 {% call() sync_bar() %}
   <button class="btn btn-sm btn-primary" onclick="gSyncFromServer()">从服务器同步</button>
   <span id="gSyncMsg" class="ms-2 small"></span>

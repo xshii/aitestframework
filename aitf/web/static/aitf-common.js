@@ -62,6 +62,45 @@ function _initTableDrag(tbodyId, onReorder) {
   });
 }
 
+/**
+ * _buildVerSelect — build a version <select> dropdown.
+ *
+ * @param {string[]} versions  available versions
+ * @param {string}   current   currently selected version
+ * @param {string}   [attrs]   extra attributes for <select> (e.g. 'id="x"')
+ */
+function _buildVerSelect(versions, current, attrs) {
+  var sel = '<select class="form-select form-select-sm" style="width:auto;min-width:90px"' + (attrs ? ' ' + attrs : '') + '>';
+  versions.forEach(function(v) {
+    sel += '<option value="' + _esc(v) + '"' + (v === current ? ' selected' : '') + '>' + _esc(v) + '</option>';
+  });
+  return sel + '</select>';
+}
+
+/**
+ * _renderExeRow — render a single execution as a <tr>.
+ *
+ * @param {object}   e         execution object
+ * @param {object}   [opts]    { onClick: 'fnName', showNotRun: bool }
+ */
+function _renderExeRow(e, opts) {
+  opts = opts || {};
+  var rate = e.total ? _pct(e.pass_rate) : '\u2014';
+  var idCell = opts.onClick
+    ? '<a href="#" onclick="' + opts.onClick + '(\'' + _esc(e.id) + '\');return false;" class="text-decoration-none">' + _esc(e.id) + '</a>'
+    : '<small>' + _esc(e.id) + '</small>';
+  var html = '<tr>'
+    + '<td>' + idCell + '</td>'
+    + '<td>' + _fmtTime(e.started_at) + '</td>'
+    + '<td>' + _esc(e.bundle || '-') + '</td>'
+    + '<td>' + (e.total || 0) + '</td>'
+    + '<td class="text-success">' + (e.passed || 0) + '</td>'
+    + '<td class="text-danger">' + (e.failed_total || 0) + '</td>';
+  if (opts.showNotRun) html += '<td class="text-muted">' + (e.not_run || 0) + '</td>';
+  html += '<td>' + rate + '</td></tr>';
+  return html;
+}
+
 function _syncAction(url, msgId, opts, onOk) {
   var msg = document.getElementById(msgId);
   if (msg) msg.textContent = '同步中...';

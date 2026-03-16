@@ -2,8 +2,8 @@
 
 {# Sync bar — shown in client/debug mode.
    Usage:
-     {% from "macros.html" import sync_bar %}
-     {% call(msg_id) sync_bar() %}
+     {% from "macros.html" import sync_bar with context %}
+     {% call() sync_bar() %}
        <button class="btn btn-sm btn-primary" onclick="doSync()">从服务器同步</button>
      {% endcall %}
 #}
