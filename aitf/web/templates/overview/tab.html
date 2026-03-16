@@ -1,0 +1,168 @@
+{# Overview Dashboard Tab (REQ-7.1) #}
+
+<div id="overview-dashboard">
+  {# Summary cards #}
+  <div class="row mb-3" id="overview-cards">
+    <div class="col">
+      <div class="card text-white bg-secondary">
+        <div class="card-body text-center py-2">
+          <div class="small">总用例数</div>
+          <div class="fs-4 fw-bold" id="ov-total">-</div>
+        </div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card text-white bg-success">
+        <div class="card-body text-center py-2">
+          <div class="small">通过</div>
+          <div class="fs-4 fw-bold" id="ov-pass">-</div>
+        </div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card text-white bg-danger">
+        <div class="card-body text-center py-2">
+          <div class="small">失败</div>
+          <div class="fs-4 fw-bold" id="ov-fail">-</div>
+        </div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card text-white bg-warning">
+        <div class="card-body text-center py-2">
+          <div class="small">未执行</div>
+          <div class="fs-4 fw-bold" id="ov-notrun">-</div>
+        </div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card text-white bg-secondary">
+        <div class="card-body text-center py-2">
+          <div class="small">通过率</div>
+          <div class="fs-4 fw-bold" id="ov-rate">-</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# Pass rate progress bar #}
+  <div class="mb-4">
+    <div class="progress" style="height: 24px;">
+      <div class="progress-bar bg-success" id="ov-progress" role="progressbar" style="width:0%">0%</div>
+    </div>
+  </div>
+
+  <div class="row">
+    {# Recent executions table #}
+    <div class="col-lg-7">
+      <h5>最近执行记录</h5>
+      <table class="table table-sm table-striped table-hover">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>时间</th>
+            <th>Bundle</th>
+            <th>总数</th>
+            <th>通过</th>
+            <th>失败</th>
+            <th>通过率</th>
+          </tr>
+        </thead>
+        <tbody id="ov-exec-body"></tbody>
+      </table>
+    </div>
+
+    {# Fail top 10 #}
+    <div class="col-lg-5">
+      <h5>失败用例 Top 10</h5>
+      <table class="table table-sm table-striped table-hover">
+        <thead>
+          <tr>
+            <th>用例</th>
+            <th>失败次数</th>
+          </tr>
+        </thead>
+        <tbody id="ov-fail-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var _e = _esc;
+
+  function loadOverview() {
+    /* Fetch overview stats from tc API */
+    fetch('/api/tc/overview')
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        /* Summary cards from latest execution */
+        var ex = data.latest_execution || {};
+        var stats = data.suite_stats || {};
+        var total = ex.total || 0;
+        var passed = ex.passed || 0;
+        var failedTotal = ex.failed_total || 0;
+        var notRun = ex.not_run || 0;
+        var rate = ex.pass_rate || 0;
+
+        document.getElementById('ov-total').textContent = total;
+        document.getElementById('ov-pass').textContent = passed;
+        document.getElementById('ov-fail').textContent = failedTotal;
+        document.getElementById('ov-notrun').textContent = notRun;
+        document.getElementById('ov-rate').textContent = _pct(rate);
+
+        var pctVal = (rate * 100).toFixed(1);
+        var bar = document.getElementById('ov-progress');
+        bar.style.width = pctVal + '%';
+        bar.textContent = pctVal + '%';
+
+        /* Fail top 10 */
+        var ft = data.fail_top10 || [];
+        var fbody = document.getElementById('ov-fail-body');
+        if (ft.length === 0) {
+          fbody.innerHTML = '<tr><td colspan="2" class="text-muted">暂无数据</td></tr>';
+        } else {
+          fbody.innerHTML = ft.map(function(item){
+            return '<tr><td>' + _e(item.case_name) + '</td><td>' + item.fail_count + '</td></tr>';
+          }).join('');
+        }
+      })
+      .catch(function(err){ console.error('overview stats error', err); });
+
+    /* Fetch recent executions */
+    fetch('/api/executions?limit=10')
+      .then(function(r){ return r.json(); })
+      .then(function(execs){
+        var tbody = document.getElementById('ov-exec-body');
+        if (!execs || execs.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="7" class="text-muted">暂无执行记录</td></tr>';
+          return;
+        }
+        tbody.innerHTML = execs.map(function(ex){
+          return '<tr>'
+            + '<td><small>' + _e(ex.id) + '</small></td>'
+            + '<td>' + _fmtTime(ex.started_at) + '</td>'
+            + '<td>' + _e(ex.bundle || '-') + '</td>'
+            + '<td>' + (ex.total || 0) + '</td>'
+            + '<td class="text-success">' + (ex.passed || 0) + '</td>'
+            + '<td class="text-danger">' + (ex.failed_total || 0) + '</td>'
+            + '<td>' + _pct(ex.pass_rate || 0) + '</td>'
+            + '</tr>';
+        }).join('');
+      })
+      .catch(function(err){ console.error('overview execs error', err); });
+  }
+
+  /* Load when tab becomes visible, and on initial load if active */
+  var tabLink = document.querySelector('[data-tab="tab-overview"]');
+  if (tabLink) {
+    tabLink.addEventListener('click', function(){ setTimeout(loadOverview, 50); });
+  }
+  /* Auto-load if overview is the default active tab */
+  var pane = document.getElementById('tab-overview');
+  if (pane && pane.classList.contains('active')) {
+    loadOverview();
+  }
+})();
+</script>

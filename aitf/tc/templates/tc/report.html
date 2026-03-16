@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Test Report - {{ execution.id }}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 20px; }
+    .status-pass { color: #198754; }
+    .status-fail { color: #dc3545; }
+    .status-skip { color: #6c757d; }
+    .status-error { color: #fd7e14; }
+    .status-timeout { color: #ffc107; }
+    .status-crash { color: #dc3545; font-weight: bold; }
+    .status-pending { color: #adb5bd; }
+    .status-running { color: #0d6efd; }
+    .status-icon::before { margin-right: 4px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1 class="mb-3">Test Execution Report</h1>
+
+    {# Execution summary #}
+    <div class="card mb-4">
+      <div class="card-header"><strong>Execution Summary</strong></div>
+      <div class="card-body">
+        <table class="table table-sm mb-0">
+          <tbody>
+            <tr><th style="width:160px">Execution ID</th><td>{{ execution.id }}</td></tr>
+            <tr><th>Started</th><td>{{ execution.started_at or '-' }}</td></tr>
+            <tr><th>Finished</th><td>{{ execution.finished_at or '-' }}</td></tr>
+            <tr><th>Platform</th><td>{{ execution.platform or '-' }}</td></tr>
+            <tr><th>Bundle</th><td>{{ execution.bundle or '-' }}</td></tr>
+            <tr><th>Git Commit</th><td>{{ execution.git_commit or '-' }}</td></tr>
+            <tr><th>Trigger</th><td>{{ execution.trigger or '-' }}</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {# Stats cards #}
+    <div class="row mb-4">
+      <div class="col">
+        <div class="card text-white bg-secondary text-center">
+          <div class="card-body py-2">
+            <div class="small">Total</div>
+            <div class="fs-4 fw-bold">{{ execution.total or 0 }}</div>
+          </div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="card text-white bg-success text-center">
+          <div class="card-body py-2">
+            <div class="small">Passed</div>
+            <div class="fs-4 fw-bold">{{ execution.passed or 0 }}</div>
+          </div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="card text-white bg-danger text-center">
+          <div class="card-body py-2">
+            <div class="small">Failed</div>
+            <div class="fs-4 fw-bold">{{ execution.failed_total or 0 }}</div>
+          </div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="card text-white bg-secondary text-center">
+          <div class="card-body py-2">
+            <div class="small">Pass Rate</div>
+            <div class="fs-4 fw-bold">{{ "%.1f"|format((execution.pass_rate or 0) * 100) }}%</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {# Pass rate bar #}
+    <div class="progress mb-4" style="height: 24px;">
+      {% set pct = (execution.pass_rate or 0) * 100 %}
+      <div class="progress-bar bg-success" style="width: {{ "%.1f"|format(pct) }}%">{{ "%.1f"|format(pct) }}%</div>
+    </div>
+
+    {# Suite-by-suite results #}
+    {% for suite_name, cases in suites.items() %}
+    <div class="card mb-3">
+      <div class="card-header">
+        <strong>{{ suite_name }}</strong>
+        <span class="text-muted ms-2">({{ cases|length }} cases)</span>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm table-striped mb-0">
+          <thead>
+            <tr>
+              <th>Case</th>
+              <th>Status</th>
+              <th>Duration</th>
+              <th>Failure Reason</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for c in cases %}
+            <tr>
+              <td>{{ c.case_method }}</td>
+              <td>
+                {% if c.status == 'PASS' %}
+                  <span class="status-pass">&#10003; PASS</span>
+                {% elif c.status == 'FAIL' %}
+                  <span class="status-fail">&#10007; FAIL</span>
+                {% elif c.status == 'SKIP' %}
+                  <span class="status-skip">&#8212; SKIP</span>
+                {% elif c.status == 'ERROR' %}
+                  <span class="status-error">&#9888; ERROR</span>
+                {% elif c.status == 'TIMEOUT' %}
+                  <span class="status-timeout">&#9200; TIMEOUT</span>
+                {% elif c.status == 'CRASH' %}
+                  <span class="status-crash">&#9760; CRASH</span>
+                {% elif c.status == 'PENDING' %}
+                  <span class="status-pending">&#9679; PENDING</span>
+                {% elif c.status == 'RUNNING' %}
+                  <span class="status-running">&#9654; RUNNING</span>
+                {% else %}
+                  <span>{{ c.status }}</span>
+                {% endif %}
+              </td>
+              <td>{% if c.duration_s is not none %}{{ "%.2f"|format(c.duration_s) }}s{% else %}-{% endif %}</td>
+              <td>{{ c.failure_reason or '' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endfor %}
+
+    <footer class="text-muted text-center mt-4 mb-3">
+      <small>Generated by AITF Test Framework</small>
+    </footer>
+  </div>
+</body>
+</html>
