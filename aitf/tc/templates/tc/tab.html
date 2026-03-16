@@ -24,6 +24,15 @@
 .gp-ver-group input{width:13px;height:13px;margin-right:2px;vertical-align:middle;}
 </style>
 
+{% if aitf_mode in ('client', 'debug') %}
+<div class="alert alert-info py-1 mb-2 d-flex align-items-center">
+  <span class="me-2">服务器: <strong>{{ aitf_server }}</strong></span>
+  <button class="btn btn-sm btn-primary me-1" onclick="tcSyncPlansFromServer()">同步测试计划</button>
+  <button class="btn btn-sm btn-outline-primary" onclick="tcSyncResultsFromServer()">同步执行记录</button>
+  <span id="tcSyncMsg" class="ms-2 small"></span>
+</div>
+{% endif %}
+
 <ul class="nav nav-pills mb-2" id="tcSubTabs">
   <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#sub-suites">用例</button></li>
   <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#sub-plan">测试计划</button></li>
@@ -1343,6 +1352,30 @@ window.gpConfirmGoldenSync=function(){
     document.getElementById('gpMsg').textContent='golden 同步出错: '+e;
   });
 };
+
+/* ---------- 从服务器同步 ---------- */
+function tcSyncPlansFromServer(){
+  var msg=document.getElementById('tcSyncMsg');
+  if(msg) msg.textContent='同步测试计划中...';
+  fetch('/api/tc/sync_plans',{method:'POST',headers:{'Content-Type':'application/json'}})
+  .then(function(r){return r.json();})
+  .then(function(d){
+    if(d.error){if(msg) msg.textContent='失败: '+d.error;}
+    else{if(msg) msg.textContent='同步完成: '+d.saved+'/'+d.total+' 个测试计划';tcLoadOptions();setTimeout(function(){if(msg) msg.textContent='';},5000);}
+  })
+  .catch(function(e){if(msg) msg.textContent='同步出错: '+e;});
+}
+function tcSyncResultsFromServer(){
+  var msg=document.getElementById('tcSyncMsg');
+  if(msg) msg.textContent='同步执行记录中...';
+  fetch('/api/tc/sync_results',{method:'POST',headers:{'Content-Type':'application/json'}})
+  .then(function(r){return r.json();})
+  .then(function(d){
+    if(d.error){if(msg) msg.textContent='失败: '+d.error;}
+    else{if(msg) msg.textContent='同步完成: 新增 '+d.imported+'/'+d.total+' 条记录';tcLoadExecutions();setTimeout(function(){if(msg) msg.textContent='';},5000);}
+  })
+  .catch(function(e){if(msg) msg.textContent='同步出错: '+e;});
+}
 
 /* ---------- 初始化 ---------- */
 tcLoadSuites(); tcLoadExecutions(); tcLoadOptions();

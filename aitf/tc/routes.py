@@ -315,6 +315,110 @@ def api_sync_golden_to_remote():
                     "success": success, "total": len(results)})
 
 
+@bp.route("/api/tc/sync_plans", methods=["POST"])
+def api_sync_plans_from_server():
+    """Pull testplans from remote server and save locally."""
+    sc = current_app.config.get("SYNC_CLIENT")
+    if not sc:
+        return jsonify({"error": "未配置远端服务器"}), 400
+
+    cfg = current_app.config.get("AITF_CONFIG")
+    root = cfg.project_root if cfg else Path(".")
+    try:
+        plans = sc.list_plans()
+        saved = 0
+        for p in plans:
+            filename = p.get("filename", "")
+            if not filename:
+                continue
+            try:
+                plan_data = sc.download_plan(filename)
+                out = root / filename
+                with open(out, "w", encoding="utf-8") as fh:
+                    yaml.dump(plan_data, fh, allow_unicode=True,
+                              default_flow_style=False, sort_keys=False)
+                saved += 1
+            except Exception:
+                logger.debug("Failed to download plan %s", filename, exc_info=True)
+        return jsonify({"ok": True, "total": len(plans), "saved": saved})
+    except Exception as exc:
+        return jsonify({"error": f"同步失败: {exc}"}), 502
+
+
+@bp.route("/api/tc/sync_results", methods=["POST"])
+def api_sync_results_from_server():
+    """Pull execution results from remote server and save to local DB."""
+    sc = current_app.config.get("SYNC_CLIENT")
+    if not sc:
+        return jsonify({"error": "未配置远端服务器"}), 400
+
+    try:
+        remote_execs = sc.list_executions(limit=50)
+        imported = 0
+        for exe_summary in remote_execs:
+            eid = exe_summary.get("id", "")
+            if not eid:
+                continue
+            # Check if already exists locally
+            local = store.get_execution_detail(eid)
+            if local:
+                continue
+            # Fetch full detail and import
+            try:
+                detail = sc.get_execution_detail(eid)
+                if not detail:
+                    continue
+                _import_execution(detail)
+                imported += 1
+            except Exception:
+                logger.debug("Failed to import execution %s", eid, exc_info=True)
+        return jsonify({"ok": True, "total": len(remote_execs), "imported": imported})
+    except Exception as exc:
+        return jsonify({"error": f"同步失败: {exc}"}), 502
+
+
+def _import_execution(detail: dict) -> None:
+    """Import a single execution record from remote into local DB."""
+    from datetime import datetime
+
+    from aitf.tc.db import get_session
+    from aitf.tc.models import CaseResult, Execution
+
+    with get_session() as session:
+        exe = Execution(
+            id=detail["id"],
+            started_at=datetime.fromisoformat(detail["started_at"]) if detail.get("started_at") else None,
+            finished_at=datetime.fromisoformat(detail["finished_at"]) if detail.get("finished_at") else None,
+            bundle=detail.get("bundle"),
+            target=detail.get("target"),
+            platform=detail.get("platform"),
+            golden_model=detail.get("golden_model"),
+            golden_version=detail.get("golden_version"),
+            plan_name=detail.get("plan_name"),
+            git_commit=detail.get("git_commit"),
+            trigger=detail.get("trigger", "sync"),
+            total=detail.get("total", 0),
+            passed=detail.get("passed", 0),
+            failed=detail.get("failed", 0),
+            timeout=detail.get("timeout", 0),
+            crashed=detail.get("crashed", 0),
+            skipped=detail.get("skipped", 0),
+            errored=detail.get("errored", 0),
+            pass_rate=detail.get("pass_rate", 0.0),
+        )
+        session.add(exe)
+        for c in detail.get("cases", []):
+            session.add(CaseResult(
+                execution_id=detail["id"],
+                suite_class=c.get("suite_class", ""),
+                case_method=c.get("case_method", ""),
+                status=c.get("status", "PENDING"),
+                failure_reason=c.get("failure_reason"),
+                duration_s=c.get("duration_s"),
+            ))
+        session.commit()
+
+
 # ---------------------------------------------------------------------------
 # Overview dashboard stats (REQ-7.1)
 # ---------------------------------------------------------------------------
