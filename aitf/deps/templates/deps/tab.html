@@ -1,10 +1,8 @@
-{% if aitf_mode in ('client', 'debug') %}
-<div class="alert alert-info py-1 mb-2 d-flex align-items-center">
-  <span class="me-2">服务器: <strong>{{ aitf_server }}</strong></span>
+{% from "macros.html" import sync_bar %}
+{% call() sync_bar() %}
   <button class="btn btn-sm btn-primary" onclick="syncFromServer()">从服务器同步</button>
   <span id="syncMsg" class="ms-2 small"></span>
-</div>
-{% endif %}
+{% endcall %}
 <ul class="nav nav-pills mb-2" id="depsSubTabs">
   <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#sub-deps">依赖项</button></li>
   <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#sub-bundles">配置集</button></li>
@@ -297,50 +295,20 @@ function syncFromServer(){
   _syncAction('/api/deps/sync','syncMsg',null,function(){dLoad();bLoadList();return '✓ 同步完成';});
 }
 
-/* 拖拽排序 */
-var _dragRow=null;
+/* 拖拽排序 — 使用 aitf-common.js 的 _initTableDrag */
 function _initDepsDrag(){
-  var tb=document.getElementById('dTbody');
-  tb.querySelectorAll('tr[draggable]').forEach(function(tr){
-    tr.addEventListener('dragstart',function(e){_dragRow=tr;tr.style.opacity='0.4';e.dataTransfer.effectAllowed='move';});
-    tr.addEventListener('dragend',function(){tr.style.opacity='1';_dragRow=null;});
-    tr.addEventListener('dragover',function(e){e.preventDefault();e.dataTransfer.dropEffect='move';});
-    tr.addEventListener('drop',function(e){
-      e.preventDefault();
-      if(!_dragRow||_dragRow===tr) return;
-      var rows=Array.from(tb.querySelectorAll('tr'));
-      var fromIdx=rows.indexOf(_dragRow),toIdx=rows.indexOf(tr);
-      if(fromIdx<toIdx) tb.insertBefore(_dragRow,tr.nextSibling);
-      else tb.insertBefore(_dragRow,tr);
-      /* 保存新顺序 */
-      var order=Array.from(tb.querySelectorAll('tr')).map(function(r){return r.dataset.name;});
-      fetch('/api/deps/reorder',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({order:order})});
-    });
+  _initTableDrag('dTbody',function(tb){
+    var order=Array.from(tb.querySelectorAll('tr')).map(function(r){return r.dataset.name;});
+    fetch('/api/deps/reorder',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({order:order})});
   });
 }
-
 function _initBundleDrag(){
-  var tb=document.getElementById('bItemsTbody');
-  var dragRow=null;
-  tb.querySelectorAll('tr[draggable]').forEach(function(tr){
-    tr.addEventListener('dragstart',function(e){dragRow=tr;tr.style.opacity='0.4';e.dataTransfer.effectAllowed='move';});
-    tr.addEventListener('dragend',function(){tr.style.opacity='1';dragRow=null;});
-    tr.addEventListener('dragover',function(e){e.preventDefault();e.dataTransfer.dropEffect='move';});
-    tr.addEventListener('drop',function(e){
-      e.preventDefault();
-      if(!dragRow||dragRow===tr) return;
-      var rows=Array.from(tb.querySelectorAll('tr'));
-      var fromIdx=rows.indexOf(dragRow),toIdx=rows.indexOf(tr);
-      if(fromIdx<toIdx) tb.insertBefore(dragRow,tr.nextSibling);
-      else tb.insertBefore(dragRow,tr);
-      /* 重建 _bundleItems 按新顺序 */
-      var newItems={};
-      Array.from(tb.querySelectorAll('tr[data-name]')).forEach(function(r){
-        var n=r.dataset.name;
-        if(n in _bundleItems) newItems[n]=_bundleItems[n];
-      });
-      _bundleItems=newItems;
+  _initTableDrag('bItemsTbody',function(tb){
+    var newItems={};
+    Array.from(tb.querySelectorAll('tr[data-name]')).forEach(function(r){
+      var n=r.dataset.name;if(n in _bundleItems) newItems[n]=_bundleItems[n];
     });
+    _bundleItems=newItems;
   });
 }
 

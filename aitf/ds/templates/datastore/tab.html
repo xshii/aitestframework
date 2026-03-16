@@ -1,12 +1,10 @@
 {# Golden 数据管理 — 数据总览 + 模型管理 #}
 
-{% if aitf_mode in ('client', 'debug') %}
-<div class="alert alert-info py-1 mb-2 d-flex align-items-center">
-  <span class="me-2">服务器: <strong>{{ aitf_server }}</strong></span>
+{% from "macros.html" import sync_bar %}
+{% call() sync_bar() %}
   <button class="btn btn-sm btn-primary" onclick="gSyncFromServer()">从服务器同步</button>
   <span id="gSyncMsg" class="ms-2 small"></span>
-</div>
-{% endif %}
+{% endcall %}
 
 <ul class="nav nav-pills mb-2" id="dataSubTabs">
   <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#sub-overview">数据总览</button></li>
@@ -285,9 +283,9 @@
 <script>
 /* ========== 工具函数 (共享函数来自 aitf-common.js: _esc, _fmtTime, _fmtSize) ========== */
 var _gFmt = _fmtSize;
-var _gEsc = _esc;
+/* _esc provided by aitf-common.js */
 function _optionsHtml(choices,selected){
-  return choices.map(function(v){return '<option value="'+_gEsc(v)+'"'+(v===selected?' selected':'')+'>'+_gEsc(v)+'</option>';}).join('');
+  return choices.map(function(v){return '<option value="'+_esc(v)+'"'+(v===selected?' selected':'')+'>'+_esc(v)+'</option>';}).join('');
 }
 function _curMV(){return{model:document.getElementById('gModelSel').value,ver:document.getElementById('gVerSel').value};}
 
@@ -312,11 +310,11 @@ function _parseGoldenName(fname){
 /* 统一的文件下载链接 HTML */
 function _fileLink(model,ver,op,fname,cls){
   var base='/api/golden/'+encodeURIComponent(model)+'/'+encodeURIComponent(ver)+'/'+encodeURIComponent(op)+'/'+encodeURIComponent(fname);
-  var h='<a href="'+base+'/download" class="badge '+cls+' text-decoration-none me-1" title="下载">'+_gEsc(fname)+'</a>';
+  var h='<a href="'+base+'/download" class="badge '+cls+' text-decoration-none me-1" title="下载">'+_esc(fname)+'</a>';
   if(fname.endsWith('.txt'))
-    h+='<a href="#" class="badge bg-info text-white text-decoration-none me-1" title="预览" onclick="gPreviewFile(\''+_gEsc(model)+'\',\''+_gEsc(ver)+'\',\''+_gEsc(op)+'\',\''+_gEsc(fname)+'\');return false;">👁</a>';
+    h+='<a href="#" class="badge bg-info text-white text-decoration-none me-1" title="预览" onclick="gPreviewFile(\''+_esc(model)+'\',\''+_esc(ver)+'\',\''+_esc(op)+'\',\''+_esc(fname)+'\');return false;">👁</a>';
   var p=_parseGoldenName(fname);
-  if(p) h+='<a href="#" class="badge bg-warning text-dark text-decoration-none me-1" title="分型转换" onclick="gConvertFile(\''+_gEsc(model)+'\',\''+_gEsc(ver)+'\',\''+_gEsc(op)+'\',\''+_gEsc(fname)+'\');return false;">⇄</a>';
+  if(p) h+='<a href="#" class="badge bg-warning text-dark text-decoration-none me-1" title="分型转换" onclick="gConvertFile(\''+_esc(model)+'\',\''+_esc(ver)+'\',\''+_esc(op)+'\',\''+_esc(fname)+'\');return false;">⇄</a>';
   return h;
 }
 
@@ -511,7 +509,7 @@ function gRenderOverview(){
     var verCount=mm.verOrder.length;
     var colId='gOvCollapse-'+mi;
     html+='<div class="card mb-2"><div class="card-header py-1 d-flex align-items-center" style="cursor:pointer" data-bs-toggle="collapse" data-bs-target="#'+colId+'">'
-      +'<strong>'+_gEsc(model)+'</strong>'
+      +'<strong>'+_esc(model)+'</strong>'
       +'<span class="badge bg-primary ms-2">'+verCount+' 版本</span>'
       +'<a class="btn btn-sm btn-outline-primary ms-auto py-0" href="/api/golden/'+encodeURIComponent(model)+'/download" onclick="event.stopPropagation()">📥 导出此模型</a>'
       +'</div><div class="collapse show" id="'+colId+'"><div class="card-body py-2">'
@@ -523,15 +521,15 @@ function gRenderOverview(){
       var statsKey=model+'||'+ver;
       var missing=(_gOvStats.data&&_gOvStats.data[statsKey])?_gOvStats.data[statsKey].missing:'-';
       var missingCls=(missing&&missing>0)?'text-danger fw-bold':'text-muted';
-      html+='<tr><td>'+_gEsc(ver)+'</td><td>'+vs.ops+'</td><td>'+vs.files+'</td>'
+      html+='<tr><td>'+_esc(ver)+'</td><td>'+vs.ops+'</td><td>'+vs.files+'</td>'
         +'<td class="'+missingCls+'">'+(missing==='-'?'<span class="text-muted small" title="点击「刷新统计」获取">-</span>':missing)+'</td>'
         +'<td>'+_gFmt(vs.totalSize)+'</td>'
         +'<td class="text-muted small">'+_fmtTime(vi.created_at)+'</td>'
         +'<td class="text-muted small">'+_fmtTime(vi.updated_at)+'</td>'
         +'<td class="text-nowrap text-end">'
         +'<a class="btn btn-sm btn-outline-primary py-0 me-1" href="/api/golden/'+encodeURIComponent(model)+'/'+encodeURIComponent(ver)+'/download">📥 导出</a>'
-        +(_gDboxEnabled?'<button class="btn btn-sm btn-outline-warning py-0 me-1" onclick="gExportDbox(\''+_gEsc(model)+'\',\''+_gEsc(ver)+'\',this)">📤 DBox</button>':'')
-        +'<button class="btn btn-sm btn-outline-secondary py-0" onclick="gJumpToVer(\''+_gEsc(model)+'\',\''+_gEsc(ver)+'\')">✏️ 编辑</button>'
+        +(_gDboxEnabled?'<button class="btn btn-sm btn-outline-warning py-0 me-1" onclick="gExportDbox(\''+_esc(model)+'\',\''+_esc(ver)+'\',this)">📤 DBox</button>':'')
+        +'<button class="btn btn-sm btn-outline-secondary py-0" onclick="gJumpToVer(\''+_esc(model)+'\',\''+_esc(ver)+'\')">✏️ 编辑</button>'
         +'</td></tr>';
     });
     html+='</tbody></table></div></div></div>';
@@ -548,9 +546,9 @@ function gSearchOp(){
     if(!results.length){box.innerHTML='<span class="text-muted small">无匹配算子</span>';box.classList.remove('d-none');return;}
     var h='<div class="list-group list-group-flush" style="font-size:0.85rem">';
     results.forEach(function(r){
-      h+='<a class="list-group-item list-group-item-action py-1 d-flex align-items-center" href="#" onclick="gJumpToVer(\''+_gEsc(r.model)+'\',\''+_gEsc(r.version)+'\');return false;">'
-        +'<strong>'+_gEsc(r.operator)+'</strong>'
-        +'<span class="text-muted small ms-2">'+_gEsc(r.model)+' / '+_gEsc(r.version)+'</span></a>';
+      h+='<a class="list-group-item list-group-item-action py-1 d-flex align-items-center" href="#" onclick="gJumpToVer(\''+_esc(r.model)+'\',\''+_esc(r.version)+'\');return false;">'
+        +'<strong>'+_esc(r.operator)+'</strong>'
+        +'<span class="text-muted small ms-2">'+_esc(r.model)+' / '+_esc(r.version)+'</span></a>';
     });
     h+='</div>';
     box.innerHTML=h;box.classList.remove('d-none');
@@ -567,7 +565,7 @@ function gLoadModels(selectModel,selectVer){
   fetch('/api/golden/models').then(function(r){return r.json()}).then(function(models){
     var sel=document.getElementById('gModelSel'),prev=selectModel||sel.value;
     var opts='<option value="">-- 选择 --</option>';
-    models.forEach(function(m){opts+='<option value="'+_gEsc(m)+'">'+_gEsc(m)+'</option>';});
+    models.forEach(function(m){opts+='<option value="'+_esc(m)+'">'+_esc(m)+'</option>';});
     sel.innerHTML=opts;
     if(prev) sel.value=prev;
     gOnModelChange(selectVer);
@@ -581,7 +579,7 @@ function gOnModelChange(selectVer){
   fetch('/api/golden/'+encodeURIComponent(model)+'/versions').then(function(r){return r.json()}).then(function(vers){
     var sel=document.getElementById('gVerSel');
     var opts='<option value="">-- 选择 --</option>';
-    vers.forEach(function(v){opts+='<option value="'+_gEsc(v)+'">'+_gEsc(v)+'</option>';});
+    vers.forEach(function(v){opts+='<option value="'+_esc(v)+'">'+_esc(v)+'</option>';});
     sel.innerHTML=opts;
     /* 优先用指定版本，否则自动选最新版本（列表最后一个） */
     if(selectVer) sel.value=selectVer;
@@ -676,24 +674,24 @@ function gLoadOps(keepOpen){
         var fileCell='';
         mFiles.forEach(function(f){fileCell+=_fileLink(it.model,it.version,it.operator,f,'bg-success text-white');});
         fileCell+='<div class="d-flex gap-1'+(mFiles.length?' mt-1':'')+'"><input type="file" class="form-control form-control-sm" id="diFile-'+idx+'-'+di+'" accept=".txt,.pth,.bin,.zip,.tar,.tar.gz">'
-          +'<button class="btn btn-sm btn-outline-primary py-0" onclick="gUploadToOp(\''+_gEsc(it.operator)+'\',\'diFile-'+idx+'-'+di+'\')">上传</button></div>';
+          +'<button class="btn btn-sm btn-outline-primary py-0" onclick="gUploadToOp(\''+_esc(it.operator)+'\',\'diFile-'+idx+'-'+di+'\')">上传</button></div>';
         dataRows+='<tr data-saved="1" data-seq="'+d.seq+'" data-di="'+di+'">'
           +_dataItemCells('di-'+idx+'-'+di,0,d)
           +'<td>'+fileCell+'</td>'
-          +'<td><button class="btn btn-sm btn-outline-danger py-0" onclick="gDelDataItem(\''+_gEsc(it.operator)+'\','+di+')">×</button></td></tr>';
+          +'<td><button class="btn btn-sm btn-outline-danger py-0" onclick="gDelDataItem(\''+_esc(it.operator)+'\','+di+')">×</button></td></tr>';
       });
       var dataCnt=(it.meta.data||[]).length;
 
       var isOpen=(it.operator===openTarget);
-      html+='<div class="accordion-item" draggable="true" data-op-name="'+_gEsc(it.operator)+'" ondragstart="gDragStart(event)" ondragover="gDragOver(event)" ondrop="gDrop(event)" ondragend="gDragEnd(event)">'
+      html+='<div class="accordion-item" draggable="true" data-op-name="'+_esc(it.operator)+'" ondragstart="gDragStart(event)" ondragover="gDragOver(event)" ondrop="gDrop(event)" ondragend="gDragEnd(event)">'
         +'<h2 class="accordion-header"><button class="accordion-button '+(isOpen?'':'collapsed')+' py-1 px-2" type="button" data-bs-toggle="collapse" data-bs-target="#'+id+'">'
         +'<span class="me-1" style="cursor:grab;opacity:0.4" title="拖拽排序">⠿</span>'
-        +'<strong>'+_gEsc(it.operator)+'</strong>'
+        +'<strong>'+_esc(it.operator)+'</strong>'
         +'<span class="badge bg-info text-dark ms-2">'+dataCnt+' 条数据</span>'
         +'<span class="badge bg-secondary ms-1">'+it.files.length+' 文件</span>'
         +'<span class="text-muted small ms-2">'+_gFmt(it.total_size)+'</span>'
         +'</button></h2>'
-        +'<div id="'+id+'" class="accordion-collapse collapse'+(isOpen?' show':'')+'" data-bs-parent="#gOpAccordion" data-op="'+_gEsc(it.operator)+'">'
+        +'<div id="'+id+'" class="accordion-collapse collapse'+(isOpen?' show':'')+'" data-bs-parent="#gOpAccordion" data-op="'+_esc(it.operator)+'">'
         +'<div class="accordion-body py-2 px-3">';
 
       /* 数据条目表 */
@@ -701,7 +699,7 @@ function gLoadOps(keepOpen){
         +'<div style="overflow-x:auto"><table class="table table-sm table-bordered mb-1" style="font-size:0.8rem;white-space:nowrap">'
         +'<thead><tr>'+_DATA_ITEM_THEAD+'</tr></thead>'
         +'<tbody id="aiBody-'+idx+'">'+dataRows+'</tbody></table></div>'
-        +'<button type="button" class="btn btn-sm btn-outline-secondary py-0 mb-2" onclick="gAddItemRow(\''+_gEsc(it.operator)+'\','+idx+')">+ 添加数据条目</button>';
+        +'<button type="button" class="btn btn-sm btn-outline-secondary py-0 mb-2" onclick="gAddItemRow(\''+_esc(it.operator)+'\','+idx+')">+ 添加数据条目</button>';
 
       /* 数据条目与文件匹配度检查 */
       var missingFile=[],extraFile=[];
@@ -722,9 +720,9 @@ function gLoadOps(keepOpen){
         html+='<div class="mb-2"><span class="small text-muted me-1">其他文件:</span>'+unmatchedLinks+'</div>';
       }
       html+='<div class="d-flex gap-2 align-items-center">'
-        +'<button type="button" class="btn btn-sm btn-primary" onclick="gSaveOp(\''+_gEsc(it.operator)+'\','+idx+')">保存算子</button>'
+        +'<button type="button" class="btn btn-sm btn-primary" onclick="gSaveOp(\''+_esc(it.operator)+'\','+idx+')">保存算子</button>'
         +'<a class="btn btn-sm btn-outline-success" href="/api/golden/'+encodeURIComponent(it.model)+'/'+encodeURIComponent(it.version)+'/'+encodeURIComponent(it.operator)+'/download">下载算子</a>'
-        +'<button type="button" class="btn btn-sm btn-outline-danger" onclick="gDelOp(\''+_gEsc(it.operator).replace(/'/g,"\\'")+'\')">删除算子</button>'
+        +'<button type="button" class="btn btn-sm btn-outline-danger" onclick="gDelOp(\''+_esc(it.operator).replace(/'/g,"\\'")+'\')">删除算子</button>'
         +'<span class="small" id="gSaveMsg-'+idx+'"></span>'
         +'</div>';
       html+='</div></div></div>';
@@ -762,7 +760,7 @@ function gAddItemRow(opName,opIdx){
   tr.innerHTML=_dataItemCells('ai',i,{seq:nextSeq})
     +'<td><input type="file" class="form-control form-control-sm" id="aiFile-'+i+'" accept=".txt,.pth,.bin,.zip,.tar,.tar.gz" "></td>'
     +'<td><div class="d-flex gap-1">'
-    +'<button class="btn btn-sm btn-outline-primary py-0" onclick="gSubmitItemRow(\''+_gEsc(opName)+'\','+i+')">提交</button>'
+    +'<button class="btn btn-sm btn-outline-primary py-0" onclick="gSubmitItemRow(\''+_esc(opName)+'\','+i+')">提交</button>'
     +'<button class="btn btn-sm btn-outline-danger py-0" onclick="this.closest(\'tr\').remove()">×</button>'
     +'</div></td>';
   tbody.appendChild(tr);
@@ -1106,7 +1104,7 @@ function gLoadLog(){
       if(e.files) detail.push(e.files.length+'个文件');
       if(e.data_items!=null) detail.push(e.data_items+'条数据');
       if(e.source==='auto') detail.push('🤖自动');
-      h+='<tr><td class="text-nowrap">'+t+'</td><td>'+_gEsc(act)+'</td><td class="text-muted">'+_gEsc(detail.join(', '))+'</td><td class="text-muted text-nowrap">'+(e.ip||'-')+'</td></tr>';
+      h+='<tr><td class="text-nowrap">'+t+'</td><td>'+_esc(act)+'</td><td class="text-muted">'+_esc(detail.join(', '))+'</td><td class="text-muted text-nowrap">'+(e.ip||'-')+'</td></tr>';
     });
     h+='</tbody></table>';
     ct.innerHTML=h;
@@ -1200,16 +1198,16 @@ function gCvtRender(){
     var nameDisplay=f.isPth?(f.op+'_'+f.category+f.seq+' <span class="badge bg-info text-dark">pth</span>'):f.name;
     h+='<tr>'
       +'<td><input type="checkbox" class="gCvtCheck" data-idx="'+i+'" checked></td>'
-      +'<td title="'+(f.isPth?_gEsc(f.pthKey):_gEsc(f.name))+'">'+nameDisplay+'</td>'
-      +'<td><input class="form-control form-control-sm py-0" value="'+_gEsc(f.op)+'" style="width:100px" onchange="_gCvtFiles['+i+'].op=this.value"></td>'
+      +'<td title="'+(f.isPth?_esc(f.pthKey):_esc(f.name))+'">'+nameDisplay+'</td>'
+      +'<td><input class="form-control form-control-sm py-0" value="'+_esc(f.op)+'" style="width:100px" onchange="_gCvtFiles['+i+'].op=this.value"></td>'
       +'<td><select class="form-select form-select-sm py-0" style="width:70px" onchange="_gCvtFiles['+i+'].category=this.value">'
         +(_gChoices.category||[]).map(function(c){return '<option'+(c===f.category?' selected':'')+'>'+c+'</option>';}).join('')
         +'</select></td>'
-      +'<td><span class="badge bg-secondary">'+_gEsc(f.srcLayout)+'</span></td>'
+      +'<td><span class="badge bg-secondary">'+_esc(f.srcLayout)+'</span></td>'
       +'<td><select class="form-select form-select-sm py-0" style="width:95px" onchange="_gCvtFiles['+i+'].dstLayout=this.value">'+_cvtLayOpts(f.dstLayout)+'</select></td>'
-      +'<td><span class="badge bg-secondary">'+_gEsc(f.srcPrec)+'</span></td>'
+      +'<td><span class="badge bg-secondary">'+_esc(f.srcPrec)+'</span></td>'
       +'<td><select class="form-select form-select-sm py-0" style="width:80px" onchange="_gCvtFiles['+i+'].dstPrec=this.value">'+_cvtPrecOpts(f.dstPrec)+'</select></td>'
-      +'<td class="text-muted" style="font-size:0.7rem">'+_gEsc(f.shape)+'</td>'
+      +'<td class="text-muted" style="font-size:0.7rem">'+_esc(f.shape)+'</td>'
       +'</tr>';
   });
   tbody.innerHTML=h;
@@ -1227,7 +1225,7 @@ function gCvtRender(){
     var ph='<div class="small text-muted mb-1">pth 原始数据分型为 ND，导入时自动转换为目标分型；精度为标记实际精度，不做转换。</div>'
       +'<div class="d-flex gap-2 align-items-center flex-wrap">'
       +'<label class="small mb-0">模型名:</label>'
-      +'<input class="form-control form-control-sm" id="gPthModelName" value="'+_gEsc(baseName)+'" style="width:150px" list="gPthModelList">'
+      +'<input class="form-control form-control-sm" id="gPthModelName" value="'+_esc(baseName)+'" style="width:150px" list="gPthModelList">'
       +'<datalist id="gPthModelList"></datalist>'
       +'<label class="small mb-0 ms-1">版本:</label>'
       +'<input class="form-control form-control-sm" id="gPthVersionName" value="v1" style="width:80px">'
@@ -1237,7 +1235,7 @@ function gCvtRender(){
     document.getElementById('gPthMsg').innerHTML=ph;
     fetch('/api/golden/models').then(function(r){return r.json()}).then(function(models){
       var dl=document.getElementById('gPthModelList');
-      if(dl) dl.innerHTML=models.map(function(m){return '<option value="'+_gEsc(m)+'">';}).join('');
+      if(dl) dl.innerHTML=models.map(function(m){return '<option value="'+_esc(m)+'">';}).join('');
     });
   } else {
     pthPanel.classList.add('d-none');

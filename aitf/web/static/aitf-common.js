@@ -37,6 +37,31 @@ function _fmtSize(b) {
  * @param {object}   [opts]    extra fetch options (headers, body, …)
  * @param {function} onOk      (data) => { reload…; return '成功描述'; }
  */
+/**
+ * _initTableDrag — enable drag-and-drop row reordering on a <tbody>.
+ *
+ * @param {string}   tbodyId   id of the <tbody> element
+ * @param {function} onReorder (tbody) => { … } called after a drop
+ */
+function _initTableDrag(tbodyId, onReorder) {
+  var tb = document.getElementById(tbodyId);
+  var dragRow = null;
+  tb.querySelectorAll('tr[draggable]').forEach(function(tr) {
+    tr.addEventListener('dragstart', function(e) { dragRow = tr; tr.style.opacity = '0.4'; e.dataTransfer.effectAllowed = 'move'; });
+    tr.addEventListener('dragend', function() { tr.style.opacity = '1'; dragRow = null; });
+    tr.addEventListener('dragover', function(e) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
+    tr.addEventListener('drop', function(e) {
+      e.preventDefault();
+      if (!dragRow || dragRow === tr) return;
+      var rows = Array.from(tb.querySelectorAll('tr'));
+      var fromIdx = rows.indexOf(dragRow), toIdx = rows.indexOf(tr);
+      if (fromIdx < toIdx) tb.insertBefore(dragRow, tr.nextSibling);
+      else tb.insertBefore(dragRow, tr);
+      if (onReorder) onReorder(tb);
+    });
+  });
+}
+
 function _syncAction(url, msgId, opts, onOk) {
   var msg = document.getElementById(msgId);
   if (msg) msg.textContent = '同步中...';

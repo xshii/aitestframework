@@ -1,0 +1,17 @@
+{# Shared Jinja2 macros for tab templates. #}
+
+{# Sync bar — shown in client/debug mode.
+   Usage:
+     {% from "macros.html" import sync_bar %}
+     {% call(msg_id) sync_bar() %}
+       <button class="btn btn-sm btn-primary" onclick="doSync()">从服务器同步</button>
+     {% endcall %}
+#}
+{% macro sync_bar() %}
+{% if aitf_mode in ('client', 'debug') %}
+<div class="alert alert-info py-1 mb-2 d-flex align-items-center">
+  <span class="me-2">服务器: <strong>{{ aitf_server }}</strong></span>
+  {{ caller() }}
+</div>
+{% endif %}
+{% endmacro %}

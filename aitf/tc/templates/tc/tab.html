@@ -24,14 +24,12 @@
 .gp-ver-group input{width:13px;height:13px;margin-right:2px;vertical-align:middle;}
 </style>
 
-{% if aitf_mode in ('client', 'debug') %}
-<div class="alert alert-info py-1 mb-2 d-flex align-items-center">
-  <span class="me-2">服务器: <strong>{{ aitf_server }}</strong></span>
+{% from "macros.html" import sync_bar %}
+{% call() sync_bar() %}
   <button class="btn btn-sm btn-primary me-1" onclick="tcSyncPlansFromServer()">同步测试计划</button>
   <button class="btn btn-sm btn-outline-primary" onclick="tcSyncResultsFromServer()">同步执行记录</button>
   <span id="tcSyncMsg" class="ms-2 small"></span>
-</div>
-{% endif %}
+{% endcall %}
 
 <ul class="nav nav-pills mb-2" id="tcSubTabs">
   <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#sub-suites">用例</button></li>
