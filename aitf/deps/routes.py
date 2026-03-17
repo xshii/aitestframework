@@ -325,14 +325,14 @@ def sync_from_server():
 
     aitf_cfg = current_app.config.get("AITF_CONFIG")
     if not aitf_cfg or not aitf_cfg.server_url:
-        return jsonify({"error": "sync is only available in client mode"}), 400
+        return jsonify({"error": "仅在客户端/调试模式下可用"}), 400
 
     export_url = f"{aitf_cfg.server_url}/api/deps/export"
     try:
         resp = urlopen(Request(export_url), timeout=30)
         deps_yaml = resp.read()
     except Exception as exc:
-        return jsonify({"error": f"failed to fetch from server: {exc}"}), 502
+        return jsonify({"error": f"从服务器获取失败: {exc}"}), 502
 
     mgr = _mgr()
     with _config_lock:

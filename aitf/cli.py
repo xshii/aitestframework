@@ -65,7 +65,8 @@ def _cmd_web(args: argparse.Namespace) -> None:
     print(f"[aitf] {mode_desc.get(cfg.mode, cfg.mode)}")
 
     app = create_app(aitf_config=cfg)
-    app.run(host=host, port=port, debug=args.debug)
+    app.run(host=host, port=port, debug=args.debug,
+            threaded=True, use_reloader=False)
 
 
 # ---------------------------------------------------------------------------

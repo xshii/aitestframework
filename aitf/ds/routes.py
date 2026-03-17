@@ -464,7 +464,11 @@ def sync_golden():
     data = request.get_json(silent=True) or {}
     source = data.get("source", "").strip().rstrip("/")
     if not source:
-        return jsonify({"error": "source URL is required"}), 400
+        cfg = current_app.config.get("AITF_CONFIG")
+        if cfg and cfg.server_url:
+            source = cfg.server_url
+    if not source:
+        return jsonify({"error": "请提供同步地址或在 config.yaml 中配置 server"}), 400
 
     try:
         url = f"{source}/api/golden/download-all"
