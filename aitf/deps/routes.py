@@ -321,6 +321,7 @@ def instance_info():
 @bp.route("/api/deps/sync", methods=["POST"])
 def sync_from_server():
     """Client-mode: pull deps.yaml from the remote server and reload."""
+    import urllib.error
     from urllib.request import Request, urlopen
 
     aitf_cfg = current_app.config.get("AITF_CONFIG")
@@ -331,6 +332,10 @@ def sync_from_server():
     try:
         resp = urlopen(Request(export_url), timeout=30)
         deps_yaml = resp.read()
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return jsonify({"error": "服务器上尚无 deps.yaml"}), 404
+        return jsonify({"error": f"从服务器获取失败: {exc}"}), 502
     except Exception as exc:
         return jsonify({"error": f"从服务器获取失败: {exc}"}), 502
 
@@ -339,7 +344,9 @@ def sync_from_server():
         mgr.deps_file.write_bytes(deps_yaml)
         mgr.reload()
 
-    return jsonify({"ok": True, "bytes": len(deps_yaml)})
+    cfg = mgr.config
+    total = len(cfg.toolchains) + len(cfg.libraries) + len(cfg.repos)
+    return jsonify({"ok": True, "total": total})
 
 
 # -- upload / download routes (used by CLI sync) ----------------------------

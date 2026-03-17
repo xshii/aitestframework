@@ -993,7 +993,7 @@ function gSync(){
 function gSyncFromServer(){
   _syncAction('/api/golden/sync','gSyncMsg',
     {headers:{'Content-Type':'application/json'},body:JSON.stringify({source:''})},
-    function(){gLoadModels();gLoadOverview();return '✓ 同步完成';});
+    function(d){gLoadModels();gLoadOverview();return '✓ 同步完成: 同步 '+d.count+' 个数据集';});
 }
 
 /* ========== 分型转换 ========== */

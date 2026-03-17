@@ -288,7 +288,7 @@ document.getElementById('bImportForm').addEventListener('submit',function(e){
 });
 
 function syncFromServer(){
-  _syncAction('/api/deps/sync','syncMsg',null,function(){dLoad();bLoadList();return '✓ 同步完成';});
+  _syncAction('/api/deps/sync','syncMsg',null,function(d){dLoad();bLoadList();return '✓ 同步完成: 同步 '+d.total+' 个依赖项';});
 }
 
 /* 拖拽排序 — 使用 aitf-common.js 的 _initTableDrag */

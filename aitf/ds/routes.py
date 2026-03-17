@@ -475,7 +475,7 @@ def sync_golden():
         resp = urllib.request.urlopen(url, timeout=300)
         buf = io.BytesIO(resp.read())
     except urllib.error.URLError as exc:
-        return jsonify({"error": f"failed to fetch from {source}: {exc}"}), 502
+        return jsonify({"error": f"从服务器获取失败: {exc}"}), 502
 
     imported = _store().import_archive(buf)
     return jsonify({"source": source, "imported": imported, "count": len(imported)})
