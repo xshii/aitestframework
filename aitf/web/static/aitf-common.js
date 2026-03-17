@@ -30,14 +30,6 @@ function _fmtSize(b) {
 }
 
 /**
- * _syncAction — unified sync-from-server pattern.
- *
- * @param {string}   url       POST endpoint
- * @param {string}   msgId     id of the <span> for feedback text
- * @param {object}   [opts]    extra fetch options (headers, body, …)
- * @param {function} onOk      (data) => { reload…; return '成功描述'; }
- */
-/**
  * _initTableDrag — enable drag-and-drop row reordering on a <tbody>.
  *
  * @param {string}   tbodyId   id of the <tbody> element
@@ -101,6 +93,14 @@ function _renderExeRow(e, opts) {
   return html;
 }
 
+/**
+ * _syncAction — unified sync-from-server pattern.
+ *
+ * @param {string}   url       POST endpoint
+ * @param {string}   msgId     id of the <span> for feedback text
+ * @param {object}   [opts]    extra fetch options (headers, body, …)
+ * @param {function} onOk      (data) => { reload…; return '成功描述'; }
+ */
 function _syncAction(url, msgId, opts, onOk) {
   var msg = document.getElementById(msgId);
   if (msg) msg.textContent = '同步中...';
