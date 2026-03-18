@@ -1,6 +1,9 @@
 <div class="d-flex align-items-center mb-2">
   <span class="fw-bold me-2">执行环境</span>
   <span class="badge bg-secondary" id="envCount">0</span>
+  <select class="form-select form-select-sm ms-2" id="envPlatFilter" style="width:auto" onchange="envRefresh()">
+    <option value="">全部平台</option>
+  </select>
   <button class="btn btn-sm btn-outline-primary ms-2 py-0" onclick="envRefresh()">刷新</button>
   <button class="btn btn-sm btn-primary ms-2 py-0" onclick="envShowAdd()">+ 添加</button>
 </div>
@@ -9,6 +12,7 @@
   <thead>
     <tr>
       <th>名称</th>
+      <th>平台</th>
       <th>类型</th>
       <th>主机</th>
       <th>用户</th>
@@ -30,6 +34,10 @@
       <div class="col-md-3">
         <label class="form-label small">名称</label>
         <input class="form-control form-control-sm" id="envName" placeholder="如: sim-server">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small">平台</label>
+        <select class="form-select form-select-sm" id="envPlatform"></select>
       </div>
       <div class="col-md-2">
         <label class="form-label small">类型</label>
@@ -108,24 +116,51 @@
 <script>
 (function(){
 var _targets=[];
+var _platforms=[];
+
+var _platBadge={
+  pc_func:'bg-success',pc_perf:'bg-primary',
+  fpga:'bg-warning text-dark',emu:'bg-info text-dark',eda:'bg-secondary'
+};
+
+function _loadPlatforms(){
+  fetch('/api/targets/platforms').then(function(r){return r.json();}).then(function(list){
+    _platforms=list;
+    /* populate filter dropdown */
+    var filt=document.getElementById('envPlatFilter');
+    var html='<option value="">全部平台</option>';
+    list.forEach(function(p){html+='<option value="'+_esc(p)+'">'+_esc(p)+'</option>';});
+    filt.innerHTML=html;
+    /* populate form dropdown */
+    var sel=document.getElementById('envPlatform');
+    var shtml='';
+    list.forEach(function(p){shtml+='<option value="'+_esc(p)+'">'+_esc(p)+'</option>';});
+    sel.innerHTML=shtml;
+  });
+}
 
 window.envRefresh=function(){
+  var platFilter=document.getElementById('envPlatFilter').value;
   fetch('/api/targets').then(function(r){return r.json();}).then(function(data){
     _targets=data;
-    document.getElementById('envCount').textContent=data.length;
+    var items=platFilter?data.filter(function(t){return t.platform===platFilter;}):data;
+    document.getElementById('envCount').textContent=items.length;
     var tb=document.getElementById('envBody');
     var tbl=document.getElementById('envTable');
     var empty=document.getElementById('envEmpty');
-    if(!data.length){tbl.style.display='none';empty.classList.remove('d-none');return;}
+    if(!items.length){tbl.style.display='none';empty.classList.remove('d-none');return;}
     tbl.style.display='';empty.classList.add('d-none');
 
     var html='';
-    data.forEach(function(t){
+    items.forEach(function(t){
       var host=t.type==='remote'?(t.host||'')+':'+(t.port||22):'—';
       var user=t.type==='remote'?(t.user||'—'):'—';
       var rdir=t.type==='remote'?(t.remote_dir||'—'):'—';
+      var pBadge=_platBadge[t.platform]||'bg-secondary';
+      var pLabel=t.platform||'—';
       html+='<tr>'
         +'<td><strong>'+_esc(t.name)+'</strong></td>'
+        +'<td><span class="badge '+pBadge+'">'+_esc(pLabel)+'</span></td>'
         +'<td><span class="badge '+(t.type==='remote'?'bg-info text-dark':'bg-success')+'">'+_esc(t.type)+'</span></td>'
         +'<td>'+_esc(host)+'</td>'
         +'<td>'+_esc(user)+'</td>'
@@ -157,6 +192,7 @@ window.envShowAdd=function(){
   document.getElementById('envFormTitle').textContent='添加执行环境';
   document.getElementById('envEditName').value='';
   document.getElementById('envName').value='';document.getElementById('envName').disabled=false;
+  document.getElementById('envPlatform').value=_platforms[0]||'';
   document.getElementById('envType').value='local';
   document.getElementById('envHost').value='';document.getElementById('envPort').value='22';
   document.getElementById('envUser').value='';document.getElementById('envAuthMethod').value='key';
@@ -175,6 +211,7 @@ window.envEdit=function(name){
   document.getElementById('envFormTitle').textContent='编辑: '+name;
   document.getElementById('envEditName').value=name;
   document.getElementById('envName').value=name;document.getElementById('envName').disabled=true;
+  document.getElementById('envPlatform').value=t.platform||_platforms[0]||'';
   document.getElementById('envType').value=t.type;
   document.getElementById('envHost').value=t.host||'';
   document.getElementById('envPort').value=t.port||22;
@@ -183,7 +220,6 @@ window.envEdit=function(name){
   document.getElementById('envKeyFile').value='';
   document.getElementById('envRemoteDir').value=t.remote_dir||'';
   document.getElementById('envBuildDir').value=t.build_dir||'';
-  /* env dict → KEY=VALUE lines */
   var envLines=[];
   if(t.env) Object.keys(t.env).forEach(function(k){envLines.push(k+'='+t.env[k]);});
   document.getElementById('envEnvVars').value=envLines.join('\n');
@@ -211,6 +247,7 @@ window.envSave=function(){
 
   var body={
     name:name,
+    platform:document.getElementById('envPlatform').value,
     type:document.getElementById('envType').value,
     host:document.getElementById('envHost').value.trim(),
     port:parseInt(document.getElementById('envPort').value)||22,
@@ -221,7 +258,6 @@ window.envSave=function(){
     build_dir:document.getElementById('envBuildDir').value.trim(),
   };
 
-  /* parse env vars */
   var envText=document.getElementById('envEnvVars').value.trim();
   var env={};
   if(envText){
@@ -232,7 +268,6 @@ window.envSave=function(){
   }
   body.env=env;
 
-  /* parse commands */
   var preCmds=document.getElementById('envPreCmds').value.trim();
   body.pre_commands=preCmds?preCmds.split('\n').filter(function(l){return l.trim();}):[];
   var postCmds=document.getElementById('envPostCmds').value.trim();
@@ -267,6 +302,7 @@ window.envDel=function(name){
 };
 
 /* init */
+_loadPlatforms();
 envRefresh();
 })();
 </script>

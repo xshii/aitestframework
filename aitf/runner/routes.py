@@ -17,6 +17,8 @@ bp = Blueprint("runner", __name__, template_folder="templates")
 
 logger = logging.getLogger(__name__)
 
+PLATFORMS = ["pc_func", "pc_perf", "fpga", "emu", "eda"]
+
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
@@ -38,12 +40,13 @@ def _default_targets() -> dict:
     """Generate default targets from config.yaml (local + server if configured)."""
     from flask import current_app
     targets: dict = {
-        "local": {"type": "local", "build_dir": "build/"},
+        "local": {"type": "local", "platform": "pc_func", "build_dir": "build/"},
     }
     cfg = current_app.config.get("AITF_CONFIG")
     if cfg and cfg.server:
         targets["server"] = {
             "type": "remote",
+            "platform": "pc_func",
             "host": cfg.server,
             "port": cfg.port,
             "user": "",
@@ -78,6 +81,7 @@ def _target_to_json(name: str, raw: dict) -> dict:
     """Convert a single raw target entry to a JSON-friendly dict."""
     return {
         "name": name,
+        "platform": raw.get("platform", ""),
         "type": raw.get("type", "local"),
         "host": raw.get("host", ""),
         "port": raw.get("port", 22),
@@ -94,6 +98,12 @@ def _target_to_json(name: str, raw: dict) -> dict:
 # ---------------------------------------------------------------------------
 # API routes
 # ---------------------------------------------------------------------------
+
+@bp.route("/api/targets/platforms", methods=["GET"])
+def list_platforms():
+    """Return available platform categories."""
+    return jsonify(PLATFORMS)
+
 
 @bp.route("/api/targets", methods=["GET"])
 def list_targets():
@@ -187,6 +197,9 @@ def _body_to_raw(body: dict) -> dict:
     """Convert JSON request body to targets.yaml format."""
     target_type = body.get("type", "local")
     entry: dict = {"type": target_type}
+
+    if body.get("platform"):
+        entry["platform"] = body["platform"]
 
     if target_type == "remote":
         if body.get("host"):
