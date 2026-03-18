@@ -97,14 +97,15 @@
     fetch('/api/tc/overview')
       .then(function(r){ return r.json(); })
       .then(function(data){
-        /* Summary cards from latest execution, fallback to suite_stats */
+        /* Summary cards: total from suite scan, status from latest execution */
         var ex = data.latest_execution || {};
         var stats = data.suite_stats || {};
-        var total = ex.total || stats.total_cases || 0;
+        var total = stats.total_cases || 0;
         var passed = ex.passed || 0;
         var failedTotal = ex.failed_total || 0;
-        var notRun = ex.not_run || (ex.total ? 0 : total);
-        var rate = ex.pass_rate || 0;
+        var notRun = total - passed - failedTotal;
+        if (notRun < 0) notRun = 0;
+        var rate = total > 0 ? passed / total : 0;
 
         document.getElementById('ov-total').textContent = total;
         document.getElementById('ov-pass').textContent = passed;
