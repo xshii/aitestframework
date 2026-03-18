@@ -1,60 +1,189 @@
 {
     "version": "2.0.0",
     "tasks": [
+        // ══════════════════════════════════════════════════════════════
+        // Web 服务
+        // ══════════════════════════════════════════════════════════════
         {
-            "label": "[stub] 01-构建桩代码 (app)",
-            "type": "shell",
-            "command": "stubs/build.sh -p func_sim -m app",
-            "group": {"kind": "build", "isDefault": true},
-            "problemMatcher": "$gcc"
-        },
-        {
-            "label": "[stub] 02-构建单元测试 (ut)",
-            "type": "shell",
-            "command": "stubs/build.sh -p func_sim -m ut",
-            "group": "build",
-            "problemMatcher": "$gcc"
-        },
-        {
-            "label": "[stub] 03-运行桩代码",
-            "type": "shell",
-            "command": "build/func_sim/stub_runner",
-            "dependsOn": "[stub] 01-构建桩代码 (app)",
-            "problemMatcher": []
-        },
-        {
-            "label": "[web] 01-启动 Web 服务",
+            "label": "[web] 启动服务",
             "type": "shell",
             "command": "./scripts/start.sh",
             "problemMatcher": [],
-            "isBackground": true
+            "isBackground": true,
+            "group": {"kind": "none"}
         },
         {
-            "label": "[web] 02-启动 Web 服务 (调试模式，热重载)",
+            "label": "[web] 启动服务 (调试模式)",
             "type": "shell",
             "command": "./scripts/start.sh --debug",
             "problemMatcher": [],
             "isBackground": true
         },
         {
-            "label": "[web] 03-启动 Web 服务 (Windows)",
+            "label": "[web] 启动服务 (Windows)",
             "type": "shell",
             "command": ".\\scripts\\start.bat",
             "problemMatcher": [],
             "isBackground": true,
-            "windows": {
-                "command": ".\\scripts\\start.bat"
-            }
+            "windows": { "command": ".\\scripts\\start.bat" }
         },
         {
-            "label": "[web] 04-启动 Web 服务 (Windows, 调试模式)",
+            "label": "[web] 启动服务 (Windows, 调试模式)",
             "type": "shell",
             "command": ".\\scripts\\start.bat --debug",
             "problemMatcher": [],
             "isBackground": true,
-            "windows": {
-                "command": ".\\scripts\\start.bat --debug"
-            }
+            "windows": { "command": ".\\scripts\\start.bat --debug" }
+        },
+
+        // ══════════════════════════════════════════════════════════════
+        // 桩代码
+        // ══════════════════════════════════════════════════════════════
+        {
+            "label": "[stub] 构建 (app)",
+            "type": "shell",
+            "command": "stubs/build.sh -p func_sim -m app",
+            "group": {"kind": "build", "isDefault": true},
+            "problemMatcher": "$gcc"
+        },
+        {
+            "label": "[stub] 构建 (ut)",
+            "type": "shell",
+            "command": "stubs/build.sh -p func_sim -m ut",
+            "group": "build",
+            "problemMatcher": "$gcc"
+        },
+        {
+            "label": "[stub] 运行桩代码",
+            "type": "shell",
+            "command": "build/func_sim/stub_runner",
+            "dependsOn": "[stub] 构建 (app)",
+            "problemMatcher": []
+        },
+        {
+            "label": "[stub] 列出模型",
+            "type": "shell",
+            "command": "aitf stub list",
+            "problemMatcher": []
+        },
+
+        // ══════════════════════════════════════════════════════════════
+        // 测试
+        // ══════════════════════════════════════════════════════════════
+        {
+            "label": "[test] 全部测试",
+            "type": "shell",
+            "command": "python -m pytest tests/ -v",
+            "group": {"kind": "test", "isDefault": true},
+            "problemMatcher": []
+        },
+        {
+            "label": "[test] 单元测试",
+            "type": "shell",
+            "command": "python -m pytest tests/ut/ -v",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "[test] 集成测试",
+            "type": "shell",
+            "command": "python -m pytest tests/it/ -v",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "[test] 端到端测试",
+            "type": "shell",
+            "command": "python -m pytest tests/e2e/ -v",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "[test] 当前文件",
+            "type": "shell",
+            "command": "python -m pytest ${file} -v",
+            "group": "test",
+            "problemMatcher": []
+        },
+
+        // ══════════════════════════════════════════════════════════════
+        // 依赖管理
+        // ══════════════════════════════════════════════════════════════
+        {
+            "label": "[deps] 列出依赖",
+            "type": "shell",
+            "command": "aitf deps list",
+            "problemMatcher": []
+        },
+        {
+            "label": "[deps] 安装全部",
+            "type": "shell",
+            "command": "aitf deps install --all",
+            "problemMatcher": []
+        },
+        {
+            "label": "[deps] 诊断检查",
+            "type": "shell",
+            "command": "aitf deps doctor",
+            "problemMatcher": []
+        },
+        {
+            "label": "[deps] 生成锁文件",
+            "type": "shell",
+            "command": "aitf deps lock",
+            "problemMatcher": []
+        },
+        {
+            "label": "[deps] 清理缓存",
+            "type": "shell",
+            "command": "aitf deps clean",
+            "problemMatcher": []
+        },
+
+        // ══════════════════════════════════════════════════════════════
+        // 用例执行
+        // ══════════════════════════════════════════════════════════════
+        {
+            "label": "[run] 运行全部用例",
+            "type": "shell",
+            "command": "aitf run",
+            "problemMatcher": []
+        },
+        {
+            "label": "[run] 按测试计划运行",
+            "type": "shell",
+            "command": "aitf run --plan testplan.yaml",
+            "problemMatcher": []
+        },
+        {
+            "label": "[run] 列出用例 (不执行)",
+            "type": "shell",
+            "command": "aitf run --collect-only",
+            "problemMatcher": []
+        },
+
+        // ══════════════════════════════════════════════════════════════
+        // 代码更新
+        // ══════════════════════════════════════════════════════════════
+        {
+            "label": "[update] 预览更新 (dry-run)",
+            "type": "shell",
+            "command": "python scripts/update_from_zip.py ${input:zipFile} --dry-run",
+            "problemMatcher": []
+        },
+        {
+            "label": "[update] 执行更新",
+            "type": "shell",
+            "command": "python scripts/update_from_zip.py ${input:zipFile}",
+            "problemMatcher": []
+        }
+    ],
+    "inputs": [
+        {
+            "id": "zipFile",
+            "type": "promptString",
+            "description": "GitHub ZIP 文件路径",
+            "default": "~/Downloads/aitestframework-main.zip"
         }
     ]
 }
