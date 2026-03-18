@@ -34,11 +34,32 @@ def _targets_path() -> Path:
     return root / "targets.yaml"
 
 
+def _default_targets() -> dict:
+    """Generate default targets from config.yaml (local + server if configured)."""
+    from flask import current_app
+    targets: dict = {
+        "local": {"type": "local", "build_dir": "build/"},
+    }
+    cfg = current_app.config.get("AITF_CONFIG")
+    if cfg and cfg.server:
+        targets["server"] = {
+            "type": "remote",
+            "host": cfg.server,
+            "port": cfg.port,
+            "user": "",
+            "auth": {"method": "key"},
+            "remote_dir": "/tmp/aitf",
+        }
+    return targets
+
+
 def _load_raw() -> dict:
-    """Load raw YAML dict from targets.yaml.  Returns {} if missing."""
+    """Load raw YAML dict from targets.yaml.  Auto-creates with defaults if missing."""
     p = _targets_path()
     if not p.is_file():
-        return {}
+        defaults = _default_targets()
+        _save_raw(defaults)
+        return defaults
     with open(p, encoding="utf-8") as fh:
         data = yaml.safe_load(fh) or {}
     return data.get("targets", {}) if isinstance(data, dict) else {}
