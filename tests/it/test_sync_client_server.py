@@ -12,11 +12,14 @@ to share one SQLite database and breaking execution-sync assertions.
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 import multiprocessing
 import socket
+import tarfile
 import time
+import zipfile
 
 import pytest
 import yaml
@@ -314,6 +317,187 @@ class TestResultsSync:
         assert resp.status_code == 200
         assert data["id"] == "srv-exec-001"
         assert len(data["cases"]) == 2
+
+
+# ---------------------------------------------------------------------------
+# Golden upload to remote (client → server): /api/tc/sync_golden
+# ---------------------------------------------------------------------------
+
+class TestGoldenUploadToRemote:
+
+    def _seed_golden_on_client(self, client):
+        """Create golden data on the client via its local API."""
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("test_model/v1/op_add/input.bin", b"\x00" * 16)
+        buf.seek(0)
+        resp = client.post("/api/golden/import", data={
+            "file": (buf, "golden.zip"),
+        }, content_type="multipart/form-data")
+        assert resp.status_code == 201
+
+    def test_upload_version_to_server(self, client, sync_client):
+        """Client pushes golden version to server via /api/tc/sync_golden."""
+        self._seed_golden_on_client(client)
+
+        resp = client.post(
+            "/api/tc/sync_golden",
+            data=json.dumps({
+                "items": [{"model": "test_model", "version": "v1"}],
+            }),
+            content_type="application/json",
+        )
+        data = resp.get_json()
+        assert resp.status_code == 200
+        assert data["success"] == 1
+
+        # Verify data arrived on server
+        models = sync_client.golden_list_models()
+        assert "test_model" in models
+
+    def test_upload_operator_to_server(self, client, sync_client):
+        """Client pushes a specific operator to server."""
+        self._seed_golden_on_client(client)
+
+        resp = client.post(
+            "/api/tc/sync_golden",
+            data=json.dumps({
+                "items": [{"model": "test_model", "version": "v1",
+                           "operators": ["op_add"]}],
+            }),
+            content_type="application/json",
+        )
+        data = resp.get_json()
+        assert resp.status_code == 200
+        assert data["success"] == 1
+
+        # Verify operator exists on server
+        operators = sync_client.golden_list_operators("test_model", "v1")
+        assert "op_add" in operators
+
+
+# ---------------------------------------------------------------------------
+# Golden fingerprint
+# ---------------------------------------------------------------------------
+
+class TestGoldenFingerprint:
+
+    def test_fingerprint_after_upload(self, sync_client, tmp_path):
+        """Fingerprint should return operator hashes for uploaded data."""
+        f = tmp_path / "input.bin"
+        f.write_bytes(b"\xAB" * 32)
+        sync_client.golden_upload_files(
+            model="fp_model", version="v1", operator="op1",
+            file_paths=[f],
+        )
+
+        fp = sync_client.golden_version_fingerprint("fp_model", "v1")
+        assert fp["model"] == "fp_model"
+        assert fp["version"] == "v1"
+        assert "op1" in fp["operators"]
+        assert isinstance(fp["operators"]["op1"], str)
+        assert len(fp["operators"]["op1"]) > 0
+
+
+# ---------------------------------------------------------------------------
+# Deps archive upload / download
+# ---------------------------------------------------------------------------
+
+class TestDepsArchiveSync:
+
+    def _make_archive(self, tmp_path, name, version):
+        """Create a minimal tar.gz archive for a dependency."""
+        archive = tmp_path / f"{name}-{version}.tar.gz"
+        with tarfile.open(archive, "w:gz") as tf:
+            data = b"fake dep content"
+            info = tarfile.TarInfo(name=f"{name}-{version}/README")
+            info.size = len(data)
+            tf.addfile(info, io.BytesIO(data))
+        return archive
+
+    def test_upload_dep_archive(self, sync_client, tmp_path):
+        """Upload a dependency archive to the server."""
+        archive = self._make_archive(tmp_path, "mylib", "1.0")
+        result = sync_client.deps_upload_archive("mylib", "1.0", archive)
+        assert result["ok"] is True
+        assert result["name"] == "mylib"
+        assert result["version"] == "1.0"
+
+    def test_upload_then_download_dep_archive(self, sync_client, tmp_path):
+        """Upload a dep archive, then download it back."""
+        archive = self._make_archive(tmp_path, "mylib", "1.0")
+        sync_client.deps_upload_archive("mylib", "1.0", archive)
+
+        dest = tmp_path / "downloaded"
+        dest.mkdir()
+        downloaded = sync_client.deps_download_archive("mylib", "1.0", dest)
+        assert downloaded.is_file()
+        assert downloaded.stat().st_size > 0
+        # Verify it's a valid tar.gz
+        with tarfile.open(downloaded, "r:gz") as tf:
+            names = tf.getnames()
+            assert any("README" in n for n in names)
+
+
+# ---------------------------------------------------------------------------
+# Bundle upload / download
+# ---------------------------------------------------------------------------
+
+class TestBundleSync:
+
+    def _create_bundle_on_server(self, sync_client, server):
+        """Create a bundle on the server via its API so export works."""
+        import urllib.request
+        url = f"{server['url']}/api/bundles"
+        data = json.dumps({
+            "name": "test_bundle",
+            "description": "A test bundle",
+            "status": "verified",
+            "toolchains": {"npu-compiler": "2.1.0"},
+            "libraries": {"json-c": "0.17"},
+        }).encode()
+        req = urllib.request.Request(
+            url, data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        resp = urllib.request.urlopen(req, timeout=10)
+        assert resp.status in (200, 201)
+
+    def test_bundle_upload(self, sync_client, tmp_path):
+        """Upload a bundle archive to the server."""
+        # Create a minimal bundle tar.gz
+        archive = tmp_path / "mybundle.tar.gz"
+        with tarfile.open(archive, "w:gz") as tf:
+            meta = yaml.dump({
+                "name": "mybundle",
+                "description": "test",
+                "status": "verified",
+                "toolchains": {},
+                "libraries": {},
+                "repos": {},
+                "env": {},
+            }).encode()
+            info = tarfile.TarInfo(name="mybundle/bundle.yaml")
+            info.size = len(meta)
+            tf.addfile(info, io.BytesIO(meta))
+        result = sync_client.bundle_upload("mybundle", archive)
+        assert result["ok"] is True
+        assert result["name"] == "mybundle"
+
+    def test_bundle_download(self, sync_client, server, tmp_path):
+        """Create bundle on server, then download it."""
+        self._create_bundle_on_server(sync_client, server)
+
+        dest = tmp_path / "downloaded"
+        dest.mkdir()
+        downloaded = sync_client.bundle_download("test_bundle", dest)
+        assert downloaded.is_file()
+        assert downloaded.stat().st_size > 0
+        # Verify it's a valid tar.gz
+        with tarfile.open(downloaded, "r:gz") as tf:
+            names = tf.getnames()
+            assert any("bundle.yaml" in n for n in names)
 
 
 # ---------------------------------------------------------------------------

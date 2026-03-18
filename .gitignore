@@ -9,4 +9,6 @@ deps/uploads/
 deps.yaml
 deps.lock.yaml
 config.yaml
+testplan*.yaml
+!/testplan*.yaml.example
 /datastore/
