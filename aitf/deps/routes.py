@@ -338,10 +338,10 @@ def sync_from_server():
         deps_yaml = resp.read()
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
-            return jsonify({"error": "服务器上尚无 deps.yaml"}), 404
-        return jsonify({"error": f"从服务器获取失败: {exc}"}), 502
+            return jsonify({"error": "服务器上尚无 deps.yaml"})
+        return jsonify({"error": f"从服务器获取失败: HTTP {exc.code}"})
     except Exception as exc:
-        return jsonify({"error": f"从服务器获取失败: {exc}"}), 502
+        return jsonify({"error": f"从服务器获取失败: {exc}"})
 
     mgr = _mgr()
     with _config_lock:
