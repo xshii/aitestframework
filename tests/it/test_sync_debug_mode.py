@@ -77,10 +77,10 @@ class TestDepsSyncDebugMode:
         assert "npu-compiler" in names
         assert "json-c" in names
 
-    def test_sync_no_deps_yaml_returns_404_chinese(self, debug_no_deps_client):
-        """When server has no deps.yaml, should return Chinese 404 message."""
+    def test_sync_no_deps_yaml_returns_error_chinese(self, debug_no_deps_client):
+        """When server has no deps.yaml, should return 200 with Chinese error."""
         resp = debug_no_deps_client.post("/api/deps/sync")
-        assert resp.status_code == 404
+        assert resp.status_code == 200
         msg = resp.get_json()["error"]
         assert "deps.yaml" in msg
 

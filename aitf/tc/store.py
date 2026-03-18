@@ -241,7 +241,10 @@ def update_case_status(
         if status in CaseStatus.TERMINAL:
             row.finished_at = datetime.now(UTC)
             if row.started_at:
-                row.duration_s = (row.finished_at - row.started_at).total_seconds()
+                # SQLite drops timezone info; strip tzinfo before subtracting
+                fin = row.finished_at.replace(tzinfo=None)
+                sta = row.started_at.replace(tzinfo=None)
+                row.duration_s = (fin - sta).total_seconds()
 
         for key in ("failure_reason", "compare_detail", "stdout_path", "stderr_path"):
             if key in kwargs:
@@ -286,10 +289,10 @@ def finish_execution(execution_id: str) -> None:
 
         # Update suite_info with last execution summary
         for suite_class, summary in suite_summary.items():
-            suite = session.execute(
+            suites = session.execute(
                 select(SuiteInfo).where(SuiteInfo.class_name == suite_class)
-            ).scalar_one_or_none()
-            if suite:
+            ).scalars().all()
+            for suite in suites:
                 suite.last_execution_id = execution_id
                 suite.last_status_summary = json.dumps(summary)
 
