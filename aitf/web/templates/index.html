@@ -24,6 +24,11 @@
   {% include 'tc/tab.html' %}
 </div>
 
+{# ===== RUNNER (执行环境管理) ===== #}
+<div class="tab-pane" id="tab-runner">
+  {% include 'runner/tab.html' %}
+</div>
+
 {# ===== LOGS ===== #}
 <div class="tab-pane" id="tab-logs">
   {% if log_entries %}

@@ -33,6 +33,7 @@ PROTECTED_PATHS = {
     "config.yaml",
     "deps.yaml",
     "deps.lock.yaml",
+    "targets.yaml",         # 内网执行环境配置
     "testplan.yaml",        # 内网可能有自己的测试计划
 }
 

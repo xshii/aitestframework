@@ -1,0 +1,272 @@
+<div class="d-flex align-items-center mb-2">
+  <span class="fw-bold me-2">执行环境</span>
+  <span class="badge bg-secondary" id="envCount">0</span>
+  <button class="btn btn-sm btn-outline-primary ms-2 py-0" onclick="envRefresh()">刷新</button>
+  <button class="btn btn-sm btn-primary ms-2 py-0" onclick="envShowAdd()">+ 添加</button>
+</div>
+
+<table class="table table-sm table-striped table-hover" id="envTable" style="display:none">
+  <thead>
+    <tr>
+      <th>名称</th>
+      <th>类型</th>
+      <th>主机</th>
+      <th>用户</th>
+      <th>远程目录</th>
+      <th>状态</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody id="envBody"></tbody>
+</table>
+<p id="envEmpty" class="text-muted small">暂无执行环境配置。点击"添加"创建。</p>
+
+{# ===== 添加 / 编辑表单 ===== #}
+<div class="card mt-2" id="envForm" style="display:none">
+  <div class="card-body">
+    <h6 class="card-title" id="envFormTitle">添加执行环境</h6>
+    <input type="hidden" id="envEditName">
+    <div class="row g-2 mb-2">
+      <div class="col-md-3">
+        <label class="form-label small">名称</label>
+        <input class="form-control form-control-sm" id="envName" placeholder="如: sim-server">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small">类型</label>
+        <select class="form-select form-select-sm" id="envType" onchange="envTypeChanged()">
+          <option value="local">本地 (local)</option>
+          <option value="remote">远程 (remote)</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small">构建目录</label>
+        <input class="form-control form-control-sm" id="envBuildDir" placeholder="build/">
+      </div>
+    </div>
+
+    {# 远程配置区 #}
+    <div id="envRemoteFields" style="display:none">
+      <div class="row g-2 mb-2">
+        <div class="col-md-3">
+          <label class="form-label small">主机</label>
+          <input class="form-control form-control-sm" id="envHost" placeholder="192.168.1.100">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small">端口</label>
+          <input class="form-control form-control-sm" id="envPort" value="22" type="number">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small">用户</label>
+          <input class="form-control form-control-sm" id="envUser" placeholder="test">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small">认证方式</label>
+          <select class="form-select form-select-sm" id="envAuthMethod">
+            <option value="key">SSH Key</option>
+            <option value="password">密码</option>
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small">Key 文件</label>
+          <input class="form-control form-control-sm" id="envKeyFile" placeholder="~/.ssh/id_rsa">
+        </div>
+      </div>
+      <div class="row g-2 mb-2">
+        <div class="col-md-4">
+          <label class="form-label small">远程工作目录</label>
+          <input class="form-control form-control-sm" id="envRemoteDir" placeholder="/tmp/aitf_run">
+        </div>
+      </div>
+    </div>
+
+    {# 环境变量 #}
+    <div class="mb-2">
+      <label class="form-label small">环境变量 (每行 KEY=VALUE)</label>
+      <textarea class="form-control form-control-sm" id="envEnvVars" rows="2" placeholder="LD_LIBRARY_PATH={build_dir}/lib"></textarea>
+    </div>
+
+    {# 前置/后置命令 #}
+    <div class="row g-2 mb-2">
+      <div class="col-md-6">
+        <label class="form-label small">前置命令 (每行一条)</label>
+        <textarea class="form-control form-control-sm" id="envPreCmds" rows="2" placeholder="source /opt/env.sh"></textarea>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label small">后置命令 (每行一条)</label>
+        <textarea class="form-control form-control-sm" id="envPostCmds" rows="2"></textarea>
+      </div>
+    </div>
+
+    <div class="d-flex gap-2">
+      <button class="btn btn-sm btn-primary" id="envSaveBtn" onclick="envSave()">保存</button>
+      <button class="btn btn-sm btn-outline-secondary" onclick="envCancelForm()">取消</button>
+      <small class="text-danger align-self-center" id="envFormMsg"></small>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+var _targets=[];
+
+window.envRefresh=function(){
+  fetch('/api/targets').then(function(r){return r.json();}).then(function(data){
+    _targets=data;
+    document.getElementById('envCount').textContent=data.length;
+    var tb=document.getElementById('envBody');
+    var tbl=document.getElementById('envTable');
+    var empty=document.getElementById('envEmpty');
+    if(!data.length){tbl.style.display='none';empty.classList.remove('d-none');return;}
+    tbl.style.display='';empty.classList.add('d-none');
+
+    var html='';
+    data.forEach(function(t){
+      var host=t.type==='remote'?(t.host||'')+':'+(t.port||22):'—';
+      var user=t.type==='remote'?(t.user||'—'):'—';
+      var rdir=t.type==='remote'?(t.remote_dir||'—'):'—';
+      html+='<tr>'
+        +'<td><strong>'+_esc(t.name)+'</strong></td>'
+        +'<td><span class="badge '+(t.type==='remote'?'bg-info text-dark':'bg-success')+'">'+_esc(t.type)+'</span></td>'
+        +'<td>'+_esc(host)+'</td>'
+        +'<td>'+_esc(user)+'</td>'
+        +'<td class="text-muted small">'+_esc(rdir)+'</td>'
+        +'<td><span class="text-muted small" id="env-st-'+_esc(t.name)+'">—</span></td>'
+        +'<td class="text-end">'
+          +'<button class="btn btn-sm btn-outline-success py-0 me-1" onclick="envTest(\''+_esc(t.name)+'\')">测试</button>'
+          +'<button class="btn btn-sm btn-outline-primary py-0 me-1" onclick="envEdit(\''+_esc(t.name)+'\')">编辑</button>'
+          +'<button class="btn btn-sm btn-outline-danger py-0" onclick="envDel(\''+_esc(t.name)+'\')">删除</button>'
+        +'</td></tr>';
+    });
+    tb.innerHTML=html;
+  });
+};
+
+window.envTest=function(name){
+  var el=document.getElementById('env-st-'+name);
+  if(el) el.innerHTML='<span class="text-warning">检测中...</span>';
+  fetch('/api/targets/'+encodeURIComponent(name)+'/test',{method:'POST'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(!el) return;
+      if(d.ok) el.innerHTML='<span class="text-success">'+_esc(d.message)+'</span>';
+      else el.innerHTML='<span class="text-danger">'+_esc(d.message)+'</span>';
+    });
+};
+
+window.envShowAdd=function(){
+  document.getElementById('envFormTitle').textContent='添加执行环境';
+  document.getElementById('envEditName').value='';
+  document.getElementById('envName').value='';document.getElementById('envName').disabled=false;
+  document.getElementById('envType').value='local';
+  document.getElementById('envHost').value='';document.getElementById('envPort').value='22';
+  document.getElementById('envUser').value='';document.getElementById('envAuthMethod').value='key';
+  document.getElementById('envKeyFile').value='';document.getElementById('envRemoteDir').value='';
+  document.getElementById('envBuildDir').value='';
+  document.getElementById('envEnvVars').value='';
+  document.getElementById('envPreCmds').value='';document.getElementById('envPostCmds').value='';
+  document.getElementById('envFormMsg').textContent='';
+  envTypeChanged();
+  document.getElementById('envForm').style.display='';
+};
+
+window.envEdit=function(name){
+  var t=_targets.find(function(x){return x.name===name;});
+  if(!t) return;
+  document.getElementById('envFormTitle').textContent='编辑: '+name;
+  document.getElementById('envEditName').value=name;
+  document.getElementById('envName').value=name;document.getElementById('envName').disabled=true;
+  document.getElementById('envType').value=t.type;
+  document.getElementById('envHost').value=t.host||'';
+  document.getElementById('envPort').value=t.port||22;
+  document.getElementById('envUser').value=t.user||'';
+  document.getElementById('envAuthMethod').value=t.auth_method||'key';
+  document.getElementById('envKeyFile').value='';
+  document.getElementById('envRemoteDir').value=t.remote_dir||'';
+  document.getElementById('envBuildDir').value=t.build_dir||'';
+  /* env dict → KEY=VALUE lines */
+  var envLines=[];
+  if(t.env) Object.keys(t.env).forEach(function(k){envLines.push(k+'='+t.env[k]);});
+  document.getElementById('envEnvVars').value=envLines.join('\n');
+  document.getElementById('envPreCmds').value=(t.pre_commands||[]).join('\n');
+  document.getElementById('envPostCmds').value=(t.post_commands||[]).join('\n');
+  document.getElementById('envFormMsg').textContent='';
+  envTypeChanged();
+  document.getElementById('envForm').style.display='';
+};
+
+window.envCancelForm=function(){
+  document.getElementById('envForm').style.display='none';
+};
+
+window.envTypeChanged=function(){
+  var isRemote=document.getElementById('envType').value==='remote';
+  document.getElementById('envRemoteFields').style.display=isRemote?'':'none';
+};
+
+window.envSave=function(){
+  var editName=document.getElementById('envEditName').value;
+  var name=document.getElementById('envName').value.trim();
+  var msg=document.getElementById('envFormMsg');
+  if(!name){msg.textContent='名称不能为空';return;}
+
+  var body={
+    name:name,
+    type:document.getElementById('envType').value,
+    host:document.getElementById('envHost').value.trim(),
+    port:parseInt(document.getElementById('envPort').value)||22,
+    user:document.getElementById('envUser').value.trim(),
+    auth_method:document.getElementById('envAuthMethod').value,
+    key_file:document.getElementById('envKeyFile').value.trim(),
+    remote_dir:document.getElementById('envRemoteDir').value.trim(),
+    build_dir:document.getElementById('envBuildDir').value.trim(),
+  };
+
+  /* parse env vars */
+  var envText=document.getElementById('envEnvVars').value.trim();
+  var env={};
+  if(envText){
+    envText.split('\n').forEach(function(line){
+      var idx=line.indexOf('=');
+      if(idx>0) env[line.substring(0,idx).trim()]=line.substring(idx+1).trim();
+    });
+  }
+  body.env=env;
+
+  /* parse commands */
+  var preCmds=document.getElementById('envPreCmds').value.trim();
+  body.pre_commands=preCmds?preCmds.split('\n').filter(function(l){return l.trim();}):[];
+  var postCmds=document.getElementById('envPostCmds').value.trim();
+  body.post_commands=postCmds?postCmds.split('\n').filter(function(l){return l.trim();}):[];
+
+  var url,method;
+  if(editName){
+    url='/api/targets/'+encodeURIComponent(editName);method='PUT';
+  }else{
+    url='/api/targets';method='POST';
+  }
+
+  msg.textContent='保存中...';
+  fetch(url,{method:method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.error){msg.textContent=d.error;return;}
+      document.getElementById('envForm').style.display='none';
+      envRefresh();
+    })
+    .catch(function(e){msg.textContent=''+e;});
+};
+
+window.envDel=function(name){
+  if(!confirm('确认删除执行环境「'+name+'」？')) return;
+  fetch('/api/targets/'+encodeURIComponent(name),{method:'DELETE'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.error) alert(d.error);
+      else envRefresh();
+    });
+};
+
+/* init */
+envRefresh();
+})();
+</script>
