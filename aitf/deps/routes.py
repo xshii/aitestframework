@@ -125,7 +125,11 @@ def _handle_deps_error(exc):
 def list_deps():
     """Flat list of all dependencies with available versions."""
     mgr = _mgr()
-    cfg = mgr.config
+    try:
+        cfg = mgr.config
+    except DepsConfigError:
+        return jsonify([])
+
     available = _upload_files()
     items = []
 
@@ -387,7 +391,10 @@ def download_upload(filename):
 @bp.route("/api/bundles", methods=["GET"])
 def list_bundles():
     mgr = _mgr()
-    active_name = mgr.config.active_bundle
+    try:
+        active_name = mgr.config.active_bundle
+    except DepsConfigError:
+        return jsonify([])
     return jsonify([
         {**asdict(b), "active": b.name == active_name}
         for b in _bm().list_bundles()
