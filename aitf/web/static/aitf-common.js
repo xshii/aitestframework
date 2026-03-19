@@ -83,9 +83,14 @@ function _renderExeRow(e, opts) {
     : '<small>' + _esc(e.id) + '</small>';
   var html = '<tr>'
     + '<td>' + idCell + '</td>'
-    + '<td>' + _fmtTime(e.started_at) + '</td>'
-    + '<td>' + _esc(e.bundle || '-') + '</td>'
-    + '<td>' + (e.total || 0) + '</td>'
+    + '<td>' + _fmtTime(e.started_at) + '</td>';
+  if (opts.showPlanPlatform) {
+    html += '<td>' + _esc(e.plan_name || '-') + '</td>'
+      + '<td>' + _esc(e.platform || '-') + '</td>';
+  } else {
+    html += '<td>' + _esc(e.bundle || '-') + '</td>';
+  }
+  html += '<td>' + (e.total || 0) + '</td>'
     + '<td class="text-success">' + (e.passed || 0) + '</td>'
     + '<td class="text-danger">' + (e.failed_total || 0) + '</td>';
   if (opts.showNotRun) html += '<td class="text-muted">' + (e.not_run || 0) + '</td>';

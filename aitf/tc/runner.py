@@ -38,17 +38,58 @@ def _set_run_context(cfg: RunConfig | None) -> None:
 # Custom TestResult — pushes status to SQLite
 # ---------------------------------------------------------------------------
 
+class _PerTestLogHandler(logging.Handler):
+    """Temporary handler attached to root logger during a single test.
+
+    Captures all log records regardless of existing handler configuration.
+    Unlike redirecting sys.stderr, this works because we add ourselves
+    directly to the logger — we don't depend on any stream reference.
+    """
+
+    def __init__(self):
+        super().__init__(logging.DEBUG)
+        self._records: list[str] = []
+        self.setFormatter(logging.Formatter(
+            "%(levelname)-5s [%(name)s] %(message)s"))
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            self._records.append(self.format(record))
+        except Exception:
+            pass
+
+    def get_output(self) -> str:
+        return "\n".join(self._records)
+
+
 class AitfTestResult(unittest.TestResult):
     """Writes case status to the database as tests run.
 
-    Holds a single DB session for the duration of the test run
-    to avoid creating 2N sessions for N tests.
+    Capture strategy (per test):
+      1. **stdout/stderr** — ``buffer = True`` delegates to unittest's own
+         ``_setupStdout`` / ``_restoreStdout`` which swap sys.stdout/stderr
+         with per-test StringIO buffers.  Captures ``print()`` output.
+      2. **logging** — a ``_PerTestLogHandler`` is added to the root logger
+         so we capture log records even when StreamHandlers hold references
+         to the *original* stderr (which our redirect cannot reach).
+
+    Lifecycle:
+      - ``startTest``:  DB → RUNNING, attach log handler
+        (super sets up stdout/stderr buffer)
+      - ``addSuccess / addFailure / …``:  stash status + failure_reason
+      - ``stopTest``:   read captured output, write final result to DB,
+        detach log handler  (super restores stdout/stderr)
     """
 
     def __init__(self, execution_id: str, **kwargs):
         super().__init__(**kwargs)
         self.execution_id = execution_id
+        self.buffer = True  # let unittest manage stdout/stderr capture
         self._session = get_session()
+        # Per-test state (set in startTest, consumed in stopTest)
+        self._log_handler: _PerTestLogHandler | None = None
+        self._pending_status: str | None = None
+        self._pending_kwargs: dict = {}
 
     def close(self) -> None:
         """Close the underlying DB session."""
@@ -61,18 +102,64 @@ class AitfTestResult(unittest.TestResult):
             session=self._session, **kwargs,
         )
 
+    # -- lifecycle -------------------------------------------------------------
+
     def startTest(self, test):
-        super().startTest(test)
+        super().startTest(test)          # sets up stdout/stderr buffer
+        self._pending_status = None
+        self._pending_kwargs = {}
         self._update(test, CaseStatus.RUNNING)
+        # Attach per-test log handler
+        self._log_handler = _PerTestLogHandler()
+        logging.getLogger().addHandler(self._log_handler)
+
+    def stopTest(self, test):
+        # 1. Collect logging output
+        log_output = ""
+        if self._log_handler:
+            log_output = self._log_handler.get_output()
+            logging.getLogger().removeHandler(self._log_handler)
+            self._log_handler = None
+
+        # 2. Collect stdout/stderr from unittest's buffer
+        #    (must read BEFORE super().stopTest restores the streams)
+        stdout_text = ""
+        stderr_text = ""
+        if self._stdout_buffer is not None:
+            stdout_text = self._stdout_buffer.getvalue()
+        if self._stderr_buffer is not None:
+            stderr_text = self._stderr_buffer.getvalue()
+
+        # 3. Merge logging into stdout (logging is informational output)
+        if log_output:
+            if stdout_text:
+                stdout_text += "\n"
+            stdout_text += log_output
+
+        # 4. Write final status + captured output to DB
+        if self._pending_status:
+            kw = self._pending_kwargs
+            if stdout_text:
+                kw["stdout"] = stdout_text
+            if stderr_text:
+                kw["stderr"] = stderr_text
+            self._update(test, self._pending_status, **kw)
+
+        self._pending_status = None
+        self._pending_kwargs = {}
+        super().stopTest(test)           # restores stdout/stderr
+
+    # -- result callbacks (just stash, actual DB write in stopTest) ------------
 
     def addSuccess(self, test):
         super().addSuccess(test)
-        self._update(test, CaseStatus.PASS)
+        self._pending_status = CaseStatus.PASS
 
     def addFailure(self, test, err):
         super().addFailure(test, err)
         reason = "".join(traceback.format_exception(*err))
-        self._update(test, CaseStatus.FAIL, failure_reason=reason)
+        self._pending_status = CaseStatus.FAIL
+        self._pending_kwargs = {"failure_reason": reason}
 
     def addError(self, test, err):
         super().addError(test, err)
@@ -82,11 +169,13 @@ class AitfTestResult(unittest.TestResult):
             status = CaseStatus.TIMEOUT
         elif err[0] is SystemExit or err[0] is KeyboardInterrupt:
             status = CaseStatus.CRASH
-        self._update(test, status, failure_reason=reason)
+        self._pending_status = status
+        self._pending_kwargs = {"failure_reason": reason}
 
     def addSkip(self, test, reason):
         super().addSkip(test, reason)
-        self._update(test, CaseStatus.SKIP, failure_reason=reason)
+        self._pending_status = CaseStatus.SKIP
+        self._pending_kwargs = {"failure_reason": reason}
 
 
 # ---------------------------------------------------------------------------
@@ -175,6 +264,8 @@ def _ensure_sys_path(cases_dir: Path) -> None:
 
 def _prepare_execution(
     cases_dir: Path, config: RunConfig, *, plan_name: str | None = None,
+    platform: str | None = None,
+    pipeline_id: str | None = None, pipeline_stage: int | None = None,
 ) -> tuple[str, unittest.TestSuite | None]:
     """Load suites and create execution row. Returns (execution_id, suite).
 
@@ -194,8 +285,10 @@ def _prepare_execution(
     store.create_execution(
         execution_id,
         bundle=config.bundle, target=config.target,
+        platform=platform,
         golden_model=config.golden_model, golden_version=config.golden_version,
         plan_name=plan_name or config.name or None,
+        pipeline_id=pipeline_id, pipeline_stage=pipeline_stage,
         suite_cases=suite_cases,
     )
     return execution_id, suite
@@ -415,3 +508,142 @@ def run_testplan_async(
         t.start()
 
     return execution_ids
+
+
+def run_pipeline_async(
+    cases_dir: str | Path,
+    db_path: str | Path,
+    plan_path: str | Path,
+) -> str:
+    """Run a testplan as a platform pipeline in a single background thread.
+
+    Pipeline stages execute sequentially. All configs run within each stage;
+    if any config fails, the pipeline stops and remaining stages are skipped.
+
+    Returns pipeline_id immediately.
+    """
+    import uuid
+    from aitf.tc.testplan import load_testplan
+
+    cases_dir = Path(cases_dir)
+    init_db(db_path)
+
+    plan = load_testplan(plan_path)
+    pipeline_id = f"pipe-{store.generate_execution_id()}-{uuid.uuid4().hex[:4]}"
+
+    if not plan.pipeline:
+        logger.warning("No pipeline defined in testplan %s", plan.name)
+        return ""
+
+    def _pipeline_worker():
+        for stage_idx, platform in enumerate(plan.pipeline):
+            logger.info("Pipeline %s stage %d/%d: %s",
+                        pipeline_id, stage_idx + 1, len(plan.pipeline), platform)
+
+            stage_passed = True
+            for config in plan.configs:
+                plan_label = f"{config.name or plan.name} [{platform}]"
+                eid, suite = _prepare_execution(
+                    cases_dir, config,
+                    plan_name=plan_label,
+                    platform=platform,
+                    pipeline_id=pipeline_id,
+                    pipeline_stage=stage_idx,
+                )
+                if not eid:
+                    continue
+
+                try:
+                    passed = _execute_suite(eid, suite, config)
+                    if not passed:
+                        stage_passed = False
+                except Exception:
+                    logger.exception("pipeline %s stage %s execution %s failed",
+                                     pipeline_id, platform, eid)
+                    stage_passed = False
+
+            if not stage_passed:
+                logger.warning("Pipeline %s stopped at stage %s (failed)",
+                               pipeline_id, platform)
+                break
+
+        logger.info("Pipeline %s completed", pipeline_id)
+
+    t = threading.Thread(target=_pipeline_worker,
+                         name=f"aitf-pipeline-{pipeline_id}", daemon=True)
+    t.start()
+    return pipeline_id
+
+
+def run_targets_pipeline_async(
+    cases_dir: str | Path,
+    db_path: str | Path,
+    targets: list[str],
+    **kwargs,
+) -> str:
+    """Run the same tests sequentially on multiple targets (pipeline by target).
+
+    Each target is a stage. If a stage fails, remaining stages are skipped.
+    Returns pipeline_id immediately.
+    """
+    import uuid
+
+    cases_dir = Path(cases_dir)
+    init_db(db_path)
+
+    pipeline_id = f"pipe-{store.generate_execution_id()}-{uuid.uuid4().hex[:4]}"
+
+    base_config = RunConfig(
+        tests=kwargs.get("paths") or [],
+        filter_k=kwargs.get("filter_k"),
+        bundle=kwargs.get("bundle"),
+        golden_model=kwargs.get("golden_model"),
+        golden_version=kwargs.get("golden_version"),
+        params=kwargs.get("params") or {},
+    )
+
+    def _worker():
+        for stage_idx, target_name in enumerate(targets):
+            logger.info("Pipeline %s stage %d/%d: target=%s",
+                        pipeline_id, stage_idx + 1, len(targets), target_name)
+
+            config = RunConfig(
+                name=base_config.name,
+                tests=base_config.tests,
+                filter_k=base_config.filter_k,
+                bundle=base_config.bundle,
+                target=target_name,
+                golden_model=base_config.golden_model,
+                golden_version=base_config.golden_version,
+                params=base_config.params,
+            )
+
+            eid, suite = _prepare_execution(
+                cases_dir, config,
+                plan_name=target_name,
+                platform=target_name,
+                pipeline_id=pipeline_id,
+                pipeline_stage=stage_idx,
+            )
+            if not eid:
+                logger.warning("Pipeline %s stage %s: no tests found, stopping",
+                               pipeline_id, target_name)
+                break
+
+            try:
+                passed = _execute_suite(eid, suite, config)
+                if not passed:
+                    logger.warning("Pipeline %s stopped at stage %s (failed)",
+                                   pipeline_id, target_name)
+                    break
+            except Exception:
+                logger.exception("Pipeline %s stage %s failed",
+                                 pipeline_id, target_name)
+                break
+
+        logger.info("Pipeline %s completed", pipeline_id)
+
+    t = threading.Thread(target=_worker,
+                         name=f"aitf-pipeline-{pipeline_id}", daemon=True)
+    t.start()
+    return pipeline_id

@@ -479,7 +479,7 @@ def select_env(target_name: str = "local",
         result = execute(env, "ls -la")
         env.cleanup()
     """
-    from aitf.runner.executor import TargetConfig, load_targets
+    from aitf.runner.config import TargetConfig, load_runner_config
     from aitf.runner.environment import Environment
 
     if targets_file is None:
@@ -494,7 +494,7 @@ def select_env(target_name: str = "local",
                 break
 
     if targets_file and Path(targets_file).is_file():
-        targets = load_targets(targets_file)
+        targets = load_runner_config(targets_file)
         if target_name not in targets:
             raise KeyError(f"Target '{target_name}' not found in {targets_file}. "
                            f"Available: {list(targets.keys())}")
@@ -502,7 +502,7 @@ def select_env(target_name: str = "local",
     else:
         # 无配置文件时，"local" 使用默认配置
         if target_name == "local":
-            config = TargetConfig(name="local", type="local")
+            config = TargetConfig(name="local")
         else:
             raise FileNotFoundError(
                 f"No targets.yaml found and target '{target_name}' is not 'local'")

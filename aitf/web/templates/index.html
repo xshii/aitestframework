@@ -31,23 +31,74 @@
 
 {# ===== LOGS ===== #}
 <div class="tab-pane" id="tab-logs">
-  {% if log_entries %}
-  <table class="table table-sm table-striped table-hover">
-    <thead><tr><th>Name</th><th>Size</th><th></th></tr></thead>
-    <tbody>
-    {% for e in log_entries %}
-    <tr>
-      <td>{% if e.is_dir %}<a href="{{ url_for('logs.log_index', subpath=e.path) }}">{{ e.name }}/</a>{% else %}<a href="{{ url_for('logs.log_view', subpath=e.path) }}">{{ e.name }}</a>{% endif %}</td>
-      <td>{% if not e.is_dir %}{{ e.size_display }}{% endif %}</td>
-      <td>{% if not e.is_dir %}<a href="{{ url_for('logs.log_download', subpath=e.path) }}" class="btn btn-sm btn-outline-primary py-0">Download</a>{% endif %}</td>
-    </tr>
-    {% endfor %}
-    </tbody>
+  <div class="d-flex align-items-center mb-2">
+    <span class="fw-bold me-2">操作日志</span>
+    <span class="badge bg-secondary" id="logCount">0</span>
+    <button class="btn btn-sm btn-outline-primary ms-2 py-0" onclick="logRefresh()">刷新</button>
+  </div>
+  <table class="table table-sm table-striped" id="logTable" style="display:none">
+    <thead><tr><th style="width:160px">时间</th><th style="width:140px">操作</th><th>详情</th></tr></thead>
+    <tbody id="logBody"></tbody>
   </table>
-  {% else %}
-  <p class="text-muted">No files.</p>
+  <p id="logEmpty" class="text-muted small">暂无操作记录。</p>
+
+  {% if log_entries %}
+  <hr>
+  <details>
+    <summary class="small text-muted mb-1">日志文件</summary>
+    <table class="table table-sm table-striped table-hover">
+      <thead><tr><th>Name</th><th>Size</th><th></th></tr></thead>
+      <tbody>
+      {% for e in log_entries %}
+      <tr>
+        <td>{% if e.is_dir %}<a href="{{ url_for('logs.log_index', subpath=e.path) }}">{{ e.name }}/</a>{% else %}<a href="{{ url_for('logs.log_view', subpath=e.path) }}">{{ e.name }}</a>{% endif %}</td>
+        <td>{% if not e.is_dir %}{{ e.size_display }}{% endif %}</td>
+        <td>{% if not e.is_dir %}<a href="{{ url_for('logs.log_download', subpath=e.path) }}" class="btn btn-sm btn-outline-primary py-0">Download</a>{% endif %}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </details>
   {% endif %}
 </div>
+<script>
+(function(){
+var _actionLabels={
+  'run':'执行用例','run.plan':'执行计划','run.pipeline':'流水线','run.pipeline.targets':'多环境流水线',
+  'target.add':'添加环境','target.edit':'编辑环境','target.delete':'删除环境','target.sync':'同步环境',
+  'scan':'扫描用例','plan.save':'保存计划',
+};
+var _actionColors={
+  'run':'text-primary','run.plan':'text-primary','run.pipeline':'text-warning','run.pipeline.targets':'text-warning',
+  'target.add':'text-success','target.edit':'text-info','target.delete':'text-danger','target.sync':'text-info',
+};
+
+window.logRefresh=function(){
+  fetch('/api/activity').then(function(r){return r.json();}).then(function(data){
+    document.getElementById('logCount').textContent=data.length;
+    var tbl=document.getElementById('logTable');
+    var empty=document.getElementById('logEmpty');
+    if(!data.length){tbl.style.display='none';empty.style.display='';return;}
+    tbl.style.display='';empty.style.display='none';
+
+    var html='';
+    data.forEach(function(e){
+      var d=new Date(e.ts*1000);
+      var ts=d.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});
+      var label=_actionLabels[e.action]||e.action;
+      var color=_actionColors[e.action]||'';
+      html+='<tr><td class="text-muted small">'+_esc(ts)+'</td>'
+        +'<td><span class="'+(color)+' small fw-bold">'+_esc(label)+'</span></td>'
+        +'<td class="small">'+_esc(e.detail)+'</td></tr>';
+    });
+    document.getElementById('logBody').innerHTML=html;
+  });
+};
+
+// 切换到 Logs 页签时自动刷新
+document.querySelector('[data-tab="tab-logs"]').addEventListener('click',function(){setTimeout(logRefresh,100);});
+})();
+</script>
 
 </div>
 

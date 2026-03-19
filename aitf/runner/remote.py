@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import logging
 import os
-import stat
 import time
 from pathlib import Path, PurePosixPath
 
-from .executor import ExecuteResult, TargetConfig
+from .config import ExecuteResult, TargetConfig
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +24,17 @@ _PARAMIKO_MISSING = (
 )
 
 
+def _get_ssh_info(config: TargetConfig) -> tuple[str, int, str, dict]:
+    """Extract SSH connection info from TargetConfig ports.
+
+    Returns (host, port, user, auth) from the first SSH port (usually 'ctrl').
+    """
+    for p in config.ports.values():
+        if p.type == "ssh" and p.host:
+            return p.host, p.port or 22, p.user, p.auth
+    raise ValueError(f"Target {config.name!r} has no SSH port configured")
+
+
 class RemoteExecutor:
     """Execute commands on a remote target over SSH."""
 
@@ -32,6 +42,7 @@ class RemoteExecutor:
         if paramiko is None:
             raise ImportError(_PARAMIKO_MISSING)
         self.config = config
+        self._host, self._port, self._user, self._auth = _get_ssh_info(config)
         self._client: paramiko.SSHClient | None = None
         self._sftp: paramiko.SFTPClient | None = None
 
@@ -44,30 +55,26 @@ class RemoteExecutor:
         if self._client is not None:
             return
 
-        cfg = self.config
-        if not cfg.host:
-            raise ValueError("TargetConfig.host must be set for remote targets")
-
-        logger.info("Connecting to %s@%s:%d", cfg.user or "(default)", cfg.host, cfg.port)
+        logger.info("Connecting to %s@%s:%d", self._user or "(default)",
+                     self._host, self._port)
 
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
         connect_kw: dict = {
-            "hostname": cfg.host,
-            "port": cfg.port,
+            "hostname": self._host,
+            "port": self._port,
         }
-        if cfg.user:
-            connect_kw["username"] = cfg.user
+        if self._user:
+            connect_kw["username"] = self._user
 
-        auth = cfg.auth or {}
-        method = auth.get("method", "key")
+        method = self._auth.get("method", "key")
         if method == "key":
-            key_file = auth.get("key_file")
+            key_file = self._auth.get("key_file")
             if key_file:
                 connect_kw["key_filename"] = os.path.expanduser(key_file)
         elif method == "password":
-            password = auth.get("password")
+            password = self._auth.get("password")
             if password:
                 connect_kw["password"] = password
         else:
@@ -77,11 +84,11 @@ class RemoteExecutor:
             client.connect(**connect_kw)
         except Exception as exc:
             raise ConnectionError(
-                f"SSH connection to {cfg.host}:{cfg.port} failed: {exc}"
+                f"SSH connection to {self._host}:{self._port} failed: {exc}"
             ) from exc
 
         self._client = client
-        logger.info("SSH connection established to %s:%d", cfg.host, cfg.port)
+        logger.info("SSH connection established to %s:%d", self._host, self._port)
 
     # ------------------------------------------------------------------
     # Command execution
@@ -94,15 +101,11 @@ class RemoteExecutor:
         env: dict[str, str] | None = None,
         cwd: str | None = None,
     ) -> ExecuteResult:
-        """Execute *command* on the remote host.
-
-        Pre-commands from the target config are prepended automatically.
-        """
+        """Execute *command* on the remote host."""
         if self._client is None:
             raise RuntimeError("Not connected — call connect() first")
 
-        # Build the full command: pre_commands + env exports + cd + command.
-        parts: list[str] = list(self.config.pre_commands)
+        parts: list[str] = []
 
         merged_env: dict[str, str] = {}
         merged_env.update(self.config.env)

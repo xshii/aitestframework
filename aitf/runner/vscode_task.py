@@ -15,7 +15,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from .executor import ExecuteResult, TargetConfig
+from .config import ExecuteResult, TargetConfig
 from .local import LocalExecutor
 
 logger = logging.getLogger(__name__)
@@ -120,7 +120,7 @@ def run_vscode_task(
     else:
         order = _resolve_order(label, tasks)
 
-    config = TargetConfig(name="vscode-task", type="local")
+    config = TargetConfig(name="vscode-task")
     executor = LocalExecutor(config)
 
     result: ExecuteResult | None = None

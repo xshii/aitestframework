@@ -126,6 +126,7 @@ class TestPlan:
 
     name: str = ""
     configs: list[RunConfig] = field(default_factory=list)
+    pipeline: list[str] = field(default_factory=list)
 
 
 def load_testplan(path: str | Path) -> TestPlan:
@@ -136,12 +137,18 @@ def load_testplan(path: str | Path) -> TestPlan:
 
     plan = TestPlan(name=data.get("name", path.stem))
 
+    # Pipeline: ordered list of platform stages
+    pipeline = data.get("pipeline", [])
+    if isinstance(pipeline, list):
+        plan.pipeline = [str(p) for p in pipeline]
+
     for item in data.get("plans", []):
         configs = _expand_plan_item(item)
         plan.configs.extend(configs)
 
-    logger.info("testplan %s: %d configs expanded from %s",
-                plan.name, len(plan.configs), path)
+    logger.info("testplan %s: %d configs expanded from %s (pipeline=%s)",
+                plan.name, len(plan.configs), path,
+                plan.pipeline or "none")
     return plan
 
 

@@ -22,6 +22,20 @@
 .gp-ver-group{display:inline-flex;flex-wrap:wrap;gap:2px 8px;align-items:center;}
 .gp-ver-group label{font-size:.78rem;cursor:pointer;white-space:nowrap;margin:0;}
 .gp-ver-group input{width:13px;height:13px;margin-right:2px;vertical-align:middle;}
+/* Pipeline 状态 */
+.pipe-stages{display:flex;align-items:center;gap:0;margin:8px 0;}
+.pipe-stage{flex:1;text-align:center;padding:6px 4px;border-radius:4px;font-size:.78rem;position:relative;background:#e9ecef;color:#6c757d;min-width:80px;}
+.pipe-stage+.pipe-stage{margin-left:2px;}
+.pipe-stage.st-pass{background:#198754;color:#fff;}
+.pipe-stage.st-fail{background:#dc3545;color:#fff;}
+.pipe-stage.st-run{background:#0d6efd;color:#fff;animation:pipe-pulse 1.2s infinite;}
+.pipe-stage.st-skip{background:#f8f9fa;color:#adb5bd;text-decoration:line-through;}
+.pipe-arrow{flex:0 0 auto;font-size:10px;color:#adb5bd;margin:0 2px;}
+@keyframes pipe-pulse{0%,100%{opacity:1;}50%{opacity:.6;}}
+.pipe-panel{border:1px solid #dee2e6;border-radius:6px;padding:10px 14px;margin-bottom:10px;background:#fff;}
+.pipe-panel .pipe-header{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
+.pipe-stage-detail{font-size:.8rem;padding:4px 0 4px 8px;border-left:2px solid #dee2e6;}
+.pipe-stage-detail table{margin-bottom:0;}
 </style>
 
 {% from "macros.html" import sync_bar with context %}
@@ -66,11 +80,12 @@
     <select class="form-select form-select-sm" id="tcRunBundle" style="width:auto">
       <option value="">配置集</option>
     </select>
-    <select class="form-select form-select-sm" id="tcRunTarget" style="width:auto">
-      <option value="local" selected>本地</option>
-      <option value="remote">远程</option>
-      <option value="sim">仿真</option>
-    </select>
+    <div class="dropdown d-inline-block" id="tcTargetDropdown">
+      <button class="btn btn-sm btn-outline-secondary dropdown-toggle py-0" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" id="tcTargetBtn">
+        执行环境
+      </button>
+      <div class="dropdown-menu p-2" style="min-width:220px;max-height:300px;overflow-y:auto;font-size:.82rem" id="tcTargetMenu"></div>
+    </div>
     <button class="btn btn-sm btn-primary py-0" onclick="tcRunSelected(this)">▶ 运行勾选</button>
     <button class="btn btn-sm btn-outline-success py-0" onclick="tcRunPlan(this)">执行计划</button>
     <button class="btn btn-sm btn-outline-secondary py-0" onclick="tcClearSelection()">清除勾选</button>
@@ -116,13 +131,13 @@
       </select>
     </div>
     <div class="col-2">
-      <label class="form-label small mb-0">全局 Target</label>
-      <select class="form-select form-select-sm" id="gpTarget">
-        <option value="">不指定</option>
-        <option value="local">本地</option>
-        <option value="remote">远程</option>
-        <option value="sim">仿真</option>
-      </select>
+      <label class="form-label small mb-0">执行环境</label>
+      <div class="dropdown">
+        <button class="btn btn-sm btn-outline-secondary dropdown-toggle w-100 text-start" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" id="gpTargetBtn" style="font-size:.82rem">
+          不指定
+        </button>
+        <div class="dropdown-menu p-2" style="min-width:200px;max-height:260px;overflow-y:auto;font-size:.82rem" id="gpTargetMenu"></div>
+      </div>
     </div>
     <div class="col-2 d-flex align-items-end gap-2 flex-wrap">
       <button class="btn btn-sm btn-primary py-0" onclick="tcSavePlan(this)">保存计划</button>
@@ -175,9 +190,11 @@
     <span class="badge bg-secondary" id="tcExeCount">0</span>
     <button class="btn btn-sm btn-outline-secondary py-0 ms-2" onclick="tcLoadExecutions()">刷新</button>
   </div>
+  {# Pipeline 状态面板 #}
+  <div id="tcPipelinePanel" style="display:none"></div>
   <table class="table table-sm table-striped table-hover" id="tcExeTable" style="display:none">
     <thead><tr>
-      <th>批次</th><th>时间</th><th>配置集</th>
+      <th>批次</th><th>时间</th><th>计划</th><th>平台</th>
       <th>总数</th><th class="text-success">通过</th><th class="text-danger">失败</th>
       <th class="text-muted">未执行</th><th>通过率</th>
     </tr></thead>
@@ -508,11 +525,133 @@ function tcRenderExecutions(){
   var tbody=document.getElementById('tcExeBody');
   var table=document.getElementById('tcExeTable');
   var empty=document.getElementById('tcExeEmpty');
+  var pipePanel=document.getElementById('tcPipelinePanel');
+
+  // 提取 pipeline 执行并分组
+  var pipelines={}, normal=[];
+  items.forEach(function(e){
+    if(e.pipeline_id){
+      if(!pipelines[e.pipeline_id])pipelines[e.pipeline_id]=[];
+      pipelines[e.pipeline_id].push(e);
+    }else{
+      normal.push(e);
+    }
+  });
+
+  // 渲染 pipeline 面板
+  var pipeIds=Object.keys(pipelines);
+  if(pipeIds.length){
+    pipePanel.style.display='';
+    pipePanel.innerHTML=pipeIds.map(function(pid){return _renderPipelinePanel(pid,pipelines[pid]);}).join('');
+  }else{
+    pipePanel.style.display='none';
+    pipePanel.innerHTML='';
+  }
+
+  // 渲染普通执行 + pipeline 执行（展平）
   if(!items.length){table.style.display='none';empty.classList.remove('d-none');return;}
   table.style.display='';empty.classList.add('d-none');
-
-  tbody.innerHTML=items.map(function(e){return _renderExeRow(e,{onClick:'tcShowExeDetail',showNotRun:true});}).join('');
+  tbody.innerHTML=items.map(function(e){return _renderExeRow(e,{onClick:'tcShowExeDetail',showNotRun:true,showPlanPlatform:true});}).join('');
 }
+
+function _renderPipelinePanel(pipelineId,execs){
+  // 按 pipeline_stage 分组
+  var stageMap={};
+  execs.forEach(function(e){
+    var idx=e.pipeline_stage||0;
+    if(!stageMap[idx])stageMap[idx]={platform:e.platform||('Stage '+idx),execs:[]};
+    stageMap[idx].execs.push(e);
+  });
+  var stageKeys=Object.keys(stageMap).map(Number).sort(function(a,b){return a-b;});
+
+  // 判断每个阶段的状态
+  var reachedFail=false;
+  var stageInfos=stageKeys.map(function(idx){
+    var s=stageMap[idx];
+    var allDone=s.execs.every(function(e){return !!e.finished_at;});
+    var anyFail=s.execs.some(function(e){return (e.failed_total||0)>0;});
+    var allPass=allDone&&!anyFail;
+    var st;
+    if(reachedFail){st='skip';}
+    else if(allPass){st='pass';}
+    else if(allDone&&anyFail){st='fail';reachedFail=true;}
+    else if(!allDone&&s.execs.some(function(e){return e.started_at;})){st='run';}
+    else{st='pending';}
+    return {idx:idx,platform:s.platform,st:st,execs:s.execs,allDone:allDone};
+  });
+
+  // 总体状态
+  var allFinished=stageInfos.every(function(s){return s.st==='pass'||s.st==='fail'||s.st==='skip';});
+  var hasFail=stageInfos.some(function(s){return s.st==='fail';});
+  var overallStatus=allFinished?(hasFail?'failed':'passed'):'running';
+  var statusBadge={passed:'bg-success',failed:'bg-danger',running:'bg-primary'}[overallStatus]||'bg-secondary';
+
+  var html='<div class="pipe-panel">';
+  html+='<div class="pipe-header">'
+    +'<strong style="font-size:.85rem">Pipeline</strong> '
+    +'<code style="font-size:.75rem">'+_esc(pipelineId)+'</code> '
+    +'<span class="badge '+statusBadge+'" style="font-size:.7rem">'+overallStatus+'</span>'
+    +'<button class="btn btn-sm btn-outline-secondary py-0 ms-auto" style="font-size:.7rem" onclick="tcTogglePipeDetail(this)">详情</button>'
+    +'</div>';
+
+  // 阶段进度条
+  html+='<div class="pipe-stages">';
+  stageInfos.forEach(function(s,i){
+    if(i>0) html+='<span class="pipe-arrow">&rarr;</span>';
+    html+='<div class="pipe-stage st-'+s.st+'">'
+      +'<div style="font-weight:600">'+_esc(s.platform)+'</div>';
+    if(s.st==='pass'){
+      var total=0,passed=0;
+      s.execs.forEach(function(e){total+=e.total||0;passed+=e.passed||0;});
+      html+='<div style="font-size:.7rem">'+passed+'/'+total+'</div>';
+    }else if(s.st==='fail'){
+      var total=0,failed=0;
+      s.execs.forEach(function(e){total+=e.total||0;failed+=e.failed_total||0;});
+      html+='<div style="font-size:.7rem">'+failed+' failed</div>';
+    }else if(s.st==='run'){
+      html+='<div style="font-size:.7rem">running...</div>';
+    }
+    html+='</div>';
+  });
+  html+='</div>';
+
+  // 详情（默认折叠）
+  html+='<div class="pipe-detail" style="display:none">';
+  stageInfos.forEach(function(s){
+    html+='<div class="pipe-stage-detail mb-1">'
+      +'<div class="fw-bold small mb-1">'+_esc(s.platform)+' '
+      +'<span class="badge bg-'+(s.st==='pass'?'success':s.st==='fail'?'danger':s.st==='run'?'primary':'secondary')+'" style="font-size:.65rem">'+s.st+'</span>'
+      +'</div>';
+    if(s.execs.length){
+      html+='<table class="table table-sm table-bordered" style="font-size:.78rem"><thead><tr>'
+        +'<th>批次</th><th>计划</th><th>总数</th><th class="text-success">通过</th>'
+        +'<th class="text-danger">失败</th><th>通过率</th></tr></thead><tbody>';
+      s.execs.forEach(function(e){
+        var rate=e.total?_pct(e.pass_rate):'-';
+        html+='<tr>'
+          +'<td><a href="#" onclick="tcShowExeDetail(\''+_esc(e.id)+'\');return false;">'+_esc(e.id)+'</a></td>'
+          +'<td>'+_esc(e.plan_name||'-')+'</td>'
+          +'<td>'+(e.total||0)+'</td>'
+          +'<td class="text-success">'+(e.passed||0)+'</td>'
+          +'<td class="text-danger">'+(e.failed_total||0)+'</td>'
+          +'<td>'+rate+'</td></tr>';
+      });
+      html+='</tbody></table>';
+    }
+    html+='</div>';
+  });
+  html+='</div></div>';
+  return html;
+}
+
+window.tcTogglePipeDetail=function(btn){
+  var panel=btn.closest('.pipe-panel');
+  var detail=panel.querySelector('.pipe-detail');
+  if(!detail)return;
+  var show=detail.style.display==='none';
+  detail.style.display=show?'':'none';
+  btn.textContent=show?'收起':'详情';
+};
 
 window.tcShowExeDetail=function(exeId){
   fetch('/api/executions/'+encodeURIComponent(exeId))
@@ -555,13 +694,39 @@ window.tcShowExeDetail=function(exeId){
             if(cd.golden_uploaded) cmpHtml+='已上传 golden';
             cmpHtml+='</span>';
           }
+          var hasDetail=c.failure_reason||c.stdout||c.stderr;
+          var isFailed=c.status==='FAIL'||c.status==='ERROR'||c.status==='TIMEOUT'||c.status==='CRASH';
+          var caseId='tc-case-'+c.id;
+          // Extract meaningful error summary: last non-empty line
+          var errSummary='';
+          if(c.failure_reason){
+            var lines=c.failure_reason.split('\n').filter(function(l){return l.trim();});
+            errSummary=lines.length?lines[lines.length-1]:'';
+          }
           html+='<div class="d-flex align-items-center small" style="padding:1px 0 1px 16px">'
             +'<span class="me-1">'+_icon(c.status)+'</span>'
             +'<code class="me-2">'+_esc(c.case_method)+'</code>'
             +(c.duration_s!=null?'<span class="text-muted me-2">'+c.duration_s.toFixed(2)+'s</span>':'')
             +cmpHtml
-            +(c.failure_reason?'<span class="text-danger text-truncate" style="max-width:400px" title="'+_esc(c.failure_reason)+'">'+_esc(c.failure_reason.split('\n').pop())+'</span>':'')
+            +(errSummary?'<span class="text-danger text-truncate" style="max-width:500px">'+_esc(errSummary)+'</span>':'')
+            +(hasDetail?'<a href="#" class="ms-2 text-decoration-none small" onclick="event.preventDefault();var el=document.getElementById(\''+caseId+'\');el.style.display=el.style.display===\'none\'?\'block\':\'none\';this.textContent=el.style.display===\'none\'?\'详情\':\'收起\'">'+(isFailed?'收起':'详情')+'</a>':'')
             +'</div>';
+          if(hasDetail){
+            html+='<div id="'+caseId+'" style="'+(isFailed?'':'display:none;')+'margin-left:32px;margin-bottom:4px">';
+            if(c.failure_reason){
+              html+='<div class="mb-1"><span class="badge bg-danger me-1">Traceback</span></div>'
+                +'<pre class="bg-dark text-light p-2 small" style="max-height:300px;overflow:auto;white-space:pre-wrap;font-size:.75rem">'+_esc(c.failure_reason)+'</pre>';
+            }
+            if(c.stdout){
+              html+='<div class="mb-1"><span class="badge bg-secondary me-1">stdout</span></div>'
+                +'<pre class="bg-light border p-2 small" style="max-height:200px;overflow:auto;white-space:pre-wrap;font-size:.75rem">'+_esc(c.stdout)+'</pre>';
+            }
+            if(c.stderr){
+              html+='<div class="mb-1"><span class="badge bg-warning text-dark me-1">stderr</span></div>'
+                +'<pre class="bg-light border p-2 small" style="max-height:200px;overflow:auto;white-space:pre-wrap;font-size:.75rem">'+_esc(c.stderr)+'</pre>';
+            }
+            html+='</div>';
+          }
         });
       });
 
@@ -587,11 +752,31 @@ window.tcBackToList=function(){
 /* ---------- 执行触发 ---------- */
 var _tcPollTimer=null;
 
+function _tcGetSelectedTargets(){
+  var vals=[];
+  document.querySelectorAll('.tc-target-chk:checked').forEach(function(c){vals.push(c.value);});
+  return vals;
+}
+
+function _tcUpdateTargetBtn(){
+  var sel=_tcGetSelectedTargets();
+  var btn=document.getElementById('tcTargetBtn');
+  if(!sel.length){
+    btn.textContent='执行环境';
+  }else if(sel.length===1){
+    btn.textContent=sel[0];
+  }else{
+    btn.textContent=sel.length+'个环境 (流水线)';
+  }
+}
+
 function _tcRunParams(){
   var p={};
   var b=document.getElementById('tcRunBundle').value;
-  var t=document.getElementById('tcRunTarget').value;
-  if(b)p.bundle=b; if(t)p.target=t;
+  var targets=_tcGetSelectedTargets();
+  if(b)p.bundle=b;
+  if(targets.length===1) p.target=targets[0];
+  else if(targets.length>1) p.targets=targets;
   return p;
 }
 
@@ -616,6 +801,22 @@ window.tcRunSelected=function(btn){
 
   btn.disabled=true; var orig=btn.textContent; btn.textContent='...';
   var msg=document.getElementById('tcRunMsg');
+
+  // 多环境 → 流水线执行
+  var targets=_tcGetSelectedTargets();
+  if(targets.length>1){
+    fetch('/api/run/pipeline/targets',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+      .then(function(r){return r.json();})
+      .then(function(d){
+        btn.disabled=false;btn.textContent=orig;
+        if(d.error){msg.textContent=d.error;return;}
+        msg.textContent='流水线已启动 ('+targets.length+'个环境)';
+        _tcStartPipelinePoll(d.pipeline_id);
+      })
+      .catch(function(){btn.disabled=false;btn.textContent=orig;});
+    return;
+  }
+
   fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
     .then(function(r){return r.json();})
     .then(function(d){
@@ -632,7 +833,25 @@ window.tcRunPlan=function(btn){
   if(!plan){document.getElementById('tcRunMsg').textContent='请选择测试计划';return;}
   btn.disabled=true; var orig=btn.textContent; btn.textContent='...';
   var msg=document.getElementById('tcRunMsg');
-  fetch('/api/run/plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({plan:plan})})
+
+  var targets=_tcGetSelectedTargets();
+  if(targets.length>1){
+    // 多环境 → 流水线（按 target 顺序依次执行计划）
+    fetch('/api/run/pipeline/targets',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({plan:plan,targets:targets})})
+      .then(function(r){return r.json();})
+      .then(function(d){
+        btn.disabled=false;btn.textContent=orig;
+        if(d.error){msg.textContent=d.error;return;}
+        msg.textContent='流水线已启动 ('+targets.length+'个环境)';
+        _tcStartPipelinePoll(d.pipeline_id);
+      })
+      .catch(function(){btn.disabled=false;btn.textContent=orig;});
+    return;
+  }
+
+  var body={plan:plan};
+  if(targets.length===1) body.target=targets[0];
+  fetch('/api/run/plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
     .then(function(r){return r.json();})
     .then(function(d){
       btn.disabled=false;btn.textContent=orig;
@@ -643,6 +862,40 @@ window.tcRunPlan=function(btn){
     })
     .catch(function(){btn.disabled=false;btn.textContent=orig;});
 };
+
+/* Pipeline 按钮已合并到"运行勾选"和"执行计划"流程中（多选环境自动触发） */
+
+function _tcStartPipelinePoll(pipelineId){
+  if(_tcPollTimer)clearTimeout(_tcPollTimer);
+  var interval=3000;
+  // 切换到执行记录页签以显示 pipeline 状态
+  var exeTab=document.querySelector('[data-bs-target="#sub-executions"]');
+  if(exeTab) exeTab.click();
+  function poll(){
+    // 刷新执行列表（含 pipeline 面板）
+    tcLoadExecutions();
+    fetch('/api/pipeline/'+encodeURIComponent(pipelineId))
+      .then(function(r){return r.json();})
+      .then(function(d){
+        if(d.error){_tcPollTimer=null;return;}
+        var msg=document.getElementById('tcRunMsg');
+        if(d.status==='passed'||d.status==='failed'){
+          _tcPollTimer=null;
+          msg.textContent='Pipeline '+(d.status==='passed'?'全部通过':'存在失败');
+          tcLoadSuites(); tcLoadExecutions();
+        }else{
+          msg.textContent='Pipeline 执行中...';
+          interval=Math.min(interval*1.3,15000);
+          _tcPollTimer=setTimeout(poll,interval);
+        }
+      })
+      .catch(function(){
+        interval=Math.min(interval*2,15000);
+        _tcPollTimer=setTimeout(poll,interval);
+      });
+  }
+  _tcPollTimer=setTimeout(poll,interval);
+}
 
 function _tcStartPoll(exeId){
   if(_tcPollTimer)clearTimeout(_tcPollTimer);
@@ -728,6 +981,75 @@ function tcLoadOptions(){
     if(curLp) lp.value=curLp;
 
     tcRenderPlanSuites();
+  });
+
+  // 加载执行环境列表 — 多选 checkbox 下拉
+  Promise.all([
+    fetch('/api/targets').then(function(r){return r.json();}),
+    fetch('/api/targets/pools').then(function(r){return r.json();})
+  ]).then(function(results){
+    var targets=results[0]||[], pools=results[1]||[];
+    var menu=document.getElementById('tcTargetMenu');
+    var html='';
+
+    if(pools.length){
+      html+='<div class="text-muted small fw-bold px-1 mb-1">资源池</div>';
+      pools.forEach(function(p){
+        html+='<label class="dropdown-item py-1 d-flex align-items-center gap-2" style="cursor:pointer">'
+          +'<input type="checkbox" class="tc-target-chk form-check-input" value="pool:'+_esc(p.pool)+'">'
+          +'<span>'+_esc(p.pool)+' <span class="text-muted">('+p.total+'台)</span></span></label>';
+      });
+      html+='<hr class="my-1">';
+    }
+
+    var byPlat={};
+    targets.forEach(function(t){
+      var p=t.platform||'other';
+      if(!byPlat[p]) byPlat[p]=[];
+      byPlat[p].push(t);
+    });
+    Object.keys(byPlat).sort().forEach(function(p){
+      html+='<div class="text-muted small fw-bold px-1 mb-1 mt-1">'+_esc(p)+'</div>';
+      byPlat[p].forEach(function(t){
+        var info=t.is_local?'本地':(t.host||'');
+        var poolTag=t.pool?' ['+_esc(t.pool)+']':'';
+        html+='<label class="dropdown-item py-1 d-flex align-items-center gap-2" style="cursor:pointer">'
+          +'<input type="checkbox" class="tc-target-chk form-check-input" value="'+_esc(t.name)+'">'
+          +'<span>'+_esc(t.name)+poolTag+(info?' <span class="text-muted">('+info+')</span>':'')+'</span></label>';
+      });
+    });
+    menu.innerHTML=html;
+    menu.addEventListener('change',function(){_tcUpdateTargetBtn();});
+
+    // 同步填充计划编辑器的执行环境多选
+    var gpMenu=document.getElementById('gpTargetMenu');
+    var gpHtml='';
+    if(pools.length){
+      gpHtml+='<div class="text-muted small fw-bold px-1 mb-1">资源池</div>';
+      pools.forEach(function(p){
+        gpHtml+='<label class="dropdown-item py-1 d-flex align-items-center gap-2" style="cursor:pointer">'
+          +'<input type="checkbox" class="gp-target-chk form-check-input" value="pool:'+_esc(p.pool)+'">'
+          +'<span>'+_esc(p.pool)+' <span class="text-muted">('+p.total+'台)</span></span></label>';
+      });
+      gpHtml+='<hr class="my-1">';
+    }
+    var gpByPlat={};
+    targets.forEach(function(t){
+      var p=t.platform||'other';
+      if(!gpByPlat[p]) gpByPlat[p]=[];
+      gpByPlat[p].push(t);
+    });
+    Object.keys(gpByPlat).sort().forEach(function(p){
+      gpHtml+='<div class="text-muted small fw-bold px-1 mb-1 mt-1">'+_esc(p)+'</div>';
+      gpByPlat[p].forEach(function(t){
+        var info=t.is_local?'本地':(t.host||'');
+        gpHtml+='<label class="dropdown-item py-1 d-flex align-items-center gap-2" style="cursor:pointer">'
+          +'<input type="checkbox" class="gp-target-chk form-check-input" value="'+_esc(t.name)+'">'
+          +'<span>'+_esc(t.name)+(info?' <span class="text-muted">('+info+')</span>':'')+'</span></label>';
+      });
+    });
+    gpMenu.innerHTML=gpHtml;
+    gpMenu.addEventListener('change',function(){_gpUpdateTargetBtn();});
   });
 }
 
@@ -1002,7 +1324,7 @@ window.tcLoadPlan=function(){
     document.getElementById('gpPlanName').value='';
     document.getElementById('gpFilename').value='';
     document.getElementById('gpBundle').value='';
-    document.getElementById('gpTarget').value='';
+    _gpSetSelectedTargets([]);
     document.getElementById('gpGlobalParams').value='';
     delBtn.style.display='none';
     // 取消所有勾选，恢复默认
@@ -1025,14 +1347,23 @@ window.tcLoadPlan=function(){
       document.getElementById('gpPlanName').value=d.name||'';
       document.getElementById('gpFilename').value=filename.replace(/\.ya?ml$/,'');
 
-      // 提取全局 bundle 和 target（取第一个 plan 的值）
-      var globalBundle='', globalTarget='';
+      // 提取全局 bundle 和 target
+      var globalBundle='';
       (d.plans||[]).forEach(function(p){
         if(p.bundle&&!globalBundle) globalBundle=p.bundle;
-        if(p.target&&!globalTarget) globalTarget=p.target;
       });
       document.getElementById('gpBundle').value=globalBundle;
-      document.getElementById('gpTarget').value=globalTarget;
+
+      // 恢复执行环境：优先 pipeline 数组，其次单 target
+      if(d.pipeline && d.pipeline.length){
+        _gpSetSelectedTargets(d.pipeline);
+      }else{
+        var globalTarget='';
+        (d.plans||[]).forEach(function(p){
+          if(p.target&&!globalTarget) globalTarget=p.target;
+        });
+        _gpSetSelectedTargets(globalTarget?[globalTarget]:[]);
+      }
 
       // 提取共有 params（如果所有 plan 的 params 相同，则设为全局）
       var allParams=(d.plans||[]).map(function(p){return p.params||null;});
@@ -1149,7 +1480,7 @@ window.tcSavePlan=function(btn){
 
   btn.disabled=true;btn.textContent='...';
   fetch('/api/tc/plan',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({name:data.name,filename:data.filename,plans:data.plans})})
+    body:JSON.stringify({name:data.name,filename:data.filename,plans:data.plans,pipeline:data.pipeline||null})})
   .then(function(r){return r.json();})
   .then(function(d){
     btn.disabled=false;btn.textContent='保存计划';
@@ -1163,6 +1494,29 @@ window.tcSavePlan=function(btn){
 /* ---------- 上传测试计划到服务器 ---------- */
 
 /* 提取当前计划数据（与 tcSavePlan 共享逻辑） */
+function _gpGetSelectedTargets(){
+  var vals=[];
+  document.querySelectorAll('.gp-target-chk:checked').forEach(function(c){vals.push(c.value);});
+  return vals;
+}
+
+function _gpSetSelectedTargets(targets){
+  document.querySelectorAll('.gp-target-chk').forEach(function(c){c.checked=false;});
+  (targets||[]).forEach(function(t){
+    var c=document.querySelector('.gp-target-chk[value="'+t+'"]');
+    if(c) c.checked=true;
+  });
+  _gpUpdateTargetBtn();
+}
+
+function _gpUpdateTargetBtn(){
+  var sel=_gpGetSelectedTargets();
+  var btn=document.getElementById('gpTargetBtn');
+  if(!sel.length) btn.textContent='不指定';
+  else if(sel.length===1) btn.textContent=sel[0];
+  else btn.textContent=sel.length+'个环境 (流水线)';
+}
+
 function _gpCollectPlanData(){
   var rows=document.querySelectorAll('#gpSuiteList .tc-suite-row');
   var checkedRows=[];
@@ -1172,7 +1526,7 @@ function _gpCollectPlanData(){
   var planName=document.getElementById('gpPlanName').value.trim()||'自定义计划';
   var filename=document.getElementById('gpFilename').value.trim()||'testplan_custom';
   var bundle=document.getElementById('gpBundle').value;
-  var target=document.getElementById('gpTarget').value;
+  var selectedTargets=_gpGetSelectedTargets();
   var globalParamsStr=document.getElementById('gpGlobalParams').value.trim();
   var globalParams=_parseJsonSafe(globalParamsStr);
   if(globalParamsStr&&!globalParams) return null;
@@ -1187,7 +1541,7 @@ function _gpCollectPlanData(){
     row.querySelectorAll('.gp-ver-chk:checked').forEach(function(c){versions.push(c.value);});
     var entry={name:name,tests:[modPath]};
     if(bundle) entry.bundle=bundle;
-    if(target) entry.target=target;
+    if(selectedTargets.length===1) entry.target=selectedTargets[0];
     if(model&&versions.length>1) entry.golden={model:model,versions:versions};
     else if(model&&versions.length===1) entry.golden={model:model,version:versions[0]};
     else if(model) entry.golden={model:model};
@@ -1212,7 +1566,9 @@ function _gpCollectPlanData(){
     plans.push(entry);
   });
 
-  return {name:planName,filename:filename,plans:plans,goldenSets:Object.keys(goldenSets)};
+  var result={name:planName,filename:filename,plans:plans,goldenSets:Object.keys(goldenSets)};
+  if(selectedTargets.length>1) result.pipeline=selectedTargets;
+  return result;
 }
 
 /* 缓存上传状态 */

@@ -174,6 +174,7 @@ def create_execution(
     target: str | None = None, platform: str | None = None,
     golden_model: str | None = None, golden_version: str | None = None,
     plan_name: str | None = None,
+    pipeline_id: str | None = None, pipeline_stage: int | None = None,
     git_commit: str | None = None, trigger: str = "manual",
     suite_cases: list[tuple[str, list[str]]] | None = None,
 ) -> str:
@@ -191,6 +192,7 @@ def create_execution(
             bundle=bundle, target=target, platform=platform,
             golden_model=golden_model, golden_version=golden_version,
             plan_name=plan_name,
+            pipeline_id=pipeline_id, pipeline_stage=pipeline_stage,
             git_commit=git_commit, trigger=trigger, total=total,
         )
         session.add(exe)
@@ -246,7 +248,7 @@ def update_case_status(
                 sta = row.started_at.replace(tzinfo=None)
                 row.duration_s = (fin - sta).total_seconds()
 
-        for key in ("failure_reason", "compare_detail", "stdout_path", "stderr_path"):
+        for key in ("failure_reason", "compare_detail", "stdout", "stderr"):
             if key in kwargs:
                 val = kwargs[key]
                 if key == "compare_detail" and not isinstance(val, str):
@@ -359,6 +361,10 @@ def import_execution_from_dict(data: dict, *, trigger: str = "sync") -> str:
             )
             if c.get("duration_s") is not None:
                 cr.duration_s = c["duration_s"]
+            if c.get("stdout"):
+                cr.stdout = c["stdout"]
+            if c.get("stderr"):
+                cr.stderr = c["stderr"]
             if c.get("compare_detail"):
                 cr.compare_detail = (
                     json.dumps(c["compare_detail"])

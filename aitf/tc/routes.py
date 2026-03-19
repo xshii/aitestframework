@@ -13,6 +13,7 @@ from flask import Blueprint, current_app, jsonify, request, send_file
 
 from aitf.tc import store
 from aitf.tc.models import CaseStatus
+from aitf.web.activity import log_activity
 
 bp = Blueprint("tc", __name__, template_folder="templates")
 
@@ -56,6 +57,7 @@ def api_refresh_suites():
         count = store.refresh_suites(_cases_dir())
     finally:
         _scan_lock.release()
+    log_activity("scan", f"扫描到 {count} 个测试套")
     return jsonify({"ok": True, "count": count})
 
 
@@ -100,6 +102,8 @@ def api_run():
     )
     if not execution_id:
         return jsonify({"error": "no tests found"}), 400
+    paths = body.get("paths") or []
+    log_activity("run", f"执行 {len(paths)} 个模块", target=body.get("target", "本地"))
     return jsonify({"ok": True, "execution_id": execution_id})
 
 
@@ -122,7 +126,123 @@ def api_run_plan():
     execution_ids = run_testplan_async(_cases_dir(), _db_path(), plan_path)
     if not execution_ids:
         return jsonify({"error": "no tests found in plan"}), 400
+    log_activity("run.plan", f"执行计划 {plan_file} ({len(execution_ids)} 个)")
     return jsonify({"ok": True, "execution_ids": execution_ids})
+
+
+@bp.route("/api/run/pipeline", methods=["POST"])
+def api_run_pipeline():
+    """Trigger pipeline execution. Body: {"plan": "testplan.yaml"}
+
+    The testplan must contain a ``pipeline`` field listing platform stages.
+    Stages execute sequentially; if any stage fails the pipeline stops.
+    Returns pipeline_id immediately.
+    """
+    from aitf.tc.runner import run_pipeline_async
+
+    body = request.get_json(silent=True) or {}
+    plan_file = body.get("plan")
+    if not plan_file:
+        return jsonify({"error": "missing 'plan' field"}), 400
+
+    cfg = current_app.config.get("AITF_CONFIG")
+    plan_path = cfg.project_root / plan_file if cfg else plan_file
+
+    if not plan_path.is_file():
+        return jsonify({"error": f"plan not found: {plan_file}"}), 404
+
+    pipeline_id = run_pipeline_async(_cases_dir(), _db_path(), plan_path)
+    if not pipeline_id:
+        return jsonify({"error": "no pipeline defined in plan"}), 400
+    log_activity("run.pipeline", f"流水线 {plan_file}")
+    return jsonify({"ok": True, "pipeline_id": pipeline_id})
+
+
+@bp.route("/api/run/pipeline/targets", methods=["POST"])
+def api_run_pipeline_targets():
+    """Run tests sequentially on multiple targets (pipeline by target).
+
+    Supports two modes:
+    - Ad-hoc: {"paths": [...], "targets": ["env1", "env2"]}
+    - Plan:   {"plan": "testplan.yaml", "targets": ["env1", "env2"]}
+    Each target becomes a pipeline stage. Stops on first failure.
+    """
+    from aitf.tc.runner import run_targets_pipeline_async
+
+    body = request.get_json(silent=True) or {}
+    targets = body.get("targets", [])
+    if not targets or len(targets) < 2:
+        return jsonify({"error": "需要至少选择2个执行环境"}), 400
+
+    # If a plan is specified, resolve paths from it
+    plan_file = body.get("plan")
+    if plan_file:
+        from aitf.tc.testplan import load_testplan
+        cfg = current_app.config.get("AITF_CONFIG")
+        plan_path = cfg.project_root / plan_file if cfg else plan_file
+        if not Path(plan_path).is_file():
+            return jsonify({"error": f"plan not found: {plan_file}"}), 404
+        plan = load_testplan(plan_path)
+        # Collect all test paths from the plan
+        all_paths = []
+        for c in plan.configs:
+            all_paths.extend(c.tests)
+        body["paths"] = all_paths
+        if not body.get("bundle") and plan.configs:
+            body["bundle"] = plan.configs[0].bundle
+
+    pipeline_id = run_targets_pipeline_async(
+        _cases_dir(), _db_path(),
+        targets=targets,
+        paths=body.get("paths"),
+        filter_k=body.get("filter_k"),
+        bundle=body.get("bundle"),
+        params=body.get("params"),
+    )
+    if not pipeline_id:
+        return jsonify({"error": "no tests found"}), 400
+    log_activity("run.pipeline.targets", f"多环境流水线 ({len(targets)} 个环境)", targets=targets)
+    return jsonify({"ok": True, "pipeline_id": pipeline_id})
+
+
+@bp.route("/api/pipeline/<pipeline_id>", methods=["GET"])
+def api_get_pipeline(pipeline_id: str):
+    """Return pipeline status by aggregating executions with this pipeline_id."""
+    from sqlalchemy import select
+
+    from aitf.tc.db import get_session
+    from aitf.tc.models import Execution
+
+    with get_session() as session:
+        execs = session.execute(
+            select(Execution)
+            .where(Execution.pipeline_id == pipeline_id)
+            .order_by(Execution.pipeline_stage, Execution.started_at)
+        ).scalars().all()
+
+        if not execs:
+            return jsonify({"error": "not found"}), 404
+
+        stages: dict[int, list[dict]] = {}
+        for exe in execs:
+            stage_idx = exe.pipeline_stage or 0
+            stages.setdefault(stage_idx, []).append(exe.to_dict())
+
+        # Determine overall status
+        all_finished = all(e.finished_at is not None for e in execs)
+        any_failed = any(e.failed_total > 0 for e in execs if e.finished_at)
+        if all_finished and not any_failed:
+            status = "passed"
+        elif all_finished and any_failed:
+            status = "failed"
+        else:
+            status = "running"
+
+    return jsonify({
+        "pipeline_id": pipeline_id,
+        "status": status,
+        "stages": stages,
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -224,6 +344,9 @@ def api_save_plan():
     filename = body.get("filename", "").strip() or "testplan_custom"
 
     plan_data = {"name": body.get("name", Path(filename).stem), "plans": []}
+    pipeline = body.get("pipeline")
+    if pipeline and isinstance(pipeline, list) and len(pipeline) > 1:
+        plan_data["pipeline"] = pipeline
     for item in plans:
         entry = {"name": item.get("name", ""), "tests": item.get("tests", [])}
         if item.get("bundle"):
@@ -241,6 +364,7 @@ def api_save_plan():
     saved, err = save_plan_yaml(_project_root(), filename, plan_data)
     if err:
         return jsonify({"error": err}), 400
+    log_activity("plan.save", f"保存计划 {saved}")
     return jsonify({"ok": True, "filename": saved})
 
 

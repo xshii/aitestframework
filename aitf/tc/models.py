@@ -102,7 +102,9 @@ class Execution(Base):
     golden_model = Column(String, nullable=True)                # golden data model name
     golden_version = Column(String, nullable=True)              # golden data version
     plan_name = Column(String, nullable=True)                   # testplan name (if from plan)
-    platform = Column(String, nullable=True)
+    platform = Column(String, nullable=True)                    # pipeline stage platform
+    pipeline_id = Column(String, nullable=True)                 # groups executions in a pipeline run
+    pipeline_stage = Column(Integer, nullable=True)             # 0-based stage index in pipeline
     git_commit = Column(String, nullable=True)
     trigger = Column(String, default="manual")                  # manual / jenkins
     jenkins_job = Column(String, nullable=True)
@@ -142,6 +144,8 @@ class Execution(Base):
             "golden_version": self.golden_version,
             "plan_name": self.plan_name,
             "platform": self.platform,
+            "pipeline_id": self.pipeline_id,
+            "pipeline_stage": self.pipeline_stage,
             "git_commit": self.git_commit,
             "trigger": self.trigger,
             "total": self.total,
@@ -172,8 +176,8 @@ class CaseResult(Base):
     finished_at = Column(DateTime, nullable=True)
     failure_reason = Column(String, nullable=True)
     compare_detail = Column(Text, nullable=True)                # JSON
-    stdout_path = Column(String, nullable=True)
-    stderr_path = Column(String, nullable=True)
+    stdout = Column(Text, nullable=True)                        # captured stdout
+    stderr = Column(Text, nullable=True)                        # captured stderr
 
     execution = relationship("Execution", back_populates="cases")
 
@@ -188,6 +192,6 @@ class CaseResult(Base):
             "finished_at": _ts(self.finished_at),
             "failure_reason": self.failure_reason,
             "compare_detail": json.loads(self.compare_detail or "null"),
-            "stdout_path": self.stdout_path,
-            "stderr_path": self.stderr_path,
+            "stdout": self.stdout,
+            "stderr": self.stderr,
         }

@@ -8,6 +8,7 @@ from flask import (
     Blueprint,
     abort,
     current_app,
+    jsonify,
     render_template,
     request,
     send_file,
@@ -94,3 +95,11 @@ def log_download(subpath: str):
     if not target.is_file():
         abort(404)
     return send_file(target, as_attachment=True, download_name=target.name)
+
+
+@logs_bp.route("/api/activity", methods=["GET"])
+def api_activity():
+    """Return recent activity entries."""
+    from aitf.web.activity import get_activity
+    limit = request.args.get("limit", 100, type=int)
+    return jsonify(get_activity(limit))

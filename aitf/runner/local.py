@@ -8,7 +8,7 @@ import signal
 import subprocess
 import time
 
-from .executor import ExecuteResult, TargetConfig
+from .config import ExecuteResult, TargetConfig
 
 logger = logging.getLogger(__name__)
 

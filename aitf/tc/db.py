@@ -78,7 +78,11 @@ def _migrate(engine) -> None:
         # (table, column, SQL type, default)
         ("executions", "plan_name", "VARCHAR", None),
         ("executions", "platform", "VARCHAR", None),
+        ("executions", "pipeline_id", "VARCHAR", None),
+        ("executions", "pipeline_stage", "INTEGER", None),
         ("executions", "git_commit", "VARCHAR", None),
+        ("case_results", "stdout", "TEXT", None),
+        ("case_results", "stderr", "TEXT", None),
     ]
 
     with engine.begin() as conn:

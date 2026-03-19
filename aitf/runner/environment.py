@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from .executor import ExecuteResult, TargetConfig
+from .config import ExecuteResult, TargetConfig
 
 logger = logging.getLogger(__name__)
 
@@ -24,12 +24,12 @@ class Environment:
         self.name = name
         self.config = config
 
-        if config.type == "remote":
+        if not config.is_local:
             from .remote import RemoteExecutor
 
             self._executor = RemoteExecutor(config)
             self._executor.connect()
-            logger.info("Environment %r initialised (remote: %s)", name, config.host)
+            logger.info("Environment %r initialised (remote: %s)", name, config.primary_host)
         else:
             from .local import LocalExecutor
 
@@ -55,10 +55,6 @@ class Environment:
     # ------------------------------------------------------------------
 
     def upload(self, local_path: str, remote_path: str) -> None:
-        """Upload a file or directory to the target.
-
-        Raises :exc:`NotImplementedError` if the target is local.
-        """
         from .remote import RemoteExecutor
 
         if isinstance(self._executor, RemoteExecutor):
@@ -69,10 +65,6 @@ class Environment:
             )
 
     def download(self, remote_path: str, local_path: str) -> None:
-        """Download a file from the target.
-
-        Raises :exc:`NotImplementedError` if the target is local.
-        """
         from .remote import RemoteExecutor
 
         if isinstance(self._executor, RemoteExecutor):
