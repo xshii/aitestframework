@@ -9,10 +9,12 @@ and compose bundles.  Actual installation happens via CLI.
 
 from __future__ import annotations
 
+import collections
 import io
 import re
 import tempfile
 import threading
+import time
 from dataclasses import asdict
 from pathlib import Path
 
@@ -532,3 +534,110 @@ def import_bundle():
         f.save(archive)
         bundle_name = _bm().import_bundle(archive)
     return jsonify({"imported": bundle_name}), 201
+
+
+# -- build test routes -------------------------------------------------------
+
+_build_history_lock = threading.Lock()
+_build_history: collections.deque[dict] = collections.deque(maxlen=50)
+
+
+def _dep_type(cfg, name: str) -> str:
+    if name in cfg.toolchains:
+        return "toolchain"
+    if name in cfg.libraries:
+        return "library"
+    if name in cfg.repos:
+        return "repo"
+    return "unknown"
+
+
+def _build_one(mgr, name: str) -> dict:
+    """Install a single dep and return a history entry dict."""
+    cfg = mgr.config
+    t0 = time.time()
+    error_msg = ""
+    success = True
+    try:
+        mgr.install(name)
+    except Exception as exc:
+        success = False
+        error_msg = str(exc)
+    return {
+        "ts": time.time(),
+        "name": name,
+        "type": _dep_type(cfg, name),
+        "success": success,
+        "duration_s": round(time.time() - t0, 2),
+        "error_msg": error_msg,
+    }
+
+
+@bp.route("/api/deps/build", methods=["POST"])
+def trigger_build():
+    """Build-test a single dep or all deps in a bundle.
+
+    Body (single):  {"name": "cann-toolkit"}
+    Body (bundle):  {"bundle": "npu-v2.1"}
+    """
+    from aitf.web.activity import log_activity
+
+    body = request.get_json(silent=True) or {}
+    bundle_name = body.get("bundle", "").strip()
+    dep_name = body.get("name", "").strip()
+
+    if not bundle_name and not dep_name:
+        return jsonify({"error": "name or bundle is required"}), 400
+
+    mgr = _mgr()
+    cfg = mgr.config
+
+    if bundle_name:
+        # Build all deps in the bundle, in order
+        if bundle_name not in cfg.bundles:
+            return jsonify({"error": f"bundle '{bundle_name}' not found"}), 404
+        bundle = cfg.bundles[bundle_name]
+        # Collect dep names in bundle order: toolchains → libraries → repos
+        dep_names = [
+            *bundle.toolchains.keys(),
+            *bundle.libraries.keys(),
+            *bundle.repos.keys(),
+        ]
+        if not dep_names:
+            return jsonify({"error": "bundle has no dependencies"}), 400
+
+        results = []
+        all_ok = True
+        for dn in dep_names:
+            if dn not in cfg.toolchains and dn not in cfg.libraries and dn not in cfg.repos:
+                continue
+            entry = _build_one(mgr, dn)
+            with _build_history_lock:
+                _build_history.append(entry)
+            results.append(entry)
+            if not entry["success"]:
+                all_ok = False
+                break  # stop on first failure
+
+        summary = f"{bundle_name}: {len(results)}/{len(dep_names)} deps"
+        log_activity("build.bundle", f"{summary} {'✓' if all_ok else '✗'}")
+        return jsonify({"bundle": bundle_name, "results": results, "success": all_ok})
+
+    # Single dep
+    if dep_name not in cfg.toolchains and dep_name not in cfg.libraries and dep_name not in cfg.repos:
+        return jsonify({"error": f"dependency '{dep_name}' not found"}), 404
+
+    entry = _build_one(mgr, dep_name)
+    with _build_history_lock:
+        _build_history.append(entry)
+    log_activity("build", f"{dep_name} {'✓' if entry['success'] else '✗'} ({entry['duration_s']}s)")
+    return jsonify(entry)
+
+
+@bp.route("/api/deps/build/history", methods=["GET"])
+def build_history():
+    """Return recent build-test results."""
+    with _build_history_lock:
+        items = list(_build_history)
+    items.reverse()
+    return jsonify(items)

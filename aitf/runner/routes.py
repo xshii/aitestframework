@@ -13,6 +13,8 @@ from pathlib import Path
 
 import yaml
 from flask import Blueprint, Response, current_app, jsonify, request
+
+_SCRIPT_SUFFIXES = {".sh", ".bash", ".py"}
 from aitf.web.activity import log_activity
 
 bp = Blueprint("runner", __name__, template_folder="templates")
@@ -26,14 +28,27 @@ PLATFORMS = ["pc_func", "pc_perf", "fpga", "emu", "eda"]
 # ---------------------------------------------------------------------------
 
 def _targets_path() -> Path:
-    """Return the resolved path to targets.yaml."""
+    """Return the resolved path to targets.yaml.
+
+    Preferred location: data/config/targets.yaml (via AitfConfig).
+    Falls back to legacy locations for backward compatibility.
+    """
+    cfg = current_app.config.get("AITF_CONFIG")
+    if cfg:
+        primary = cfg.targets_file
+        if primary.is_file():
+            return primary
+    # Legacy fallback
     from aitf.web.extensions import get_project_root
     root = get_project_root()
     for candidate in [root / "runner" / "targets.yaml",
-                      root / "targets.yaml",
-                      root / "config" / "targets.yaml"]:
+                      root / "targets.yaml"]:
         if candidate.is_file():
             return candidate
+    # Default: new location
+    if cfg:
+        cfg.targets_file.parent.mkdir(parents=True, exist_ok=True)
+        return cfg.targets_file
     return root / "targets.yaml"
 
 
@@ -246,6 +261,35 @@ def test_target(name):
     return jsonify({"ok": all_ok, "message": summary, "ports": port_results})
 
 
+@bp.route("/api/targets/health", methods=["GET"])
+def all_targets_health():
+    """Quick health check for all targets (non-local only)."""
+    p = _targets_path()
+    data = yaml.safe_load(p.read_text(encoding="utf-8")) if p.is_file() else {}
+    results = {}
+    for name, t in data.items():
+        ports = t.get("ports", {})
+        if not ports:
+            results[name] = "local"
+            continue
+        all_ok = True
+        for pname, pcfg in ports.items():
+            if not isinstance(pcfg, dict):
+                continue
+            host = pcfg.get("host", "")
+            port = int(pcfg.get("port", 0))
+            if not host or not port:
+                continue
+            try:
+                sock = socket.create_connection((host, port), timeout=3)
+                sock.close()
+            except OSError:
+                all_ok = False
+                break
+        results[name] = "ok" if all_ok else "unreachable"
+    return jsonify(results)
+
+
 # ---------------------------------------------------------------------------
 # Platform config API
 # ---------------------------------------------------------------------------
@@ -357,6 +401,92 @@ def _body_to_raw(body: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Schedule policies (idle auto-run)
+# ---------------------------------------------------------------------------
+
+def _proxy_to_server(path: str):
+    """If client mode, proxy GET/POST to server. Returns response or None."""
+    from aitf.web.proxy import proxy_if_client
+    return proxy_if_client(path)
+
+
+@bp.route("/api/schedules", methods=["GET"])
+def list_schedules():
+    """Return all schedule rules. Client mode → proxy to server."""
+    proxied = _proxy_to_server("/api/schedules")
+    if proxied:
+        return proxied
+
+    from aitf.runner.schedule import load_schedules
+    cfg = current_app.config.get("AITF_CONFIG")
+    root = cfg.project_root if cfg else "."
+    rules = load_schedules(root)
+    return jsonify([r.to_dict() for r in rules])
+
+
+@bp.route("/api/schedules", methods=["POST"])
+def save_schedules_api():
+    """Save all schedule rules. Client mode → proxy to server."""
+    proxied = _proxy_to_server("/api/schedules")
+    if proxied:
+        return proxied
+
+    from aitf.runner.schedule import ScheduleRule, save_schedules
+
+    body = request.get_json(silent=True)
+    if not isinstance(body, list):
+        return jsonify({"error": "expected a JSON array"}), 400
+
+    cfg = current_app.config.get("AITF_CONFIG")
+    root = cfg.project_root if cfg else "."
+
+    _fields = ScheduleRule.__dataclass_fields__
+    rules = [
+        ScheduleRule(**{k: item[k] for k in _fields if k in item})
+        for item in body
+    ]
+    save_schedules(root, rules)
+    log_activity("schedule.save", f"保存 {len(rules)} 条调度策略")
+    return jsonify({"ok": True, "count": len(rules)})
+
+
+@bp.route("/api/schedules/options", methods=["GET"])
+def schedule_options():
+    """Return available targets, pools, and test plans. Client → proxy."""
+    proxied = _proxy_to_server("/api/schedules/options")
+    if proxied:
+        return proxied
+
+    cfg = current_app.config.get("AITF_CONFIG")
+    root = cfg.project_root if cfg else Path(".")
+
+    # Targets + pools
+    p = _targets_path()
+    data = yaml.safe_load(p.read_text(encoding="utf-8")) if p.is_file() else {}
+    targets = list(data.keys())
+    pools: dict[str, int] = {}
+    for name, tcfg in data.items():
+        pool = tcfg.get("pool", "")
+        if pool:
+            pools[pool] = pools.get(pool, 0) + 1
+
+    # Test plans
+    plans = []
+    for d in [root / "testplans", root]:
+        if not isinstance(d, Path):
+            d = Path(d)
+        for f in sorted(d.glob("*.yaml")) if d.is_dir() else []:
+            if f.stem.startswith("test") or "plan" in f.stem:
+                plans.append(f.name)
+
+    return jsonify({
+        "targets": targets,
+        "pools": [{"name": k, "count": v} for k, v in pools.items()],
+        "plans": plans,
+    })
+
+
+# ---------------------------------------------------------------------------
 # Export / Sync
 # ---------------------------------------------------------------------------
 
@@ -398,3 +528,162 @@ def sync_targets_from_server():
     total = len(data.get("targets", {}))
     log_activity("target.sync", f"从服务器同步 {total} 个环境")
     return jsonify({"ok": True, "total": total})
+
+
+# ---------------------------------------------------------------------------
+# Restart scripts — per-port upload & one-click restart
+# ---------------------------------------------------------------------------
+
+def _runner_subdir(name: str) -> Path:
+    """Return (and create) a subdirectory under runner/."""
+    cfg = current_app.config.get("AITF_CONFIG")
+    root = cfg.project_root if cfg else Path(".")
+    d = root / "runner" / name
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _scripts_dir() -> Path:
+    return _runner_subdir("scripts")
+
+
+def _files_dir() -> Path:
+    return _runner_subdir("files")
+
+
+@bp.route("/api/targets/<name>/files", methods=["GET"])
+def list_target_files(name):
+    """List uploaded files for a target (scripts, firmware, etc.)."""
+    d = _files_dir() / name
+    if not d.is_dir():
+        return jsonify([])
+    files = []
+    for p in sorted(d.iterdir()):
+        if p.is_file():
+            files.append({"name": p.name, "size": p.stat().st_size,
+                          "is_script": p.suffix in _SCRIPT_SUFFIXES})
+    return jsonify(files)
+
+
+@bp.route("/api/targets/<name>/files", methods=["POST"])
+def upload_target_file(name):
+    """Upload a file (restart script, firmware, etc.) for a target.
+
+    Form fields: file (required), category (optional: restart/firmware/other)
+    """
+    from werkzeug.utils import secure_filename as sf
+
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify({"error": "file is required"}), 400
+
+    d = _files_dir() / name
+    d.mkdir(parents=True, exist_ok=True)
+    safe = sf(f.filename)
+    if not safe:
+        return jsonify({"error": "invalid filename"}), 400
+    dest = d / safe
+    f.save(dest)
+    # Make scripts executable
+    if dest.suffix in _SCRIPT_SUFFIXES:
+        dest.chmod(0o755)
+    log_activity("file.upload", f"{name}/{safe}")
+    return jsonify({"ok": True, "name": safe, "size": dest.stat().st_size})
+
+
+@bp.route("/api/targets/<name>/files/<filename>", methods=["DELETE"])
+def delete_target_file(name, filename):
+    """Delete an uploaded file."""
+    from werkzeug.utils import secure_filename as sf
+    safe = sf(filename)
+    p = (_files_dir() / name / safe).resolve()
+    if not p.is_relative_to(_files_dir()) or not p.is_file():
+        return jsonify({"error": "not found"}), 404
+    p.unlink()
+    log_activity("file.delete", f"{name}/{safe}")
+    return jsonify({"ok": True})
+
+
+@bp.route("/api/targets/<name>/scripts/<port_name>", methods=["POST"])
+def upload_restart_script(name, port_name):
+    """Upload a restart script for a specific port.
+
+    Saves as ``scripts/<name>_<port>_restart.sh`` with executable permission.
+    """
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify({"error": "file is required"}), 400
+
+    dest = _scripts_dir() / f"{name}_{port_name}_restart.sh"
+    f.save(dest)
+    dest.chmod(0o755)
+    log_activity("script.upload", f"{name}/{port_name}")
+    return jsonify({"ok": True, "name": dest.name})
+
+
+@bp.route("/api/targets/<name>/restart", methods=["POST"])
+def restart_target(name):
+    """Execute startup/restart pipeline for a target.
+
+    Uses the declarative ``startup.steps`` from targets.yaml if configured,
+    otherwise falls back to legacy per-port restart scripts.
+    """
+    from aitf.runner.startup import StartupEngine, parse_startup_config
+
+    p = _targets_path()
+    data = yaml.safe_load(p.read_text(encoding="utf-8")) if p.is_file() else {}
+    target_cfg = data.get(name)
+    if target_cfg is None:
+        return jsonify({"error": f"target '{name}' not found"}), 404
+
+    cfg = current_app.config.get("AITF_CONFIG")
+    root = Path(cfg.project_root) if cfg else Path(".")
+
+    # Try declarative startup pipeline first
+    startup_cfg = parse_startup_config(target_cfg)
+    if startup_cfg and startup_cfg.steps:
+
+        # Get DepsManager if deps are configured
+        deps_mgr = None
+        if startup_cfg.deps:
+            try:
+                from aitf.web.extensions import get_deps_manager
+                deps_mgr = get_deps_manager()
+            except Exception:
+                pass
+
+        engine = StartupEngine(name, target_cfg, root, deps_mgr)
+        results = engine.run(startup_cfg)
+        all_ok = all(r.success for r in results)
+        log_activity("restart", f"{name} {'✓' if all_ok else '✗'} ({len(results)} steps)")
+        return jsonify({
+            "ok": all_ok,
+            "results": [r.to_dict() for r in results],
+        })
+
+    # Fallback: convert legacy per-port restart scripts into steps
+    from aitf.runner.startup import StartupConfig, StartupStep
+
+    body = request.get_json(silent=True) or {}
+    port_filter = body.get("port", "")
+    prefix = f"{name}_"
+    scripts = sorted(_scripts_dir().glob(f"{prefix}*_restart.sh"))
+    if port_filter:
+        scripts = [s for s in scripts if f"{name}_{port_filter}_restart" in s.name]
+    if not scripts:
+        return jsonify({"error": "没有配置 startup 步骤，也没有找到重启脚本"}), 404
+
+    # Build steps from legacy scripts
+    steps = [
+        StartupStep(
+            name=s.name[len(prefix):].rsplit("_restart", 1)[0],
+            type="script",
+            script=str(s.relative_to(root)),
+        )
+        for s in scripts
+    ]
+    engine = StartupEngine(name, target_cfg, root)
+    results = engine.run(StartupConfig(steps=steps))
+    all_ok = all(r.success for r in results)
+    log_activity("restart", f"{name} {'✓' if all_ok else '✗'}")
+    return jsonify({"ok": all_ok, "results": [r.to_dict() for r in results]})

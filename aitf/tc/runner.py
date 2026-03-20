@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ctypes
 import importlib.util
 import logging
 import sys
@@ -9,6 +10,9 @@ import threading
 import traceback
 import unittest
 from pathlib import Path
+
+# Max captured stdout/stderr per test case (prevent DB bloat)
+_MAX_OUTPUT_CHARS = 50_000
 
 from aitf.tc import store
 from aitf.tc.db import get_session, init_db
@@ -81,11 +85,15 @@ class AitfTestResult(unittest.TestResult):
         detach log handler  (super restores stdout/stderr)
     """
 
-    def __init__(self, execution_id: str, **kwargs):
+    def __init__(self, execution_id: str, *,
+                 test_timeout: int = 300, **kwargs):
         super().__init__(**kwargs)
         self.execution_id = execution_id
         self.buffer = True  # let unittest manage stdout/stderr capture
         self._session = get_session()
+        self._test_timeout = test_timeout
+        self._timeout_timer: threading.Timer | None = None
+        self._test_thread_id: int | None = None
         # Per-test state (set in startTest, consumed in stopTest)
         self._log_handler: _PerTestLogHandler | None = None
         self._pending_status: str | None = None
@@ -112,8 +120,29 @@ class AitfTestResult(unittest.TestResult):
         # Attach per-test log handler
         self._log_handler = _PerTestLogHandler()
         logging.getLogger().addHandler(self._log_handler)
+        # Start timeout watchdog
+        self._test_thread_id = threading.current_thread().ident
+        if self._test_timeout > 0:
+            self._timeout_timer = threading.Timer(
+                self._test_timeout, self._on_timeout, [test])
+            self._timeout_timer.daemon = True
+            self._timeout_timer.start()
+
+    def _on_timeout(self, test):
+        """Raise TimeoutError in the test thread when timeout expires."""
+        tid = self._test_thread_id
+        if tid is None:
+            return
+        logger.warning("Test %s timed out after %ds", test, self._test_timeout)
+        ctypes.pythonapi.PyThreadState_SetAsyncExc(
+            ctypes.c_ulong(tid), ctypes.py_object(TimeoutError))
 
     def stopTest(self, test):
+        # Cancel timeout timer
+        if self._timeout_timer:
+            self._timeout_timer.cancel()
+            self._timeout_timer = None
+        self._test_thread_id = None
         # 1. Collect logging output
         log_output = ""
         if self._log_handler:
@@ -136,12 +165,16 @@ class AitfTestResult(unittest.TestResult):
                 stdout_text += "\n"
             stdout_text += log_output
 
-        # 4. Write final status + captured output to DB
+        # 4. Truncate and write final status + captured output to DB
         if self._pending_status:
             kw = self._pending_kwargs
             if stdout_text:
+                if len(stdout_text) > _MAX_OUTPUT_CHARS:
+                    stdout_text = stdout_text[:_MAX_OUTPUT_CHARS] + f"\n... (truncated, {len(stdout_text)} chars total)"
                 kw["stdout"] = stdout_text
             if stderr_text:
+                if len(stderr_text) > _MAX_OUTPUT_CHARS:
+                    stderr_text = stderr_text[:_MAX_OUTPUT_CHARS] + f"\n... (truncated, {len(stderr_text)} chars total)"
                 kw["stderr"] = stderr_text
             self._update(test, self._pending_status, **kw)
 
@@ -299,19 +332,103 @@ def _execute_suite(
 ) -> bool:
     """Run suite with context tracking. Returns True if all passed."""
     _set_run_context(config)
-    result = AitfTestResult(execution_id)
+    result = AitfTestResult(execution_id,
+                            test_timeout=config.test_timeout)
     try:
         suite.run(result)
+
+        # Retry failed tests if configured
+        if config.retry > 0 and (result.failures or result.errors):
+            _retry_failed(result, suite, config)
     finally:
         result.close()
         _set_run_context(None)
 
     store.finish_execution(execution_id)
 
+    # Save results to files for archiving (REQ-6.6)
+    _save_report_files(execution_id)
+
     # Sync results to remote server (if running in CLIENT mode)
     _enqueue_sync(execution_id)
 
     return len(result.failures) == 0 and len(result.errors) == 0
+
+
+def _retry_failed(result: AitfTestResult, suite: unittest.TestSuite,
+                  config: RunConfig) -> None:
+    """Re-run failed tests up to config.retry times."""
+    for attempt in range(config.retry):
+        # Collect currently failed test IDs
+        failed_ids = {str(t) for t, _ in result.failures + result.errors}
+        if not failed_ids:
+            break
+
+        # Build a sub-suite of only the failed tests
+        retry_suite = unittest.TestSuite()
+        for test in _iter_tests(suite):
+            if str(test) in failed_ids:
+                retry_suite.addTest(test)
+
+        if not retry_suite.countTestCases():
+            break
+
+        logger.info("Retry attempt %d/%d: %d failed tests",
+                    attempt + 1, config.retry, len(failed_ids))
+
+        # Clear previous failures for these tests so re-run overwrites
+        result.failures = [(t, tb) for t, tb in result.failures
+                           if str(t) not in failed_ids]
+        result.errors = [(t, tb) for t, tb in result.errors
+                         if str(t) not in failed_ids]
+
+        retry_suite.run(result)
+
+
+# ---------------------------------------------------------------------------
+# Report files — save per-case stdout/stderr to build/reports/ (REQ-6.6)
+# ---------------------------------------------------------------------------
+
+def _save_report_files(execution_id: str) -> None:
+    """Write per-case log files and JSON report to build/reports/<eid>/."""
+    detail = store.get_execution_detail(execution_id)
+    if not detail:
+        return
+
+    try:
+        project_root = Path(__file__).resolve().parent.parent.parent
+        report_dir = project_root / "build" / "reports" / execution_id
+        report_dir.mkdir(parents=True, exist_ok=True)
+
+        # JSON summary
+        import json
+        (report_dir / "result.json").write_text(
+            json.dumps(detail, indent=2, ensure_ascii=False), encoding="utf-8")
+
+        # JUnit XML for Jenkins
+        try:
+            from aitf.tc.report import generate_junit_xml
+            generate_junit_xml(execution_id, report_dir.parent)
+        except Exception:
+            logger.debug("JUnit XML generation failed", exc_info=True)
+
+        # Per-case log files
+        for case in detail.get("cases", []):
+            suite = case.get("suite_class", "Unknown")
+            method = case.get("case_method", "unknown")
+            case_dir = report_dir / "logs" / suite / method
+            case_dir.mkdir(parents=True, exist_ok=True)
+
+            if case.get("stdout"):
+                (case_dir / "stdout.log").write_text(case["stdout"], encoding="utf-8")
+            if case.get("stderr"):
+                (case_dir / "stderr.log").write_text(case["stderr"], encoding="utf-8")
+            if case.get("failure_reason"):
+                (case_dir / "traceback.txt").write_text(case["failure_reason"], encoding="utf-8")
+
+        logger.info("Report files saved: %s", report_dir)
+    except Exception:
+        logger.exception("Failed to save report files for %s", execution_id)
 
 
 # ---------------------------------------------------------------------------

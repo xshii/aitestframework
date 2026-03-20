@@ -47,11 +47,11 @@
         <input class="form-control form-control-sm" id="envName" placeholder="fpga-board-1">
       </div>
       <div class="col-md-3">
-        <label class="form-label small">平台 <span class="text-danger">*</span></label>
+        <label class="form-label small" title="执行环境的用途分类，如 pc_func(PC功能)、fpga、emu 等">平台 <span class="text-danger">*</span></label>
         <select class="form-select form-select-sm" id="envPlatform"></select>
       </div>
       <div class="col-md-3">
-        <label class="form-label small">资源池</label>
+        <label class="form-label small" title="同一池内的环境可被自动分配，提交到池名时系统选最空闲的环境">资源池</label>
         <input class="form-control form-control-sm" id="envPool" list="envPoolList" placeholder="留空表示不参与池化">
         <datalist id="envPoolList"></datalist>
       </div>
@@ -179,7 +179,9 @@ window.envRefresh=function(){
         +'<td>'+connSummary+'</td>'
         +'<td><span class="port-status" id="env-st-'+_esc(t.name)+'">—</span></td>'
         +'<td class="text-end">'
-          +'<button class="btn btn-sm btn-outline-success py-0 me-1" onclick="envTest(\''+_esc(t.name)+'\')">测试</button>'
+          +'<button class="btn btn-sm btn-outline-success py-0 me-1" onclick="envTest(\''+_esc(t.name)+'\')" title="测试环境各端口是否可达">测试</button>'
+          +'<button class="btn btn-sm btn-outline-warning py-0 me-1" onclick="envRestart(\''+_esc(t.name)+'\')" title="执行启动/重启流程（烧录→上传→启动→验证）">重启</button>'
+          +'<button class="btn btn-sm btn-outline-secondary py-0 me-1" onclick="envScripts(\''+_esc(t.name)+'\')" title="管理重启脚本和烧录文件">脚本</button>'
           +'<button class="btn btn-sm btn-outline-primary py-0 me-1" onclick="envEdit(\''+_esc(t.name)+'\')">编辑</button>'
           +'<button class="btn btn-sm btn-outline-danger py-0" onclick="envDel(\''+_esc(t.name)+'\')">删除</button>'
         +'</td></tr>';
@@ -400,9 +402,162 @@ window.envSyncFromServer=function(){
   });
 };
 
+/* ----- 一键重启 ----- */
+window.envRestart=function(name){
+  if(!confirm('确认重启环境「'+name+'」？')) return;
+  var el=document.getElementById('env-st-'+name);
+  if(el) el.innerHTML='<span class="spinner-border spinner-border-sm"></span> 重启中...';
+
+  /* Remove old result panel */
+  var oldPanel=document.getElementById('envRestartResult');
+  if(oldPanel) oldPanel.remove();
+
+  fetch('/api/targets/'+encodeURIComponent(name)+'/restart',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.error){alert(d.error);if(el)el.textContent='—';return;}
+      var ok=d.ok;
+      if(el) el.innerHTML=ok?'<span class="text-success">已重启</span>':'<span class="text-danger">重启失败</span>';
+
+      /* Show step-by-step results */
+      var html='<div id="envRestartResult" class="card mt-2 mb-2"><div class="card-body py-2">'
+        +'<div class="d-flex align-items-center mb-2">'
+        +'<span class="fw-bold me-2">重启结果 — '+_esc(name)+'</span>'
+        +'<span class="badge '+(ok?'bg-success':'bg-danger')+'">'+(ok?'成功':'失败')+'</span>'
+        +'<button class="btn btn-sm btn-outline-secondary py-0 ms-auto" onclick="this.closest(\'#envRestartResult\').remove()">关闭</button>'
+        +'</div>';
+
+      (d.results||[]).forEach(function(r){
+        var icon=r.success?'<span class="text-success">✓</span>':'<span class="text-danger">✗</span>';
+        html+='<div class="d-flex align-items-start small mb-1">'
+          +'<span class="me-2">'+icon+'</span>'
+          +'<div>'
+          +'<span class="fw-bold">'+_esc(r.name||r.port||'step')+'</span>'
+          +(r.duration_s!=null?' <span class="text-muted">('+r.duration_s+'s)</span>':'')
+          +(r.attempts>1?' <span class="text-muted">'+r.attempts+' attempts</span>':'');
+        if(r.output) html+='<pre class="bg-light border p-1 mt-1 mb-0" style="font-size:.75rem;max-height:100px;overflow:auto;white-space:pre-wrap">'+_esc(r.output)+'</pre>';
+        if(r.error) html+='<pre class="bg-dark text-danger p-1 mt-1 mb-0" style="font-size:.75rem;max-height:100px;overflow:auto;white-space:pre-wrap">'+_esc(r.error)+'</pre>';
+        html+='</div></div>';
+      });
+      html+='</div></div>';
+
+      var table=document.getElementById('envTbody').closest('table');
+      table.insertAdjacentHTML('afterend',html);
+    })
+    .catch(function(){if(el)el.textContent='错误';});
+};
+
+/* ----- 文件管理（重启脚本 + 烧录文件） ----- */
+var _envFileTarget='';
+window.envScripts=function(name){
+  _envFileTarget=name;
+  var existing=document.getElementById('envFilePanel');
+  if(existing) existing.remove();
+
+  Promise.all([
+    fetch('/api/targets/'+encodeURIComponent(name)+'/scripts').then(function(r){return r.json();}),
+    fetch('/api/targets/'+encodeURIComponent(name)+'/files').then(function(r){return r.json();}),
+    fetch('/api/targets').then(function(r){return r.json();})
+  ]).then(function(all){
+    var scripts=all[0], files=all[1], targets=all[2];
+    var t=targets.find(function(x){return x.name===name;});
+    var ports=t&&t.ports?Object.keys(t.ports):['default'];
+    if(!ports.length) ports=['default'];
+
+    var html='<div id="envFilePanel" class="card mt-2 mb-2"><div class="card-body py-2">'
+      +'<div class="d-flex align-items-center mb-2">'
+      +'<span class="fw-bold me-2">文件管理 — '+_esc(name)+'</span>'
+      +'<button class="btn btn-sm btn-outline-secondary py-0 ms-auto" onclick="this.closest(\'#envFilePanel\').remove()">关闭</button>'
+      +'</div>';
+
+    /* Restart scripts per port */
+    html+='<div class="small fw-bold mb-1">重启脚本（按端口）</div>'
+      +'<table class="table table-sm mb-2" style="font-size:.83rem"><thead><tr><th>端口</th><th>脚本</th><th></th></tr></thead><tbody>';
+    ports.forEach(function(p){
+      var s=scripts[p];
+      html+='<tr><td>'+_esc(p)+'</td>'
+        +'<td>'+(s?_esc(s.filename):'<span class="text-muted">未上传</span>')+'</td>'
+        +'<td>'
+        +'<input type="file" id="script-file-'+_esc(p)+'" accept=".sh,.bash,.py" style="display:none" '
+        +'onchange="envUploadScript(\''+_esc(name)+'\',\''+_esc(p)+'\',this)">'
+        +'<button class="btn btn-sm btn-outline-primary py-0" onclick="document.getElementById(\'script-file-'+_esc(p)+'\').click()">上传</button>'
+        +'</td></tr>';
+    });
+    html+='</tbody></table>';
+
+    /* General files (firmware, configs, etc.) */
+    html+='<div class="small fw-bold mb-1">环境文件（烧录文件、配置等）</div>';
+    if(files.length){
+      html+='<table class="table table-sm mb-1" style="font-size:.83rem"><tbody>';
+      files.forEach(function(f){
+        html+='<tr><td>'+_esc(f.name)
+          +(f.is_script?' <span class="badge bg-secondary" style="font-size:.6rem">脚本</span>':'')
+          +'</td><td class="text-muted">'+(f.size<1024?f.size+'B':(f.size/1024).toFixed(1)+'KB')+'</td>'
+          +'<td><button class="btn btn-sm btn-outline-danger py-0" style="font-size:.7rem" '
+          +'onclick="envDeleteFile(\''+_esc(name)+'\',\''+_esc(f.name)+'\')">删除</button></td></tr>';
+      });
+      html+='</tbody></table>';
+    }else{
+      html+='<p class="text-muted small mb-1">暂无文件</p>';
+    }
+    html+='<div class="d-flex align-items-center gap-1">'
+      +'<input type="file" id="envFileUpload" multiple style="display:none" onchange="envUploadFiles(\''+_esc(name)+'\',this)">'
+      +'<button class="btn btn-sm btn-outline-primary py-0" onclick="document.getElementById(\'envFileUpload\').click()">上传文件</button>'
+      +'<small class="text-muted">支持烧录文件(.bin/.bit/.hex)、脚本(.sh/.py)、配置等</small>'
+      +'</div>';
+
+    html+='</div></div>';
+    var table=document.getElementById('envTbody').closest('table');
+    table.insertAdjacentHTML('afterend',html);
+  });
+};
+
+window.envUploadScript=function(name,port,input){
+  var f=input.files[0];if(!f)return;
+  var fd=new FormData();fd.append('file',f);
+  fetch('/api/targets/'+encodeURIComponent(name)+'/scripts/'+encodeURIComponent(port),{method:'POST',body:fd})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.error){alert(d.error);return;}
+      envScripts(name);
+    });
+};
+
+window.envUploadFiles=function(name,input){
+  var files=input.files;if(!files.length)return;
+  var promises=[];
+  for(var i=0;i<files.length;i++){
+    var fd=new FormData();fd.append('file',files[i]);
+    promises.push(fetch('/api/targets/'+encodeURIComponent(name)+'/files',{method:'POST',body:fd}).then(function(r){return r.json();}));
+  }
+  Promise.all(promises).then(function(){envScripts(name);});
+};
+
+window.envDeleteFile=function(name,filename){
+  if(!confirm('删除 '+filename+'？')) return;
+  fetch('/api/targets/'+encodeURIComponent(name)+'/files/'+encodeURIComponent(filename),{method:'DELETE'})
+    .then(function(r){return r.json();})
+    .then(function(d){if(d.error)alert(d.error);else envScripts(name);});
+};
+
+/* ----- 环境健康自动刷新 ----- */
+function envHealthRefresh(){
+  fetch('/api/targets/health').then(function(r){return r.json();}).then(function(data){
+    Object.keys(data).forEach(function(name){
+      var el=document.getElementById('env-st-'+name);
+      if(!el) return;
+      var st=data[name];
+      if(st==='local') el.innerHTML='<span class="text-muted">本地</span>';
+      else if(st==='ok') el.innerHTML='<span class="text-success">在线</span>';
+      else el.innerHTML='<span class="text-danger">离线</span>';
+    });
+  }).catch(function(){});
+}
+
 /* init */
 _loadPlatforms();
 _loadPools();
 envRefresh();
+setTimeout(envHealthRefresh,1000);
 })();
 </script>

@@ -6,6 +6,7 @@
 <ul class="nav nav-pills mb-2" id="depsSubTabs">
   <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#sub-deps">依赖项</button></li>
   <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#sub-bundles">配置集</button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#sub-build" onclick="setTimeout(buildInit,50)">构建测试</button></li>
 </ul>
 <div class="tab-content">
 
@@ -15,7 +16,7 @@
     <div class="col"><input type="text" id="adName" class="form-control form-control-sm" placeholder="名称" required list="adNameList"><datalist id="adNameList"></datalist></div>
     <div class="col"><input type="text" id="adVersion" class="form-control form-control-sm" placeholder="版本 / 分支" required></div>
     <div class="col-auto">
-      <select id="adType" class="form-select form-select-sm" onchange="adTypeChanged()">
+      <select id="adType" class="form-select form-select-sm" onchange="adTypeChanged()" title="工具链: 编译器/仿真器等工具&#10;库: 第三方 C/C++ 库&#10;Git 仓库: 从 Git 克隆的源码">
         <option value="toolchain">工具链</option>
         <option value="library">库</option>
         <option value="repo">Git 仓库</option>
@@ -62,7 +63,7 @@
     <div class="row g-1 mb-1" style="max-width:500px">
       <div class="col"><input type="text" id="bDesc" class="form-control form-control-sm" placeholder="描述"></div>
       <div class="col-auto">
-        <select id="bStatus" class="form-select form-select-sm">
+        <select id="bStatus" class="form-select form-select-sm" title="测试中: 正在验证的版本组合&#10;已验证: 经过测试确认可用&#10;已废弃: 不再使用">
           <option value="testing">测试中</option><option value="verified">已验证</option><option value="deprecated">已废弃</option>
         </select>
       </div>
@@ -82,6 +83,32 @@
     </div>
   </div>
   <p id="bEmpty" class="text-muted small">请选择配置集或新建。</p>
+</div>
+
+{# ===== 构建测试 ===== #}
+<div class="tab-pane" id="sub-build">
+  <p class="text-muted small mb-2">选择依赖项或配置集执行构建测试：下载/clone → 按顺序构建 → 验证是否成功。</p>
+  <div class="d-flex align-items-center gap-2 mb-3 flex-wrap" style="max-width:700px">
+    <select id="bdMode" class="form-select form-select-sm" style="width:auto" onchange="bdModeChanged()" title="单个依赖: 构建一个依赖项&#10;配置集: 按顺序构建配置集内所有依赖">
+      <option value="dep">单个依赖</option>
+      <option value="bundle">配置集</option>
+    </select>
+    <select id="bdDep" class="form-select form-select-sm" style="min-width:200px">
+      <option value="">-- 选择依赖项 --</option>
+    </select>
+    <select id="bdBundle" class="form-select form-select-sm d-none" style="min-width:200px">
+      <option value="">-- 选择配置集 --</option>
+    </select>
+    <button class="btn btn-sm btn-primary text-nowrap" id="bdGoBtn" onclick="bdTrigger()" title="下载/clone 依赖源码并执行构建脚本，验证是否能成功编译">构建测试</button>
+    <span id="bdMsg" class="small"></span>
+  </div>
+
+  <div class="fw-bold small mb-1">构建记录 <span class="badge bg-secondary" id="bdCount">0</span></div>
+  <table class="table table-sm table-striped table-hover" id="bdTable">
+    <thead><tr><th>时间</th><th>依赖项</th><th>类型</th><th>结果</th><th>耗时</th><th>详情</th></tr></thead>
+    <tbody id="bdTbody"></tbody>
+  </table>
+  <p id="bdEmpty" class="text-muted small d-none">暂无构建记录。</p>
 </div>
 
 </div>
@@ -305,6 +332,105 @@ function _initBundleDrag(){
       var n=r.dataset.name;if(n in _bundleItems) newItems[n]=_bundleItems[n];
     });
     _bundleItems=newItems;
+  });
+}
+
+/* ===== 构建测试 ===== */
+var _bdInited=false;
+function buildInit(){
+  if(_bdInited) return;
+  _bdInited=true;
+  _bdRefreshDepList();
+  _bdRefreshBundleList();
+  bdLoadHistory();
+}
+
+function bdModeChanged(){
+  var isBundle=document.getElementById('bdMode').value==='bundle';
+  document.getElementById('bdDep').classList.toggle('d-none',isBundle);
+  document.getElementById('bdBundle').classList.toggle('d-none',!isBundle);
+}
+
+function _bdRefreshDepList(){
+  var sel=document.getElementById('bdDep');
+  sel.innerHTML='<option value="">-- 选择依赖项 --</option>';
+  var typeLabel={toolchain:'工具链',library:'库',repo:'仓库'};
+  _allDeps.forEach(function(d){
+    sel.innerHTML+='<option value="'+_esc(d.name)+'">'+_esc(d.name)+' ('+_esc(typeLabel[d.type]||d.type)+' '+_esc(d.version)+')</option>';
+  });
+}
+
+function _bdRefreshBundleList(){
+  fetch('/api/bundles').then(function(r){return r.json();}).then(function(items){
+    var sel=document.getElementById('bdBundle');
+    sel.innerHTML='<option value="">-- 选择配置集 --</option>';
+    items.forEach(function(b){
+      sel.innerHTML+='<option value="'+_esc(b.name)+'">'+_esc(b.name)+(b.active?' *':'')+'</option>';
+    });
+  });
+}
+
+function bdTrigger(){
+  var mode=document.getElementById('bdMode').value;
+  var payload={};
+  if(mode==='bundle'){
+    var bn=document.getElementById('bdBundle').value;
+    if(!bn){document.getElementById('bdMsg').textContent='请选择配置集';return;}
+    payload.bundle=bn;
+  }else{
+    var dn=document.getElementById('bdDep').value;
+    if(!dn){document.getElementById('bdMsg').textContent='请选择依赖项';return;}
+    payload.name=dn;
+  }
+  var btn=document.getElementById('bdGoBtn');
+  btn.disabled=true;
+  document.getElementById('bdMsg').innerHTML='<span class="spinner-border spinner-border-sm"></span> 构建中...';
+  fetch('/api/deps/build',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+    .then(function(r){return r.json();}).then(function(d){
+      btn.disabled=false;
+      if(d.error){document.getElementById('bdMsg').textContent=d.error;return;}
+      if(d.bundle){
+        var ok=d.success, n=d.results?d.results.length:0;
+        document.getElementById('bdMsg').innerHTML=ok
+          ?'<span class="text-success">✓ '+n+' 个依赖全部成功</span>'
+          :'<span class="text-danger">✗ 第 '+n+' 个失败</span>';
+      }else{
+        document.getElementById('bdMsg').innerHTML=d.success
+          ?'<span class="text-success">✓ 成功 ('+d.duration_s+'s)</span>'
+          :'<span class="text-danger">✗ 失败</span>';
+      }
+      bdLoadHistory();
+    }).catch(function(){btn.disabled=false;document.getElementById('bdMsg').textContent='请求失败';});
+}
+
+function bdLoadHistory(){
+  fetch('/api/deps/build/history').then(function(r){return r.json();}).then(function(items){
+    document.getElementById('bdCount').textContent=items.length;
+    var tb=document.getElementById('bdTbody');
+    if(!items.length){tb.innerHTML='';document.getElementById('bdEmpty').classList.remove('d-none');return;}
+    document.getElementById('bdEmpty').classList.add('d-none');
+    var typeLabel={toolchain:'工具链',library:'库',repo:'仓库'};
+    var rows='';
+    items.forEach(function(e,i){
+      var t=new Date(e.ts*1000);
+      var timeStr=t.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});
+      var badge=e.success?'<span class="badge bg-success">成功</span>':'<span class="badge bg-danger">失败</span>';
+      var detailId='bd-detail-'+i;
+      rows+='<tr>'
+        +'<td class="small text-nowrap">'+timeStr+'</td>'
+        +'<td><strong>'+_esc(e.name)+'</strong></td>'
+        +'<td class="small">'+_esc(typeLabel[e.type]||e.type)+'</td>'
+        +'<td>'+badge+'</td>'
+        +'<td class="small">'+e.duration_s+'s</td>'
+        +'<td>'+(e.error_msg?'<a href="#" class="small" onclick="event.preventDefault();var el=document.getElementById(\''+detailId+'\');el.style.display=el.style.display===\'none\'?\'table-row\':\'none\'">查看</a>':'—')+'</td>'
+        +'</tr>';
+      if(e.error_msg){
+        rows+='<tr id="'+detailId+'" style="display:none"><td colspan="6">'
+          +'<pre class="bg-dark text-light p-2 small mb-0" style="max-height:200px;overflow:auto;white-space:pre-wrap;font-size:.75rem">'+_esc(e.error_msg)+'</pre>'
+          +'</td></tr>';
+      }
+    });
+    tb.innerHTML=rows;
   });
 }
 

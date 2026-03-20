@@ -47,6 +47,7 @@
 
 <ul class="nav nav-pills mb-2" id="tcSubTabs">
   <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#sub-suites">用例</button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#sub-queue" id="tcQueueTab" title="查看执行队列状态、调度策略和环境占用甬道图">执行队列 <span class="badge bg-primary" id="tcQueueBadge" style="font-size:.6rem;display:none">0</span></button></li>
   <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#sub-plan">测试计划</button></li>
   <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#sub-executions">执行记录</button></li>
 </ul>
@@ -56,7 +57,8 @@
 <div class="tab-pane show active" id="sub-suites">
   {# 工具栏 #}
   <div class="d-flex align-items-center mb-1 gap-2 flex-wrap">
-    <button class="btn btn-sm btn-outline-secondary py-0" id="tcScanBtn" onclick="tcRefreshSuites(this)">扫描</button>
+    <button class="btn btn-sm btn-outline-secondary py-0" id="tcScanBtn" onclick="tcRefreshSuites(this)" title="重新扫描 cases/ 目录，发现新增或删除的测试套件">扫描</button>
+    <button class="btn btn-sm btn-outline-secondary py-0" onclick="tcToggleAllDirs(this)" title="展开/折叠全部目录">折叠</button>
     <small class="text-muted" id="tcScanTime"></small>
     <input class="form-control form-control-sm" id="tcSuiteFilter" placeholder="搜索..." style="min-width:100px;width:auto" oninput="tcRenderSuites()">
     <select class="form-select form-select-sm" id="tcPlatformFilter" style="width:auto" onchange="tcRenderSuites()">
@@ -77,7 +79,7 @@
     <select class="form-select form-select-sm" id="tcRunPlan" style="width:auto" onchange="tcPlanSelected()">
       <option value="">测试计划</option>
     </select>
-    <select class="form-select form-select-sm" id="tcRunBundle" style="width:auto">
+    <select class="form-select form-select-sm" id="tcRunBundle" style="width:auto" title="选择依赖配置集（工具链+库的版本组合）">
       <option value="">配置集</option>
     </select>
     <div class="dropdown d-inline-block" id="tcTargetDropdown">
@@ -86,9 +88,9 @@
       </button>
       <div class="dropdown-menu p-2" style="min-width:220px;max-height:300px;overflow-y:auto;font-size:.82rem" id="tcTargetMenu"></div>
     </div>
-    <button class="btn btn-sm btn-primary py-0" onclick="tcRunSelected(this)">▶ 运行勾选</button>
-    <button class="btn btn-sm btn-outline-success py-0" onclick="tcRunPlan(this)">执行计划</button>
-    <button class="btn btn-sm btn-outline-secondary py-0" onclick="tcClearSelection()">清除勾选</button>
+    <button class="btn btn-sm btn-primary py-0" onclick="tcRunSelected(this)" title="提交勾选的用例到执行队列，跳转到队列页签查看进度">▶ 运行勾选</button>
+    <button class="btn btn-sm btn-outline-success py-0" onclick="tcRunPlan(this)" title="执行左侧选中的测试计划">执行计划</button>
+    <button class="btn btn-sm btn-outline-secondary py-0" onclick="tcClearSelection()" title="取消所有勾选">清除勾选</button>
     <small class="text-muted" id="tcRunSelCount"></small>
     <small class="text-muted" id="tcRunMsg"></small>
   </div>
@@ -101,6 +103,72 @@
   {# 用例树 #}
   <div id="tcSuiteList"></div>
   <p id="tcSuiteEmpty" class="text-muted small d-none">暂无用例。点击「扫描」发现用例。</p>
+</div>
+
+{# ===== 执行队列 ===== #}
+<div class="tab-pane" id="sub-queue">
+  <div class="d-flex align-items-center mb-2">
+    <span class="fw-bold me-2">执行队列</span>
+    <small class="text-muted">每个环境同一时刻只运行一个执行，其余排队等待</small>
+  </div>
+  <div id="tqContent"></div>
+  <p id="tqEmpty" class="text-muted small">队列为空。从「用例」页签勾选并运行。</p>
+
+  {# Quick idle submit #}
+  <div class="card mt-3 mb-2">
+    <div class="card-body py-2">
+      <div class="d-flex align-items-center gap-2 flex-wrap">
+        <span class="fw-bold small text-nowrap">今日空闲时执行:</span>
+        <select id="tqIdlePlan" class="form-select form-select-sm" style="width:auto;min-width:150px">
+          <option value="">-- 测试计划 --</option>
+        </select>
+        <select id="tqIdleTarget" class="form-select form-select-sm" style="width:auto;min-width:120px">
+          <option value="">-- 环境/池 --</option>
+        </select>
+        <span class="small text-muted text-nowrap">环境无任务超过</span>
+        <input type="number" id="tqIdleTimeout" class="form-control form-control-sm" value="10" min="1" style="width:60px">
+        <span class="small text-muted text-nowrap">分钟后自动执行</span>
+        <button class="btn btn-sm btn-primary py-0" onclick="tqSubmitIdle()">提交</button>
+        <span id="tqIdleMsg" class="small"></span>
+      </div>
+    </div>
+  </div>
+
+  {# Schedule policies #}
+  <details class="mt-2" id="tqScheduleDetails">
+    <summary class="fw-bold small" style="cursor:pointer">调度策略（空闲自动执行）</summary>
+    <div class="mt-1 mb-2" id="tqSchedContent">
+      <table class="table table-sm table-bordered mb-1" style="font-size:.82rem" id="tqSchedTable">
+        <thead><tr>
+          <th>名称</th>
+          <th title="生效的时间范围，如 09:00-21:00，支持跨夜 22:00-06:00，留空表示全天">时段</th>
+          <th title="应用到哪个环境或资源池，池会自动展开为所有成员">环境/池</th>
+          <th title="环境从上次任务结束起，连续空闲超过此时间才触发自动执行">空闲超时</th>
+          <th title="两次自动触发之间的最小间隔，0 = 连续执行（上一轮结束立即下一轮）">执行间隔</th>
+          <th title="空闲触发时执行的测试计划文件">测试计划</th>
+          <th title="关闭后策略暂停，不会触发自动执行">启用</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="tqSchedBody"></tbody>
+      </table>
+      <div class="d-flex gap-1 align-items-center">
+        <button class="btn btn-sm btn-outline-primary py-0" onclick="tqAddSchedule()">+ 新增策略</button>
+        <button class="btn btn-sm btn-primary py-0" onclick="tqSaveSchedules()">保存</button>
+        <span id="tqSchedMsg" class="small ms-1"></span>
+      </div>
+    </div>
+  </details>
+
+  {# Swimlane timeline #}
+  <div class="mt-3">
+    <div class="d-flex align-items-center mb-1">
+      <span class="fw-bold small me-2">环境占用甬道图（最近24小时）</span>
+      <button class="btn btn-sm btn-outline-secondary py-0" onclick="tqLoadTimeline()">刷新</button>
+    </div>
+    <div id="tqTimeline" style="overflow-x:auto"></div>
+  </div>
+
+  <div id="tqRecent" class="mt-3"></div>
 </div>
 
 {# ===== 测试计划 ===== #}
@@ -189,6 +257,7 @@
     <span class="fw-bold me-1">执行记录</span>
     <span class="badge bg-secondary" id="tcExeCount">0</span>
     <button class="btn btn-sm btn-outline-secondary py-0 ms-2" onclick="tcLoadExecutions()">刷新</button>
+    <button class="btn btn-sm btn-outline-danger py-0 ms-auto" onclick="tcCleanup()" title="删除N天前的执行记录和报告文件">清理旧数据</button>
   </div>
   {# Pipeline 状态面板 #}
   <div id="tcPipelinePanel" style="display:none"></div>
@@ -290,54 +359,61 @@ window.tcRenderSuites=function(){
   empty.classList.add('d-none');
   _renderStats(items);
 
-  // 按 platform/category 分组
-  var tree={};
+  // Build directory tree from module_path
+  var root={_children:{},_suites:[]};
   items.forEach(function(s){
-    var grp=(s.platform||'default')+(s.category?'/'+s.category:'');
-    if(!tree[grp])tree[grp]=[];
-    tree[grp].push(s);
+    var parts=(s.module_path||'').replace(/\.py$/,'').split('/');
+    var node=root;
+    // directories (all but last part = file)
+    for(var i=0;i<parts.length-1;i++){
+      var p=parts[i];
+      if(!node._children[p]) node._children[p]={_children:{},_suites:[]};
+      node=node._children[p];
+    }
+    node._suites.push(s);
   });
 
-  var html='';
-  var groups=Object.keys(tree).sort();
-  groups.forEach(function(grp){
-    var suites=tree[grp];
-    html+='<div class="mb-1">';
-    if(groups.length>1||grp!=='default'){
-      html+='<div class="small fw-bold text-muted" style="padding:2px 0">📁 '+_esc(grp)+'</div>';
-    }
-    html+='<div class="'+(groups.length>1&&grp!=='default'?'tc-tree-group':'')+'">';
-
-    suites.forEach(function(s){
+  function renderTree(node,depth){
+    var html='';
+    var dirs=Object.keys(node._children).sort();
+    dirs.forEach(function(dir){
+      var child=node._children[dir];
+      // Count total suites under this dir
+      var cnt=_countNode(child);
+      var dirId='tc_dir_'+depth+'_'+dir.replace(/\W/g,'_');
+      html+='<div style="padding-left:'+(depth*16)+'px">'
+        +'<div class="d-flex align-items-center small py-1" style="cursor:pointer" onclick="var b=document.getElementById(\''+dirId+'\');var s=b.style.display===\'none\';b.style.display=s?\'block\':\'none\';this.querySelector(\'.tc-dir-icon\').textContent=s?\'📂\':\'📁\'">'
+        +'<span class="tc-dir-icon me-1">📂</span>'
+        +'<span class="fw-bold">'+_esc(dir)+'</span>'
+        +'<span class="badge bg-secondary ms-1" style="font-size:.65rem">'+cnt+'</span>'
+        +'</div>'
+        +'<div id="'+dirId+'" class="tc-dir-body">'
+        +renderTree(child,depth+1)
+        +'</div></div>';
+    });
+    // Render suites at this level
+    node._suites.forEach(function(s){
       var sm=s.last_status_summary||{};
       var st=_suiteStatus(sm);
       var icon=st==='pass'?'✅':st==='fail'?'❌':'○';
       var inPlan=_activePlanTests.length&&_activePlanTests.some(function(t){return s.module_path.indexOf(t)>=0||t.indexOf(s.module_path)>=0;});
-
-      // 套件摘要
       var smText='';
       if(st!=='none'){
-        var p=sm.PASS||0, total=0;
+        var p=sm.PASS||0,total=0;
         Object.keys(sm).forEach(function(k){total+=sm[k];});
         smText=p+'/'+total+' 通过';
-      }else{
-        smText='未执行';
-      }
-
+      }else{smText='未执行';}
       var suiteId='tc_s_'+s.id;
-      html+='<div class="tc-suite-row'+(inPlan?' tc-in-plan':'')+'">'
+      html+='<div class="tc-suite-row'+(inPlan?' tc-in-plan':'')+'" style="padding-left:'+(depth*16)+'px">'
         +'<div class="d-flex align-items-center">'
         +'<span class="tc-toggle" onclick="tcToggleCases(\''+suiteId+'\',this)">▶</span>'
         +'<input class="form-check-input me-1 tc-run-chk-suite" type="checkbox" '
         +'data-module="'+_esc(s.module_path)+'" onchange="tcToggleSuite(this)">'
         +'<span class="tc-icon me-1">'+icon+'</span>'
         +'<span class="fw-bold small me-2">'+_esc(s.class_name)+'</span>'
-        +'<span class="text-muted small me-2" style="font-size:.75rem">'+_esc(s.module_path)+'</span>'
-        +(inPlan?'<span class="badge bg-primary" style="font-size:.6rem;padding:1px 4px">计划</span>':'')
+        +(inPlan?'<span class="badge bg-primary ms-1" style="font-size:.6rem;padding:1px 4px">计划</span>':'')
         +'<span class="ms-auto small text-muted">'+smText+'</span>'
         +'</div>';
-
-      // 用例列表（默认折叠）
       var names=s.case_names||[];
       if(names.length){
         html+='<div class="tc-cases-body" id="'+suiteId+'">';
@@ -352,10 +428,16 @@ window.tcRenderSuites=function(){
       }
       html+='</div>';
     });
-    html+='</div></div>';
-  });
+    return html;
+  }
 
-  el.innerHTML=html;
+  function _countNode(node){
+    var c=node._suites.length;
+    Object.keys(node._children).forEach(function(k){c+=_countNode(node._children[k]);});
+    return c;
+  }
+
+  el.innerHTML=renderTree(root,0);
 };
 
 function _renderStats(items){
@@ -467,6 +549,16 @@ window.tcRenderPlanSuites=function(){
 };
 
 /* ---------- 折叠/展开用例 ---------- */
+window.tcToggleAllDirs=function(btn){
+  var list=document.getElementById('tcSuiteList');
+  var bodies=list.querySelectorAll('.tc-dir-body');
+  // If button says "折叠", collapse all; otherwise expand all
+  var collapse=btn.textContent==='折叠';
+  bodies.forEach(function(el){el.style.display=collapse?'none':'';});
+  list.querySelectorAll('.tc-dir-icon').forEach(function(ic){ic.textContent=collapse?'📁':'📂';});
+  btn.textContent=collapse?'展开':'折叠';
+};
+
 window.tcToggleCases=function(id,toggle){
   var el=document.getElementById(id);
   if(!el) return;
@@ -513,6 +605,20 @@ window.tcUpdateSelectCount=function(){
 };
 
 /* ---------- 执行记录 ---------- */
+window.tcCleanup=function(){
+  var days=prompt('删除多少天前的执行记录？','30');
+  if(!days)return;
+  days=parseInt(days);if(isNaN(days)||days<1)return;
+  if(!confirm('确认删除 '+days+' 天前的所有执行记录和报告文件？此操作不可撤销。'))return;
+  fetch('/api/executions/cleanup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({keep_days:days})})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.error){alert(d.error);return;}
+      alert('已删除 '+d.deleted+' 条记录，清理 '+d.cleaned_dirs+' 个报告目录');
+      tcLoadExecutions();
+    });
+};
+
 window.tcLoadExecutions=function(){
   fetch('/api/executions').then(function(r){return r.json();}).then(function(data){
     _executions=data; tcRenderExecutions();
@@ -653,6 +759,42 @@ window.tcTogglePipeDetail=function(btn){
   btn.textContent=show?'收起':'详情';
 };
 
+/* --- Log highlighting: error/warning lines colored (REQ-7.3) --- */
+function _tcHighlight(text){
+  return _esc(text).split('\n').map(function(line){
+    if(/error|Error|ERROR|assert|Assert|ASSERT|FAIL|Traceback|raise /.test(line))
+      return '<span style="color:#ff6b6b">'+line+'</span>';
+    if(/warning|Warning|WARNING/.test(line))
+      return '<span style="color:#ffc107">'+line+'</span>';
+    return line;
+  }).join('\n');
+}
+
+/* --- Case status filter (REQ-7.3) --- */
+window.tcFilterCases=function(btn,filter){
+  btn.closest('.btn-group').querySelectorAll('button').forEach(function(b){b.classList.remove('active');});
+  btn.classList.add('active');
+  var detail=document.getElementById('tcExeDetail');
+  if(!detail)return;
+  detail.querySelectorAll('.tc-case-row,.tc-case-detail').forEach(function(el){
+    if(filter==='all'){el.style.display='';return;}
+    var st=el.dataset.status;
+    if(el.classList.contains('tc-case-detail')){
+      el.style.display=(st===filter)?'block':'none';
+    }else{
+      el.style.display=(st===filter)?'':'none';
+    }
+  });
+  detail.querySelectorAll('.tc-suite-hdr').forEach(function(hdr){
+    var next=hdr.nextElementSibling,hasVisible=false;
+    while(next&&!next.classList.contains('tc-suite-hdr')){
+      if(next.classList.contains('tc-case-row')&&next.style.display!=='none') hasVisible=true;
+      next=next.nextElementSibling;
+    }
+    hdr.style.display=hasVisible||filter==='all'?'':'none';
+  });
+};
+
 window.tcShowExeDetail=function(exeId){
   fetch('/api/executions/'+encodeURIComponent(exeId))
     .then(function(r){return r.json();})
@@ -679,10 +821,19 @@ window.tcShowExeDetail=function(exeId){
         +' · 失败 <strong class="text-danger">'+(d.failed_total||0)+'</strong>'
         +' · 未执行 <strong class="text-muted">'+(d.not_run||0)+'</strong>'
         +' — 通过率 <strong>'+(d.total?_pct(d.pass_rate):'—')+'</strong>'
-        +'</div>';
+        +'</div>'
+        +'<div class="mb-2">'
+        +'<span class="small me-1">筛选:</span>'
+        +'<div class="btn-group btn-group-sm">'
+        +'<button class="btn btn-outline-secondary btn-sm py-0 active" onclick="tcFilterCases(this,\'all\')">全部</button>'
+        +'<button class="btn btn-outline-danger btn-sm py-0" onclick="tcFilterCases(this,\'fail\')">失败</button>'
+        +'<button class="btn btn-outline-success btn-sm py-0" onclick="tcFilterCases(this,\'pass\')">通过</button>'
+        +'<button class="btn btn-outline-secondary btn-sm py-0" onclick="tcFilterCases(this,\'skip\')">跳过</button>'
+        +'</div></div>';
 
+      var failStatuses={FAIL:1,ERROR:1,TIMEOUT:1,CRASH:1};
       Object.keys(suites).forEach(function(sn){
-        html+='<div class="fw-bold small mb-1">'+_esc(sn)+'</div>';
+        html+='<div class="fw-bold small mb-1 tc-suite-hdr">'+_esc(sn)+'</div>';
         suites[sn].forEach(function(c){
           var cmpHtml='';
           if(c.compare_detail){
@@ -703,34 +854,40 @@ window.tcShowExeDetail=function(exeId){
             var lines=c.failure_reason.split('\n').filter(function(l){return l.trim();});
             errSummary=lines.length?lines[lines.length-1]:'';
           }
-          html+='<div class="d-flex align-items-center small" style="padding:1px 0 1px 16px">'
+          var statusCat=failStatuses[c.status]?'fail':c.status==='PASS'?'pass':c.status==='SKIP'?'skip':'other';
+          html+='<div class="tc-case-row d-flex align-items-center small" data-status="'+statusCat+'" style="padding:1px 0 1px 16px">'
             +'<span class="me-1">'+_icon(c.status)+'</span>'
-            +'<code class="me-2">'+_esc(c.case_method)+'</code>'
+            +'<code class="me-2" style="cursor:pointer;text-decoration:underline dotted" onclick="tcShowCaseHistory(\''+_esc(c.suite_class)+'\',\''+_esc(c.case_method)+'\')" title="点击查看用例历史">'+_esc(c.case_method)+'</code>'
             +(c.duration_s!=null?'<span class="text-muted me-2">'+c.duration_s.toFixed(2)+'s</span>':'')
             +cmpHtml
             +(errSummary?'<span class="text-danger text-truncate" style="max-width:500px">'+_esc(errSummary)+'</span>':'')
-            +(hasDetail?'<a href="#" class="ms-2 text-decoration-none small" onclick="event.preventDefault();var el=document.getElementById(\''+caseId+'\');el.style.display=el.style.display===\'none\'?\'block\':\'none\';this.textContent=el.style.display===\'none\'?\'详情\':\'收起\'">'+(isFailed?'收起':'详情')+'</a>':'')
+            +(hasDetail?'<a href="#" class="ms-2 text-decoration-none small" onclick="event.preventDefault();var el=this.nextElementSibling||document.getElementById(\''+caseId+'\');el.style.display=el.style.display===\'none\'?\'block\':\'none\';this.textContent=el.style.display===\'none\'?\'详情\':\'收起\'">'+(isFailed?'收起':'详情')+'</a>':'')
             +'</div>';
           if(hasDetail){
-            html+='<div id="'+caseId+'" style="'+(isFailed?'':'display:none;')+'margin-left:32px;margin-bottom:4px">';
+            html+='<div id="'+caseId+'" class="tc-case-detail" data-status="'+statusCat+'" style="'+(isFailed?'':'display:none;')+'margin-left:32px;margin-bottom:4px">';
             if(c.failure_reason){
               html+='<div class="mb-1"><span class="badge bg-danger me-1">Traceback</span></div>'
-                +'<pre class="bg-dark text-light p-2 small" style="max-height:300px;overflow:auto;white-space:pre-wrap;font-size:.75rem">'+_esc(c.failure_reason)+'</pre>';
+                +'<pre class="bg-dark text-light p-2 small tc-log-pre" style="max-height:300px;overflow:auto;white-space:pre-wrap;font-size:.75rem">'+_tcHighlight(c.failure_reason)+'</pre>';
             }
             if(c.stdout){
               html+='<div class="mb-1"><span class="badge bg-secondary me-1">stdout</span></div>'
-                +'<pre class="bg-light border p-2 small" style="max-height:200px;overflow:auto;white-space:pre-wrap;font-size:.75rem">'+_esc(c.stdout)+'</pre>';
+                +'<pre class="bg-dark text-light p-2 small tc-log-pre" style="max-height:200px;overflow:auto;white-space:pre-wrap;font-size:.75rem;color:#ccc">'+_tcHighlight(c.stdout)+'</pre>';
             }
             if(c.stderr){
               html+='<div class="mb-1"><span class="badge bg-warning text-dark me-1">stderr</span></div>'
-                +'<pre class="bg-light border p-2 small" style="max-height:200px;overflow:auto;white-space:pre-wrap;font-size:.75rem">'+_esc(c.stderr)+'</pre>';
+                +'<pre class="bg-dark text-light p-2 small tc-log-pre" style="max-height:200px;overflow:auto;white-space:pre-wrap;font-size:.75rem;color:#ccc">'+_tcHighlight(c.stderr)+'</pre>';
             }
             html+='</div>';
           }
         });
       });
 
-      html+='<button class="btn btn-sm btn-outline-secondary py-0 mt-2" onclick="tcBackToList()">← 返回</button>';
+      html+='<div class="mt-2 d-flex gap-1">'
+        +'<button class="btn btn-sm btn-outline-secondary py-0" onclick="tcBackToList()">← 返回</button>';
+      if(d.failed_total>0){
+        html+='<button class="btn btn-sm btn-outline-danger py-0" onclick="tcRerunFailed(\''+_esc(d.id)+'\')" title="重新执行本次运行中失败的用例">重跑失败</button>';
+      }
+      html+='</div>';
       html+='</div></div>';
 
       document.getElementById('tcExeBody').innerHTML='';
@@ -740,6 +897,52 @@ window.tcShowExeDetail=function(exeId){
       var detailEl=document.getElementById('tcExeDetail');
       if(!detailEl){detailEl=document.createElement('div');detailEl.id='tcExeDetail';container.appendChild(detailEl);}
       detailEl.innerHTML=html;
+    });
+};
+
+window.tcShowCaseHistory=function(suite,method){
+  fetch('/api/cases/'+encodeURIComponent(suite)+'/'+encodeURIComponent(method)+'/history')
+    .then(function(r){return r.json();})
+    .then(function(items){
+      var old=document.getElementById('tcCaseHistoryPanel');
+      if(old)old.remove();
+      var html='<div id="tcCaseHistoryPanel" class="card mt-2 mb-2"><div class="card-body py-2">'
+        +'<div class="d-flex align-items-center mb-1">'
+        +'<span class="fw-bold small me-2">用例历史: '+_esc(suite)+'.'+_esc(method)+'</span>'
+        +'<span class="badge bg-secondary">最近 '+items.length+' 次</span>'
+        +'<button class="btn btn-sm btn-outline-secondary py-0 ms-auto" onclick="this.closest(\'#tcCaseHistoryPanel\').remove()">关闭</button>'
+        +'</div>';
+      if(!items.length){
+        html+='<p class="text-muted small mb-0">暂无执行记录</p>';
+      }else{
+        html+='<div class="d-flex flex-wrap gap-1 mb-1">';
+        items.forEach(function(h){
+          var color=h.status==='PASS'?'success':h.status==='SKIP'?'secondary':'danger';
+          var dur=h.duration_s!=null?h.duration_s.toFixed(1)+'s':'';
+          html+='<span class="badge bg-'+color+'" style="font-size:.7rem;cursor:pointer" '
+            +'onclick="tcShowExeDetail(\''+_esc(h.execution_id)+'\')" '
+            +'title="'+_esc(h.execution_id)+' '+_fmtTime(h.finished_at)+' '+dur
+            +(h.failure_reason?'\n'+_esc(h.failure_reason):'')
+            +'">'+h.status.charAt(0)+'</span>';
+        });
+        html+='</div>';
+        // Pass rate summary
+        var pass_count=items.filter(function(h){return h.status==='PASS';}).length;
+        html+='<small class="text-muted">通过率: '+pass_count+'/'+items.length+' ('+Math.round(pass_count/items.length*100)+'%)</small>';
+      }
+      html+='</div></div>';
+      var detail=document.getElementById('tcExeDetail');
+      if(detail) detail.insertAdjacentHTML('beforeend',html);
+    });
+};
+
+window.tcRerunFailed=function(exeId){
+  if(!confirm('重新执行本次运行中失败的用例？')) return;
+  fetch('/api/executions/'+encodeURIComponent(exeId)+'/rerun-failed',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.error){alert(d.error);return;}
+      _tqSwitchToQueue();
     });
 };
 
@@ -822,8 +1025,8 @@ window.tcRunSelected=function(btn){
     .then(function(d){
       btn.disabled=false;btn.textContent=orig;
       if(d.error){msg.textContent=d.error;return;}
-      msg.textContent='已启动 '+allCases.length+' 用例';
-      _tcStartPoll(d.execution_id);
+      msg.textContent='';
+      _tqSwitchToQueue();
     })
     .catch(function(){btn.disabled=false;btn.textContent=orig;});
 };
@@ -1692,12 +1895,354 @@ window.gpConfirmGoldenSync=function(){
   });
 };
 
+/* ========== 执行队列 ========== */
+var _tqPollTimer=null;
+
+function _tqSwitchToQueue(){
+  /* Activate the queue tab */
+  var tab=document.getElementById('tcQueueTab');
+  if(tab){
+    var bsTab=bootstrap.Tab.getOrCreateInstance(tab);
+    bsTab.show();
+  }
+  _tqStartPoll();
+}
+
+function _tqStartPoll(){
+  if(_tqPollTimer)clearTimeout(_tqPollTimer);
+  _tqRefresh();
+}
+
+function _tqStopPoll(){
+  if(_tqPollTimer){clearTimeout(_tqPollTimer);_tqPollTimer=null;}
+}
+
+function _tqRefresh(){
+  fetch('/api/queue').then(function(r){return r.json();}).then(function(data){
+    var targets=data.targets||{};
+    var recent=data.recent||[];
+    var content=document.getElementById('tqContent');
+    var empty=document.getElementById('tqEmpty');
+
+    var activeCount=0;
+    Object.keys(targets).forEach(function(t){
+      var tgt=targets[t];
+      if(tgt.running) activeCount++;
+      activeCount+=(tgt.queued||[]).length;
+    });
+
+    /* Update badge */
+    var badge=document.getElementById('tcQueueBadge');
+    if(activeCount>0){badge.textContent=activeCount;badge.style.display='';}
+    else{badge.style.display='none';}
+
+    var tKeys=Object.keys(targets);
+    if(!tKeys.length&&!recent.length){
+      content.innerHTML='';empty.style.display='';
+      document.getElementById('tqRecent').innerHTML='';
+      _tqPollTimer=null;return;
+    }
+    empty.style.display='none';
+
+    var html='';
+    tKeys.forEach(function(tname){
+      var tgt=targets[tname];
+      html+='<div class="card mb-2"><div class="card-body py-2">'
+        +'<div class="d-flex align-items-center mb-1">'
+        +'<span class="fw-bold me-2">'+_esc(tname)+'</span>'
+        +'</div>';
+
+      /* Running item */
+      if(tgt.running){
+        var r=tgt.running;
+        html+='<div class="d-flex align-items-center small py-1">'
+          +'<span class="spinner-border spinner-border-sm text-primary me-2" style="width:14px;height:14px"></span>'
+          +'<span class="fw-bold me-2">运行中</span>'
+          +'<code class="me-2">'+_esc(r.label)+'</code>'
+          +(r.trigger==='idle'?'<span class="badge bg-warning text-dark ms-1" style="font-size:.6rem">自动</span>':'')
+          +(r.pool?'<span class="badge bg-info text-dark ms-1" style="font-size:.6rem">池:'+_esc(r.pool)+'</span>':'');
+        if(r.execution_id){
+          html+='<a href="#" class="small ms-1" onclick="event.preventDefault();tcShowExeDetail(\''+_esc(r.execution_id)+'\')">查看详情</a>';
+        }
+        if(r.started_at){
+          var elapsed=Math.round((Date.now()/1000)-r.started_at);
+          html+='<span class="text-muted ms-auto">'+elapsed+'s</span>';
+        }
+        html+='</div>';
+      }
+
+      /* Queued items */
+      (tgt.queued||[]).forEach(function(q,idx){
+        html+='<div class="d-flex align-items-center small py-1 text-muted">'
+          +'<span class="me-2" style="width:14px;text-align:center">'+(idx+1)+'</span>'
+          +'<span class="me-2">排队</span>'
+          +'<code class="me-2">'+_esc(q.label)+'</code>'
+          +(q.trigger==='idle'?'<span class="badge bg-warning text-dark ms-1" style="font-size:.6rem">自动</span>':'')
+          +(q.pool?'<span class="badge bg-info text-dark ms-1" style="font-size:.6rem">池:'+_esc(q.pool)+'</span>':'')
+          +'<button class="btn btn-sm btn-outline-danger py-0 ms-auto" style="font-size:.7rem" '
+          +'onclick="tqCancel(\''+_esc(q.id)+'\')">取消</button>'
+          +'</div>';
+      });
+
+      html+='</div></div>';
+    });
+    content.innerHTML=html;
+
+    /* Recent completed */
+    var rhtml='';
+    if(recent.length){
+      rhtml='<div class="small fw-bold text-muted mb-1">最近完成</div>'
+        +'<table class="table table-sm table-striped" style="font-size:.8rem"><thead><tr>'
+        +'<th>环境</th><th>内容</th><th>结果</th><th>耗时</th><th>时间</th>'
+        +'</tr></thead><tbody>';
+      recent.forEach(function(r){
+        var badge=r.status==='done'?'<span class="badge bg-success">通过</span>'
+          :r.status==='failed'?'<span class="badge bg-danger">失败</span>'
+          :'<span class="badge bg-secondary">'+_esc(r.status)+'</span>';
+        var dur=r.finished_at&&r.started_at?Math.round(r.finished_at-r.started_at)+'s':'-';
+        var link=r.execution_id?'<a href="#" onclick="event.preventDefault();tcShowExeDetail(\''+_esc(r.execution_id)+'\')">'+_esc(r.label)+'</a>':_esc(r.label);
+        rhtml+='<tr><td>'+_esc(r.target)+'</td><td>'+link+'</td><td>'+badge+'</td>'
+          +'<td>'+dur+'</td><td>'+_fmtTime(r.finished_at)+'</td></tr>';
+      });
+      rhtml+='</tbody></table>';
+    }
+    document.getElementById('tqRecent').innerHTML=rhtml;
+
+    /* Continue polling if there are active items */
+    if(activeCount>0){
+      _tqPollTimer=setTimeout(_tqRefresh,3000);
+    }else{
+      _tqPollTimer=null;
+    }
+  }).catch(function(){_tqPollTimer=null;});
+}
+
+window.tqCancel=function(itemId){
+  fetch('/api/queue/'+itemId+'/cancel',{method:'POST'})
+    .then(function(){_tqRefresh();});
+};
+
+/* ===== 今日空闲提交 ===== */
+function _tqLoadIdleOptions(){
+  fetch('/api/schedules/options').then(function(r){return r.json();}).then(function(d){
+    var planSel=document.getElementById('tqIdlePlan');
+    planSel.innerHTML='<option value="">-- 测试计划 --</option>';
+    (d.plans||[]).forEach(function(p){
+      planSel.innerHTML+='<option value="'+_esc(p)+'">'+_esc(p)+'</option>';
+    });
+    var tgtSel=document.getElementById('tqIdleTarget');
+    tgtSel.innerHTML='<option value="">-- 环境/池 --</option>';
+    (d.pools||[]).forEach(function(p){
+      tgtSel.innerHTML+='<option value="'+_esc(p.name)+'">'+_esc(p.name)+' (池:'+p.count+')</option>';
+    });
+    (d.targets||[]).forEach(function(t){
+      tgtSel.innerHTML+='<option value="'+_esc(t)+'">'+_esc(t)+'</option>';
+    });
+  });
+}
+
+window.tqSubmitIdle=function(){
+  var plan=document.getElementById('tqIdlePlan').value;
+  var target=document.getElementById('tqIdleTarget').value;
+  var timeout=+document.getElementById('tqIdleTimeout').value||10;
+  var msg=document.getElementById('tqIdleMsg');
+  if(!plan){msg.textContent='请选择测试计划';return;}
+  if(!target){msg.textContent='请选择环境';return;}
+
+  var today=new Date().toISOString().slice(0,10);
+  var rule={
+    name:'今日空闲: '+plan,
+    hours:'',
+    targets:[target],
+    idle_timeout_min:timeout,
+    cooldown_min:0,
+    plan:plan,
+    enabled:true,
+    once:true,
+    expires:today
+  };
+
+  /* Append to existing schedules and save */
+  fetch('/api/schedules').then(function(r){return r.json();}).then(function(existing){
+    existing.push(rule);
+    return fetch('/api/schedules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(existing)});
+  }).then(function(r){return r.json();}).then(function(d){
+    if(d.error){msg.textContent=d.error;return;}
+    msg.innerHTML='<span class="text-success">已提交，环境空闲 '+timeout+' 分钟后自动执行</span>';
+    tqLoadSchedules();
+    setTimeout(function(){msg.textContent='';},5000);
+  });
+};
+
+/* ===== 调度策略 ===== */
+var _schedRules=[], _schedOpts={targets:[],pools:[],plans:[]};
+
+function tqLoadSchedules(){
+  Promise.all([
+    fetch('/api/schedules').then(function(r){return r.json();}),
+    fetch('/api/schedules/options').then(function(r){return r.json();})
+  ]).then(function(all){
+    _schedRules=all[0]||[];
+    _schedOpts=all[1]||{targets:[],pools:[],plans:[]};
+    _tqRenderSchedules();
+  });
+}
+
+function _tqTargetOptions(){
+  var opts='<option value="">--</option>';
+  (_schedOpts.pools||[]).forEach(function(p){
+    opts+='<option value="'+_esc(p.name)+'">'+_esc(p.name)+' (池:'+p.count+')</option>';
+  });
+  (_schedOpts.targets||[]).forEach(function(t){
+    opts+='<option value="'+_esc(t)+'">'+_esc(t)+'</option>';
+  });
+  return opts;
+}
+
+function _tqPlanOptions(){
+  var opts='<option value="">直接指定用例</option>';
+  (_schedOpts.plans||[]).forEach(function(p){
+    opts+='<option value="'+_esc(p)+'">'+_esc(p)+'</option>';
+  });
+  return opts;
+}
+
+function _tqRenderSchedules(){
+  var tb=document.getElementById('tqSchedBody');
+  if(!_schedRules.length){tb.innerHTML='<tr><td colspan="8" class="text-muted small">暂无策略</td></tr>';return;}
+  var tOpts=_tqTargetOptions(), pOpts=_tqPlanOptions();
+  var html='';
+  _schedRules.forEach(function(r,i){
+    var tgts=(r.targets||[]).join(',');
+    html+='<tr>'
+      +'<td><input class="form-control form-control-sm" value="'+_esc(r.name)+'" data-i="'+i+'" data-f="name" onchange="tqSchedChange(this)"></td>'
+      +'<td><input class="form-control form-control-sm" value="'+_esc(r.hours)+'" data-i="'+i+'" data-f="hours" placeholder="09:00-21:00" style="width:110px" onchange="tqSchedChange(this)"></td>'
+      +'<td><select class="form-select form-select-sm" data-i="'+i+'" data-f="targets" onchange="tqSchedTargetChange(this)" style="min-width:100px">'+tOpts+'</select></td>'
+      +'<td><input type="number" class="form-control form-control-sm" value="'+r.idle_timeout_min+'" data-i="'+i+'" data-f="idle_timeout_min" style="width:65px" min="1" onchange="tqSchedChange(this)"> 分</td>'
+      +'<td><input type="number" class="form-control form-control-sm" value="'+r.cooldown_min+'" data-i="'+i+'" data-f="cooldown_min" style="width:65px" min="0" onchange="tqSchedChange(this)"> 分</td>'
+      +'<td><select class="form-select form-select-sm" data-i="'+i+'" data-f="plan" onchange="tqSchedChange(this)">'+pOpts+'</select></td>'
+      +'<td><input type="checkbox" class="form-check-input" data-i="'+i+'" '+(r.enabled?'checked':'')+' onchange="tqSchedToggle(this)"></td>'
+      +'<td><button class="btn btn-sm btn-outline-danger py-0" onclick="tqRemoveSchedule('+i+')">删除</button></td>'
+      +'</tr>';
+  });
+  tb.innerHTML=html;
+  /* Set selected values for target and plan dropdowns */
+  _schedRules.forEach(function(r,i){
+    var tgtSel=tb.querySelector('select[data-i="'+i+'"][data-f="targets"]');
+    if(tgtSel&&r.targets&&r.targets.length) tgtSel.value=r.targets[0];
+    var planSel=tb.querySelector('select[data-i="'+i+'"][data-f="plan"]');
+    if(planSel) planSel.value=r.plan||'';
+  });
+}
+
+window.tqSchedChange=function(el){
+  var i=+el.dataset.i, f=el.dataset.f;
+  if(f==='idle_timeout_min'||f==='cooldown_min') _schedRules[i][f]=+el.value;
+  else _schedRules[i][f]=el.value;
+};
+window.tqSchedTargetChange=function(el){
+  var i=+el.dataset.i;
+  _schedRules[i].targets=el.value?[el.value]:[];
+};
+window.tqSchedToggle=function(el){
+  _schedRules[+el.dataset.i].enabled=el.checked;
+};
+window.tqAddSchedule=function(){
+  _schedRules.push({name:'',hours:'',days:'',targets:[],idle_timeout_min:30,cooldown_min:60,plan:'',cases:[],enabled:true});
+  _tqRenderSchedules();
+};
+window.tqRemoveSchedule=function(i){
+  _schedRules.splice(i,1);
+  _tqRenderSchedules();
+};
+window.tqSaveSchedules=function(){
+  var msg=document.getElementById('tqSchedMsg');
+  msg.textContent='保存中...';
+  fetch('/api/schedules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(_schedRules)})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.error){msg.textContent=d.error;return;}
+      msg.textContent='已保存 '+d.count+' 条策略';
+      setTimeout(function(){msg.textContent='';},3000);
+    });
+};
+
+/* ===== 甬道图 (Swimlane Timeline) ===== */
+window.tqLoadTimeline=function(){
+  fetch('/api/executions/timeline?hours=24').then(function(r){return r.json();}).then(function(data){
+    var el=document.getElementById('tqTimeline');
+    var lanes=data.lanes||{};
+    var targets=Object.keys(lanes);
+    if(!targets.length){el.innerHTML='<p class="text-muted small">最近24小时无执行记录</p>';return;}
+
+    var now=new Date(data.now);
+    var since=new Date(data.since);
+    var totalMs=now-since;
+    var laneW=120, timeH=400, padTop=24;
+
+    /* SVG header */
+    var svgW=targets.length*laneW+60;
+    var svg='<svg width="'+svgW+'" height="'+(timeH+padTop+20)+'" style="font-size:11px;font-family:sans-serif">';
+
+    /* Time axis (left) */
+    for(var h=0;h<=24;h+=3){
+      var y=padTop+(h/24)*timeH;
+      var t=new Date(since.getTime()+h*3600000);
+      var lbl=('0'+t.getHours()).slice(-2)+':00';
+      svg+='<line x1="50" y1="'+y+'" x2="'+svgW+'" y2="'+y+'" stroke="#e9ecef" stroke-dasharray="3"/>';
+      svg+='<text x="4" y="'+(y+4)+'" fill="#6c757d" font-size="10">'+lbl+'</text>';
+    }
+
+    /* Lanes */
+    targets.forEach(function(tname,idx){
+      var x=60+idx*laneW;
+      /* Header */
+      svg+='<text x="'+(x+laneW/2)+'" y="16" text-anchor="middle" font-weight="bold" font-size="11">'+_esc(tname)+'</text>';
+      /* Lane background */
+      svg+='<rect x="'+x+'" y="'+padTop+'" width="'+(laneW-8)+'" height="'+timeH+'" rx="4" fill="#f8f9fa" stroke="#dee2e6"/>';
+
+      /* Execution blocks */
+      (lanes[tname]||[]).forEach(function(e){
+        if(!e.started_at) return;
+        var s=new Date(e.started_at);
+        var f=e.finished_at?new Date(e.finished_at):now;
+        var y1=padTop+((s-since)/totalMs)*timeH;
+        var y2=padTop+((f-since)/totalMs)*timeH;
+        var h=Math.max(y2-y1,4);
+        var color=e.status==='running'?'#0d6efd':e.status==='pass'?'#198754':'#dc3545';
+        svg+='<rect x="'+(x+2)+'" y="'+y1+'" width="'+(laneW-12)+'" height="'+h+'" rx="3" fill="'+color+'" opacity=".8">'
+          +'<title>'+_esc(e.plan_name||e.id)+'\n'+_esc(e.started_at)+' → '+(e.finished_at||'运行中')
+          +'\n'+e.passed+'/'+e.total+' 通过</title></rect>';
+        /* Label inside block if tall enough */
+        if(h>14){
+          svg+='<text x="'+(x+4)+'" y="'+(y1+12)+'" fill="#fff" font-size="9" clip-path="url(#clip-'+idx+')">'
+            +_esc((e.plan_name||e.id).substring(0,12))+'</text>';
+        }
+      });
+    });
+
+    svg+='</svg>';
+    el.innerHTML='<div class="d-flex gap-2 mb-1 small">'
+      +'<span><span style="display:inline-block;width:12px;height:12px;background:#198754;border-radius:2px"></span> 通过</span>'
+      +'<span><span style="display:inline-block;width:12px;height:12px;background:#dc3545;border-radius:2px"></span> 失败</span>'
+      +'<span><span style="display:inline-block;width:12px;height:12px;background:#0d6efd;border-radius:2px"></span> 运行中</span>'
+      +'</div>'+svg;
+  });
+};
+
 /* ---------- 初始化 ---------- */
 tcLoadSuites(); tcLoadExecutions(); tcLoadOptions();
 
 /* 切换到「执行记录」时自动刷新 */
 var _exeTab=document.querySelector('[data-bs-target="#sub-executions"]');
 if(_exeTab) _exeTab.addEventListener('shown.bs.tab',function(){tcLoadExecutions();});
+
+/* 切换到「执行队列」时开始轮询，离开时停止 */
+var _qTab=document.getElementById('tcQueueTab');
+if(_qTab){
+  _qTab.addEventListener('shown.bs.tab',function(){_tqStartPoll();tqLoadTimeline();tqLoadSchedules();_tqLoadIdleOptions();});
+  _qTab.addEventListener('hidden.bs.tab',function(){_tqStopPoll();});
+}
 
 /* 暴露 onclick 需要的函数到全局 */
 window.tcSyncPlansFromServer=function(){

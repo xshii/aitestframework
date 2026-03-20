@@ -37,7 +37,7 @@
     <button class="btn btn-sm btn-outline-primary ms-2 py-0" onclick="logRefresh()">刷新</button>
   </div>
   <table class="table table-sm table-striped" id="logTable" style="display:none">
-    <thead><tr><th style="width:160px">时间</th><th style="width:140px">操作</th><th>详情</th></tr></thead>
+    <thead><tr><th style="width:160px">时间</th><th style="width:140px">操作</th><th>详情</th><th style="width:120px">来源</th></tr></thead>
     <tbody id="logBody"></tbody>
   </table>
   <p id="logEmpty" class="text-muted small">暂无操作记录。</p>
@@ -87,9 +87,11 @@ window.logRefresh=function(){
       var ts=d.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});
       var label=_actionLabels[e.action]||e.action;
       var color=_actionColors[e.action]||'';
+      var ip=(e.extra&&e.extra.ip)||'';
       html+='<tr><td class="text-muted small">'+_esc(ts)+'</td>'
         +'<td><span class="'+(color)+' small fw-bold">'+_esc(label)+'</span></td>'
-        +'<td class="small">'+_esc(e.detail)+'</td></tr>';
+        +'<td class="small">'+_esc(e.detail)+'</td>'
+        +'<td class="text-muted small">'+_esc(ip)+'</td></tr>';
     });
     document.getElementById('logBody').innerHTML=html;
   });

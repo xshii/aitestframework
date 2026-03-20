@@ -7,7 +7,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 from sqlalchemy import select
@@ -97,7 +97,7 @@ def refresh_suites(cases_dir: str | Path) -> int:
     from dataclasses import asdict
 
     discovered = scan_cases_dir(cases_dir)
-    now = datetime.now(UTC)
+    now = datetime.now()
 
     with get_session() as session:
         # Build lookup of existing suites
@@ -183,7 +183,7 @@ def create_execution(
     suite_cases: list of (suite_class, [method_names])
     Returns execution_id.
     """
-    now = datetime.now(UTC)
+    now = datetime.now()
     total = sum(len(methods) for _, methods in (suite_cases or []))
 
     with get_session() as session:
@@ -239,14 +239,11 @@ def update_case_status(
 
         row.status = status
         if status == CaseStatus.RUNNING and row.started_at is None:
-            row.started_at = datetime.now(UTC)
+            row.started_at = datetime.now()
         if status in CaseStatus.TERMINAL:
-            row.finished_at = datetime.now(UTC)
+            row.finished_at = datetime.now()
             if row.started_at:
-                # SQLite drops timezone info; strip tzinfo before subtracting
-                fin = row.finished_at.replace(tzinfo=None)
-                sta = row.started_at.replace(tzinfo=None)
-                row.duration_s = (fin - sta).total_seconds()
+                row.duration_s = (row.finished_at - row.started_at).total_seconds()
 
         for key in ("failure_reason", "compare_detail", "stdout", "stderr"):
             if key in kwargs:
@@ -279,7 +276,7 @@ def finish_execution(execution_id: str) -> None:
             ss = suite_summary.setdefault(c.suite_class, {})
             ss[c.status] = ss.get(c.status, 0) + 1
 
-        exe.finished_at = datetime.now(UTC)
+        exe.finished_at = datetime.now()
         exe.total = len(cases)
         exe.passed = counts.get(CaseStatus.PASS, 0)
         exe.failed = counts.get(CaseStatus.FAIL, 0)

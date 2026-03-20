@@ -118,6 +118,8 @@ class RunConfig:
     golden_version: str | None = None
     params: dict[str, Any] = field(default_factory=dict)
     repeat: int = 1
+    test_timeout: int = 300         # per-test timeout in seconds (0=no timeout)
+    retry: int = 0                  # retry failed tests N times before final fail
 
 
 @dataclass

@@ -30,9 +30,32 @@ def _db_path():
     return cfg.build_root / "aitf.db" if cfg else "build/aitf.db"
 
 
+def _queue():
+    """Return the shared ExecutionQueue (created once per app)."""
+    q = current_app.config.get("EXECUTION_QUEUE")
+    if q is None:
+        from aitf.tc.queue import ExecutionQueue
+        cfg = current_app.config.get("AITF_CONFIG")
+        root = str(cfg.project_root) if cfg else "."
+        q = ExecutionQueue(str(_cases_dir()), str(_db_path()), root)
+        q.start_idle_watcher()
+        current_app.config["EXECUTION_QUEUE"] = q
+    return q
+
+
 def _project_root() -> Path:
     cfg = current_app.config.get("AITF_CONFIG")
     return cfg.project_root if cfg else Path(".")
+
+
+def _testplans_dir() -> Path:
+    """Return testplans directory (data/testplans/ preferred, project_root fallback)."""
+    cfg = current_app.config.get("AITF_CONFIG")
+    if cfg:
+        d = cfg.testplans_dir
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+    return Path(".")
 
 
 def _require_sync_client():
@@ -79,32 +102,186 @@ def api_get_execution(execution_id: str):
     return jsonify(detail)
 
 
+@bp.route("/api/executions/<execution_id>/rerun-failed", methods=["POST"])
+def api_rerun_failed(execution_id: str):
+    """Re-run only the failed cases from a previous execution."""
+    detail = store.get_execution_detail(execution_id)
+    if detail is None:
+        return jsonify({"error": "not found"}), 404
+
+    # Collect failed case modules
+    failed_modules: set[str] = set()
+    failed_methods: list[str] = []
+    for c in detail.get("cases", []):
+        if c["status"] in ("FAIL", "ERROR", "TIMEOUT", "CRASH"):
+            # Find the suite's module_path from SuiteInfo
+            failed_modules.add(c["suite_class"])
+            failed_methods.append(c["case_method"])
+
+    if not failed_methods:
+        return jsonify({"error": "no failed cases to re-run"}), 400
+
+    # Resolve module paths from suite class names
+    from aitf.tc.db import get_session
+    from aitf.tc.models import SuiteInfo
+    session = get_session()
+    try:
+        paths = []
+        for si in session.query(SuiteInfo).filter(
+                SuiteInfo.class_name.in_(failed_modules)).all():
+            paths.append(si.module_path)
+    finally:
+        session.close()
+
+    if not paths:
+        return jsonify({"error": "could not resolve module paths"}), 400
+
+    target = detail.get("target") or "local"
+    item = _queue().submit(
+        target, paths,
+        filter_k="|".join(failed_methods),
+        label=f"重跑失败 ({len(failed_methods)} cases)",
+        bundle=detail.get("bundle"),
+    )
+    log_activity("rerun", f"重跑 {execution_id} 的 {len(failed_methods)} 个失败用例")
+    return jsonify({"ok": True, "queue_item_id": item.id})
+
+
+@bp.route("/api/cases/<suite_class>/<case_method>/history", methods=["GET"])
+def api_case_history(suite_class: str, case_method: str):
+    """Return pass/fail history for a specific test case across executions."""
+    from aitf.tc.db import get_session
+    from aitf.tc.models import CaseResult
+
+    limit = request.args.get("limit", 30, type=int)
+    session = get_session()
+    try:
+        rows = (session.query(CaseResult)
+                .filter(CaseResult.suite_class == suite_class,
+                        CaseResult.case_method == case_method)
+                .order_by(CaseResult.finished_at.desc())
+                .limit(limit)
+                .all())
+        history = [{
+            "execution_id": r.execution_id,
+            "status": r.status,
+            "duration_s": r.duration_s,
+            "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+            "failure_reason": (r.failure_reason or "")[-200:] if r.failure_reason else None,
+        } for r in rows]
+    finally:
+        session.close()
+    return jsonify(history)
+
+
+@bp.route("/api/executions/timeline", methods=["GET"])
+def api_execution_timeline():
+    """Return last 24h executions grouped by target for swimlane chart."""
+    from datetime import datetime, timedelta
+
+    from aitf.tc.db import get_session
+    from aitf.tc.models import Execution
+
+    hours = request.args.get("hours", 24, type=int)
+    since = datetime.now() - timedelta(hours=hours)
+
+    session = get_session()
+    try:
+        exes = (session.query(Execution)
+                .filter(Execution.started_at >= since)
+                .order_by(Execution.started_at)
+                .all())
+        lanes: dict[str, list] = {}
+        for e in exes:
+            target = e.target or e.platform or "local"
+            lanes.setdefault(target, []).append({
+                "id": e.id,
+                "plan_name": e.plan_name,
+                "started_at": e.started_at.isoformat() if e.started_at else None,
+                "finished_at": e.finished_at.isoformat() if e.finished_at else None,
+                "total": e.total,
+                "passed": e.passed,
+                "failed_total": e.failed_total,
+                "pass_rate": e.pass_rate,
+                "status": ("running" if not e.finished_at else
+                           "pass" if e.failed_total == 0 else "fail"),
+            })
+    finally:
+        session.close()
+
+    return jsonify({"lanes": lanes, "since": since.isoformat(),
+                    "now": datetime.now().isoformat()})
+
+
 # ---------------------------------------------------------------------------
 # Run
 # ---------------------------------------------------------------------------
 
 @bp.route("/api/run", methods=["POST"])
 def api_run():
-    """Trigger test execution in a background thread."""
-    from aitf.tc.runner import run_tests_async
+    """Submit execution to the per-target queue (prevents contention).
 
+    Client mode + non-local target → forward to server.
+    """
     body = request.get_json(silent=True) or {}
-
-    execution_id = run_tests_async(
-        _cases_dir(), _db_path(),
-        paths=body.get("paths"),
-        filter_k=body.get("filter_k"),
-        bundle=body.get("bundle"),
-        target=body.get("target"),
-        golden_model=body.get("golden_model"),
-        golden_version=body.get("golden_version"),
-        params=body.get("params"),
-    )
-    if not execution_id:
-        return jsonify({"error": "no tests found"}), 400
     paths = body.get("paths") or []
-    log_activity("run", f"执行 {len(paths)} 个模块", target=body.get("target", "本地"))
-    return jsonify({"ok": True, "execution_id": execution_id})
+    target = body.get("target") or "local"
+
+    if not paths:
+        return jsonify({"error": "no paths specified"}), 400
+
+    # Client mode: forward non-local targets to server
+    if target != "local":
+        from aitf.web.proxy import forward_to_server
+        proxied = forward_to_server("/api/run", body)
+        if proxied:
+            return proxied
+
+    kw = {}
+    for k in ("filter_k", "bundle", "golden_model", "golden_version", "params"):
+        if body.get(k):
+            kw[k] = body[k]
+
+    item = _queue().submit(target, paths, **kw)
+    log_activity("run", f"提交 {len(paths)} 个模块 → {target}", target=target)
+    return jsonify({"ok": True, "queue_item_id": item.id, "target": item.target,
+                    "pool": item.pool})
+
+
+@bp.route("/api/queue", methods=["GET"])
+def api_queue_status():
+    """Return current queue state. Client mode merges local + server queues."""
+    local_status = _queue().get_status()
+
+    from aitf.web.proxy import fetch_server_json
+    remote = fetch_server_json("/api/queue")
+    if remote:
+            # Merge: server targets into local status
+            for tname, tdata in remote.get("targets", {}).items():
+                if tname not in local_status["targets"]:
+                    local_status["targets"][tname] = tdata
+            local_status.setdefault("recent", [])
+            local_status["recent"] = (
+                remote.get("recent", []) + local_status["recent"]
+            )[:30]
+
+    return jsonify(local_status)
+
+
+@bp.route("/api/queue/<item_id>/cancel", methods=["POST"])
+def api_queue_cancel(item_id):
+    """Cancel a queued (not yet running) item."""
+    ok = _queue().cancel(item_id)
+    if not ok:
+        from aitf.web.proxy import forward_to_server
+        proxied = forward_to_server(f"/api/queue/{item_id}/cancel", {})
+        if proxied:
+            return proxied
+    if ok:
+        log_activity("queue.cancel", item_id)
+    return jsonify({"ok": ok})
+
+
 
 
 @bp.route("/api/run/plan", methods=["POST"])
@@ -280,7 +457,11 @@ def api_tc_options():
     # Testplan files — return {filename, name} pairs
     try:
         from aitf.tc.testplan import list_plan_files
-        testplans = list_plan_files(_project_root())
+        # Merge plans from data/testplans/ and legacy project root
+        testplans = list_plan_files(_testplans_dir())
+        legacy = list_plan_files(_project_root())
+        seen = {p["filename"] for p in testplans}
+        testplans.extend(p for p in legacy if p["filename"] not in seen)
     except Exception:
         logger.debug("Failed to scan testplans for tc/options", exc_info=True)
 
@@ -296,8 +477,13 @@ def api_tc_options():
 # ---------------------------------------------------------------------------
 
 def _safe_plan_path(filename: str) -> Path | None:
-    """Resolve plan path safely, preventing path traversal."""
+    """Resolve plan path safely, checking data/testplans/ and project root."""
     from aitf.tc.testplan import safe_plan_path
+    # Try new location first
+    p = safe_plan_path(_testplans_dir(), filename)
+    if p and p.is_file():
+        return p
+    # Fallback: project root
     return safe_plan_path(_project_root(), filename)
 
 
@@ -361,7 +547,7 @@ def api_save_plan():
             entry["params"] = params
         plan_data["plans"].append(entry)
 
-    saved, err = save_plan_yaml(_project_root(), filename, plan_data)
+    saved, err = save_plan_yaml(_testplans_dir(), filename, plan_data)
     if err:
         return jsonify({"error": err}), 400
     log_activity("plan.save", f"保存计划 {saved}")
@@ -576,9 +762,9 @@ def api_webhook():
             exe = session.get(Execution, execution_id)
             if exe is None:
                 # Create new execution record
-                from datetime import UTC, datetime
+                from datetime import datetime
 
-                now = datetime.now(UTC)
+                now = datetime.now()
                 exe = Execution(
                     id=execution_id,
                     started_at=now,
@@ -599,9 +785,9 @@ def api_webhook():
                 session.add(exe)
             else:
                 # Update existing execution
-                from datetime import UTC, datetime
+                from datetime import datetime
 
-                exe.finished_at = datetime.now(UTC)
+                exe.finished_at = datetime.now()
                 exe.platform = body.get("platform") or exe.platform
                 exe.git_commit = body.get("git_commit") or exe.git_commit
                 exe.total = summary.get("total", exe.total)
@@ -624,6 +810,53 @@ def api_webhook():
 # ---------------------------------------------------------------------------
 # Report generation (REQ-4.4)
 # ---------------------------------------------------------------------------
+
+@bp.route("/api/executions/cleanup", methods=["POST"])
+def api_cleanup():
+    """Delete old executions and report files.
+
+    Body: {"keep_days": 30}  — delete executions older than N days.
+    """
+    import shutil
+    from datetime import datetime, timedelta
+
+    from aitf.tc.db import get_session
+    from aitf.tc.models import CaseResult, Execution
+
+    body = request.get_json(silent=True) or {}
+    keep_days = body.get("keep_days", 30)
+    cutoff = datetime.now() - timedelta(days=keep_days)
+
+    session = get_session()
+    try:
+        old = session.query(Execution).filter(Execution.started_at < cutoff).all()
+        count = len(old)
+        eids = [e.id for e in old]
+
+        if eids:
+            session.query(CaseResult).filter(
+                CaseResult.execution_id.in_(eids)).delete(
+                synchronize_session=False)
+            session.query(Execution).filter(
+                Execution.id.in_(eids)).delete(
+                synchronize_session=False)
+            session.commit()
+
+        # Clean report directories
+        cfg = current_app.config.get("AITF_CONFIG")
+        report_root = (cfg.build_root if cfg else Path("build")) / "reports"
+        cleaned_dirs = 0
+        if report_root.is_dir():
+            for d in report_root.iterdir():
+                if d.is_dir() and d.name in eids:
+                    shutil.rmtree(d, ignore_errors=True)
+                    cleaned_dirs += 1
+    finally:
+        session.close()
+
+    log_activity("cleanup", f"清理 {count} 条执行记录（{keep_days} 天前）")
+    return jsonify({"ok": True, "deleted": count, "cleaned_dirs": cleaned_dirs})
+
 
 @bp.route("/api/executions/<execution_id>/report", methods=["GET"])
 def api_execution_report(execution_id: str):

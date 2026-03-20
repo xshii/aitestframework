@@ -7,13 +7,11 @@ function _esc(s) {
 
 function _fmtTime(ts) {
   if (!ts) return '-';
-  /* Auto-detect: epoch seconds (number < 1e12) vs ISO string vs epoch ms */
   var d;
   if (typeof ts === 'number') {
     d = new Date(ts < 1e12 ? ts * 1000 : ts);
   } else {
     d = new Date(ts);
-    if (isNaN(d.getTime())) d = new Date(ts + 'Z');
   }
   if (isNaN(d.getTime())) return '-';
   var p = function(v) { return v < 10 ? '0' + v : v; };

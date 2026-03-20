@@ -91,11 +91,14 @@ class AitfConfig:
     dbox_enabled: bool = False
     dbox_server: str = ""
     dbox_upload_path: str = "/api/upload"
+    data_root: Path | None = field(default=None, repr=False)
     _build_root: Path | None = field(default=None, repr=False)
     _datastore_dir: Path | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         self.mode = _determine_mode(self.server)
+        if self.data_root is None:
+            self.data_root = self.project_root / "data"
 
     # -- path properties ---------------------------------------------------
 
@@ -103,13 +106,43 @@ class AitfConfig:
     def build_root(self) -> Path:
         if self._build_root is not None:
             return self._build_root
-        return self.project_root / "build"
+        return self.data_root / "build"
 
     @property
     def datastore_dir(self) -> Path:
         if self._datastore_dir is not None:
             return self._datastore_dir
-        return self.project_root / "datastore"
+        return self.data_root / "datastore"
+
+    @property
+    def config_dir(self) -> Path:
+        """User configuration directory (targets, schedules, deps)."""
+        return self.data_root / "config"
+
+    @property
+    def testplans_dir(self) -> Path:
+        """Test plan YAML files."""
+        return self.data_root / "testplans"
+
+    @property
+    def targets_file(self) -> Path:
+        """targets.yaml path."""
+        return self.data_root / "config" / "targets.yaml"
+
+    @property
+    def schedules_file(self) -> Path:
+        """schedules.yaml path."""
+        return self.data_root / "config" / "schedules.yaml"
+
+    @property
+    def deps_file(self) -> Path:
+        """deps.yaml path."""
+        return self.data_root / "config" / "deps.yaml"
+
+    @property
+    def uploads_dir(self) -> Path:
+        """User uploaded files (deps, firmware, scripts)."""
+        return self.data_root / "uploads"
 
     @property
     def server_url(self) -> str | None:

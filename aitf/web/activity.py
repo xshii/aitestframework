@@ -20,8 +20,26 @@ class ActivityEntry:
     extra: dict = field(default_factory=dict)
 
 
+def _get_client_ip() -> str:
+    """Best-effort client IP from Flask request context."""
+    try:
+        from flask import request
+        xff = request.headers.get("X-Forwarded-For", "")
+        if xff:
+            return xff.split(",")[0].strip()  # first IP = real client
+        return request.remote_addr or ""
+    except (ImportError, RuntimeError):
+        return ""
+
+
 def log_activity(action: str, detail: str = "", **extra) -> None:
-    """Append an activity entry to the ring buffer."""
+    """Append an activity entry to the ring buffer.
+
+    Automatically records the client IP from the current Flask request.
+    """
+    ip = extra.pop("ip", None) or _get_client_ip()
+    if ip:
+        extra["ip"] = ip
     entry = ActivityEntry(ts=time.time(), action=action, detail=detail, extra=extra)
     with _lock:
         _log.append(asdict(entry))

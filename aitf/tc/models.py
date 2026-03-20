@@ -1,4 +1,14 @@
-"""SQLAlchemy models for test-case management (REQ-4 + REQ-7)."""
+"""SQLAlchemy models for test-case management (REQ-4 + REQ-7).
+
+Uses :class:`DictMixin` to auto-generate ``to_dict()`` from SQLAlchemy
+column definitions — no manual field-by-field mapping needed.  Frontend
+field names always match column names exactly.
+
+Special handling:
+- ``DateTime`` columns → ISO-8601 string (or None)
+- Columns with ``info={"json": True}`` → ``json.loads()`` on output
+- ``_extra_fields``: class-level tuple of ``@property`` names to include
+"""
 
 from __future__ import annotations
 
@@ -44,15 +54,36 @@ class CaseStatus:
     """Statuses that count as failures."""
 
 
-def _ts(dt: datetime | None) -> str | None:
-    return dt.isoformat() if dt else None
+class DictMixin:
+    """Auto-serialize SQLAlchemy model to dict via column introspection.
+
+    Rules:
+    - DateTime columns → ``isoformat()`` or None
+    - Columns with ``info={"json": True}`` → ``json.loads()``
+    - Extra ``@property`` names listed in ``_extra_fields`` are appended
+    """
+
+    _extra_fields: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict:
+        d: dict = {}
+        for col in self.__table__.columns:
+            val = getattr(self, col.name)
+            if isinstance(val, datetime):
+                val = val.isoformat() if val else None
+            elif col.info.get("json"):
+                val = json.loads(val) if val else col.info.get("json_default")
+            d[col.name] = val
+        for prop in self._extra_fields:
+            d[prop] = getattr(self, prop)
+        return d
 
 
 class Base(DeclarativeBase):
     pass
 
 
-class SuiteInfo(Base):
+class SuiteInfo(DictMixin, Base):
     """Test suite discovered by scanning cases/ directory."""
 
     __tablename__ = "suite_info"
@@ -68,31 +99,17 @@ class SuiteInfo(Base):
     platform = Column(String, nullable=True)                    # npu / gpu / cpu
     category = Column(String, nullable=True)                    # operators / models / preprocess
     case_count = Column(Integer, default=0)
-    case_names = Column(Text, nullable=True)                    # JSON: ["test_fp32_3x3_basic", ...]
+    case_names = Column(Text, info={"json": True, "json_default": []})
     scanned_at = Column(DateTime, default=func.now())
     last_execution_id = Column(String, nullable=True)
-    last_status_summary = Column(Text, nullable=True)           # JSON: {"pass":3,"fail":1}
-
-    def to_dict(self) -> dict:
-        return {
-            "id": self.id,
-            "module_path": self.module_path,
-            "class_name": self.class_name,
-            "docstring": self.docstring,
-            "platform": self.platform,
-            "category": self.category,
-            "case_count": self.case_count,
-            "case_names": json.loads(self.case_names or "[]"),
-            "scanned_at": _ts(self.scanned_at),
-            "last_execution_id": self.last_execution_id,
-            "last_status_summary": json.loads(self.last_status_summary or "{}"),
-        }
+    last_status_summary = Column(Text, info={"json": True, "json_default": {}})
 
 
-class Execution(Base):
+class Execution(DictMixin, Base):
     """A test execution batch."""
 
     __tablename__ = "executions"
+    _extra_fields = ("failed_total", "not_run")
 
     id = Column(String, primary_key=True)                       # e.g. 20260227-143000-abc123
     started_at = Column(DateTime, default=func.now())
@@ -133,35 +150,8 @@ class Execution(Base):
         """Cases not yet executed (total - passed - failed_total)."""
         return max(0, (self.total or 0) - (self.passed or 0) - self.failed_total)
 
-    def to_dict(self) -> dict:
-        return {
-            "id": self.id,
-            "started_at": _ts(self.started_at),
-            "finished_at": _ts(self.finished_at),
-            "bundle": self.bundle,
-            "target": self.target,
-            "golden_model": self.golden_model,
-            "golden_version": self.golden_version,
-            "plan_name": self.plan_name,
-            "platform": self.platform,
-            "pipeline_id": self.pipeline_id,
-            "pipeline_stage": self.pipeline_stage,
-            "git_commit": self.git_commit,
-            "trigger": self.trigger,
-            "total": self.total,
-            "passed": self.passed,
-            "failed": self.failed,
-            "timeout": self.timeout,
-            "crashed": self.crashed,
-            "skipped": self.skipped,
-            "errored": self.errored,
-            "failed_total": self.failed_total,
-            "not_run": self.not_run,
-            "pass_rate": self.pass_rate,
-        }
 
-
-class CaseResult(Base):
+class CaseResult(DictMixin, Base):
     """Result of a single test case within an execution."""
 
     __tablename__ = "case_results"
@@ -175,23 +165,8 @@ class CaseResult(Base):
     started_at = Column(DateTime, nullable=True)
     finished_at = Column(DateTime, nullable=True)
     failure_reason = Column(String, nullable=True)
-    compare_detail = Column(Text, nullable=True)                # JSON
+    compare_detail = Column(Text, info={"json": True, "json_default": None})
     stdout = Column(Text, nullable=True)                        # captured stdout
     stderr = Column(Text, nullable=True)                        # captured stderr
 
     execution = relationship("Execution", back_populates="cases")
-
-    def to_dict(self) -> dict:
-        return {
-            "id": self.id,
-            "suite_class": self.suite_class,
-            "case_method": self.case_method,
-            "status": self.status,
-            "duration_s": self.duration_s,
-            "started_at": _ts(self.started_at),
-            "finished_at": _ts(self.finished_at),
-            "failure_reason": self.failure_reason,
-            "compare_detail": json.loads(self.compare_detail or "null"),
-            "stdout": self.stdout,
-            "stderr": self.stderr,
-        }

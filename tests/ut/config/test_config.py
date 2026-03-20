@@ -80,7 +80,7 @@ class TestAitfConfig:
 
     def test_build_root_default(self, tmp_path):
         cfg = AitfConfig(project_root=tmp_path)
-        assert cfg.build_root == tmp_path / "build"
+        assert cfg.build_root == tmp_path / "data" / "build"
 
     def test_build_root_explicit(self, tmp_path):
         cfg = AitfConfig(project_root=tmp_path, _build_root=Path("/opt/build"))
@@ -88,7 +88,7 @@ class TestAitfConfig:
 
     def test_datastore_dir_default(self, tmp_path):
         cfg = AitfConfig(project_root=tmp_path)
-        assert cfg.datastore_dir == tmp_path / "datastore"
+        assert cfg.datastore_dir == tmp_path / "data" / "datastore"
 
     def test_datastore_dir_explicit(self, tmp_path):
         cfg = AitfConfig(project_root=tmp_path, _datastore_dir=Path("/data/golden"))
@@ -165,5 +165,5 @@ class TestLoadConfig:
     def test_paths_default_when_unset(self, tmp_path):
         (tmp_path / "config.yaml").write_text(yaml.dump({"port": 8080}))
         cfg = load_config(project_root=tmp_path)
-        assert cfg.build_root == tmp_path / "build"
-        assert cfg.datastore_dir == tmp_path / "datastore"
+        assert cfg.build_root == tmp_path / "data" / "build"
+        assert cfg.datastore_dir == tmp_path / "data" / "datastore"
