@@ -39,7 +39,6 @@ class ScheduleRule:
 
     def to_dict(self) -> dict:
         return asdict(self)
-        }
 
 
 def _schedules_path(project_root: str | Path) -> Path:

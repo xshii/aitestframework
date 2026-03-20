@@ -217,6 +217,73 @@ class TestWebhook:
         assert resp.status_code == 200
 
 
+class TestQueue:
+    def test_queue_status_empty(self, client):
+        resp = client.get("/api/queue")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["targets"] == {}
+        assert data["recent"] == []
+
+    def test_submit_and_queue_status(self, client):
+        # Refresh suites first so tests can be found
+        client.post("/api/suites/refresh", content_type="application/json")
+
+        resp = client.post(
+            "/api/run",
+            data=json.dumps({"paths": ["npu/operators/test_demo.py"], "target": "local"}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["ok"] is True
+        assert "queue_item_id" in data
+
+    def test_cancel_nonexistent(self, client):
+        resp = client.post("/api/queue/nonexistent/cancel",
+                           content_type="application/json")
+        assert resp.status_code == 200
+        assert resp.get_json()["ok"] is False
+
+
+class TestTimeline:
+    def test_timeline_empty(self, client):
+        resp = client.get("/api/executions/timeline?hours=24")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "lanes" in data
+        assert "since" in data
+        assert "now" in data
+
+
+class TestCaseHistory:
+    def test_history_empty(self, client):
+        resp = client.get("/api/cases/TestDemo/test_one/history")
+        assert resp.status_code == 200
+        assert resp.get_json() == []
+
+
+class TestRerunFailed:
+    def test_rerun_nonexistent(self, client):
+        resp = client.post("/api/executions/nonexistent/rerun-failed",
+                           content_type="application/json",
+                           data="{}")
+        assert resp.status_code == 404
+
+
+class TestCleanup:
+    def test_cleanup_no_old_data(self, client):
+        resp = client.post(
+            "/api/executions/cleanup",
+            data=json.dumps({"keep_days": 30}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["ok"] is True
+        assert data["deleted"] == 0
+
+
 class TestCSRF:
     def test_post_with_text_plain_rejected(self, client):
         """POST with text/plain Content-Type and a body should be rejected."""
