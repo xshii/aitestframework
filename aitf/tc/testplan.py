@@ -85,6 +85,7 @@ def save_plan_yaml(
         return None, "文件名只能包含字母、数字、下划线、中文"
     filename = stem + ".yaml"
     out = Path(root) / filename
+    out.parent.mkdir(parents=True, exist_ok=True)
     with open(out, "w", encoding="utf-8") as fh:
         yaml.dump(plan_data, fh, allow_unicode=True, default_flow_style=False,
                   sort_keys=False)

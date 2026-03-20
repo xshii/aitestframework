@@ -52,9 +52,7 @@ def _testplans_dir() -> Path:
     """Return testplans directory (data/testplans/ preferred, project_root fallback)."""
     cfg = current_app.config.get("AITF_CONFIG")
     if cfg:
-        d = cfg.testplans_dir
-        d.mkdir(parents=True, exist_ok=True)
-        return d
+        return cfg.testplans_dir
     return Path(".")
 
 

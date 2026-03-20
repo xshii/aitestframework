@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ctypes
 import importlib.util
+import json
 import logging
 import sys
 import threading
@@ -13,6 +14,13 @@ from pathlib import Path
 
 # Max captured stdout/stderr per test case (prevent DB bloat)
 _MAX_OUTPUT_CHARS = 50_000
+
+
+def _truncate(text: str, limit: int = _MAX_OUTPUT_CHARS) -> str:
+    """Truncate text to limit chars, appending a note if truncated."""
+    if len(text) <= limit:
+        return text
+    return text[:limit] + f"\n... (truncated, {len(text)} chars total)"
 
 from aitf.tc import store
 from aitf.tc.db import get_session, init_db
@@ -169,13 +177,9 @@ class AitfTestResult(unittest.TestResult):
         if self._pending_status:
             kw = self._pending_kwargs
             if stdout_text:
-                if len(stdout_text) > _MAX_OUTPUT_CHARS:
-                    stdout_text = stdout_text[:_MAX_OUTPUT_CHARS] + f"\n... (truncated, {len(stdout_text)} chars total)"
-                kw["stdout"] = stdout_text
+                kw["stdout"] = _truncate(stdout_text)
             if stderr_text:
-                if len(stderr_text) > _MAX_OUTPUT_CHARS:
-                    stderr_text = stderr_text[:_MAX_OUTPUT_CHARS] + f"\n... (truncated, {len(stderr_text)} chars total)"
-                kw["stderr"] = stderr_text
+                kw["stderr"] = _truncate(stderr_text)
             self._update(test, self._pending_status, **kw)
 
         self._pending_status = None
@@ -389,6 +393,18 @@ def _retry_failed(result: AitfTestResult, suite: unittest.TestSuite,
 # Report files — save per-case stdout/stderr to build/reports/ (REQ-6.6)
 # ---------------------------------------------------------------------------
 
+def _report_root() -> Path:
+    """Resolve report output directory from Flask config or fallback."""
+    try:
+        from flask import current_app
+        cfg = current_app.config.get("AITF_CONFIG")
+        if cfg:
+            return cfg.build_root / "reports"
+    except (ImportError, RuntimeError):
+        pass
+    return Path("data") / "build" / "reports"
+
+
 def _save_report_files(execution_id: str) -> None:
     """Write per-case log files and JSON report to build/reports/<eid>/."""
     detail = store.get_execution_detail(execution_id)
@@ -396,12 +412,10 @@ def _save_report_files(execution_id: str) -> None:
         return
 
     try:
-        project_root = Path(__file__).resolve().parent.parent.parent
-        report_dir = project_root / "build" / "reports" / execution_id
+        report_dir = _report_root() / execution_id
         report_dir.mkdir(parents=True, exist_ok=True)
 
         # JSON summary
-        import json
         (report_dir / "result.json").write_text(
             json.dumps(detail, indent=2, ensure_ascii=False), encoding="utf-8")
 

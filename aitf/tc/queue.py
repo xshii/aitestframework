@@ -160,7 +160,7 @@ class ExecutionQueue:
         self._items: list[QueueItem] = []
         self._max_history = 50
         self._idle_stop = threading.Event()
-        self._state_file = Path(project_root) / "build" / "queue_state.json"
+        self._state_file = Path(project_root) / "data" / "build" / "queue_state.json"
         self._load_state()
 
     def _resolve_target(self, target: str) -> tuple[str, str]:
@@ -277,14 +277,17 @@ class ExecutionQueue:
                 from aitf.tc.runner import run_tests
                 from aitf.tc.testplan import RunConfig
 
+                kw = item.run_kwargs
                 config = RunConfig(
                     tests=item.paths,
-                    filter_k=item.run_kwargs.get("filter_k"),
-                    bundle=item.run_kwargs.get("bundle"),
+                    filter_k=kw.get("filter_k"),
+                    bundle=kw.get("bundle"),
                     target=item.target if item.target != "local" else None,
-                    golden_model=item.run_kwargs.get("golden_model"),
-                    golden_version=item.run_kwargs.get("golden_version"),
-                    params=item.run_kwargs.get("params") or {},
+                    golden_model=kw.get("golden_model"),
+                    golden_version=kw.get("golden_version"),
+                    params=kw.get("params") or {},
+                    test_timeout=kw.get("test_timeout", 300),
+                    retry=kw.get("retry", 0),
                 )
                 eid, passed = run_tests(
                     self._cases_dir, self._db_path, config=config)
@@ -335,7 +338,11 @@ class ExecutionQueue:
                 logger.exception("Idle watcher error")
 
     def _check_idle_targets(self) -> None:
-        from aitf.runner.schedule import in_time_window, load_schedules
+        from datetime import date
+
+        from aitf.runner.schedule import (
+            ScheduleRule, in_time_window, load_schedules,
+        )
 
         # 1. Load schedule rules (UI-configured, primary source)
         rules = load_schedules(self._project_root)
@@ -344,7 +351,6 @@ class ExecutionQueue:
         legacy = _load_idle_configs(self._project_root)
         for ic in legacy:
             sched = _match_schedule(ic.schedule)
-            from aitf.runner.schedule import ScheduleRule
             rules.append(ScheduleRule(
                 name=f'legacy:{ic.target}',
                 hours=sched.hours if sched else '',
@@ -369,7 +375,6 @@ class ExecutionQueue:
             # Check expiry (YYYY-MM-DD)
             expires = getattr(rule, 'expires', '')
             if expires:
-                from datetime import date
                 try:
                     if date.fromisoformat(expires) < date.today():
                         rule.enabled = False
