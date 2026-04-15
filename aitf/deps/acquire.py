@@ -80,6 +80,22 @@ def install_toolchain(
     tc: ToolchainConfig, *, cache_dir: Path, project_root: Path,
     install_dir: Path | None = None,
 ) -> Path:
+    # Artifact-tool path bypasses the archive/sha/unpack pipeline entirely:
+    # the external tool downloads (and optionally extracts via system tar)
+    # directly into the install directory.
+    if tc.acquire.artifact_tool is not None:
+        target = install_dir if install_dir else cache_dir / tc.name
+        if target.is_dir():
+            return target
+        from aitf.deps.bootstrap import fetch_via_tool
+        fetch_via_tool(
+            version=tc.version,
+            install_dir=target,
+            extract=tc.acquire.artifact_tool.extract,
+            placeholders=tc.acquire.artifact_tool.placeholders,
+        )
+        return target
+
     return _install_dep(
         tc.name, tc.version, tc.acquire,
         cache_dir=cache_dir, project_root=project_root,

@@ -10,6 +10,7 @@ import yaml
 
 from aitf.deps.types import (
     AcquireConfig,
+    ArtifactToolAcquire,
     BundleConfig,
     DepsConfigError,
     LibraryConfig,
@@ -31,18 +32,42 @@ def strip_none(d: dict) -> dict:
     return {k: v for k, v in d.items() if v is not None}
 
 
+#: Yaml keys under ``acquire.artifact_tool:`` that the framework consumes
+#: directly. Everything else becomes a free-form placeholder.
+_ARTIFACT_TOOL_RESERVED = frozenset({"extract"})
+
+
 def _parse_acquire(raw: dict) -> AcquireConfig:
     acq = raw.get("acquire") or {}
+    at_raw = acq.get("artifact_tool")
+    artifact_tool = None
+    if at_raw is not None:  # presence (even {}) is the trigger
+        if not isinstance(at_raw, dict):
+            raise DepsConfigError("acquire.artifact_tool must be a mapping")
+        artifact_tool = ArtifactToolAcquire(
+            extract=bool(at_raw.get("extract", False)),
+            placeholders={
+                k: str(v) for k, v in at_raw.items()
+                if k not in _ARTIFACT_TOOL_RESERVED
+            },
+        )
     return AcquireConfig(
         local_dir=acq.get("local_dir"),
         script=acq.get("script"),
+        artifact_tool=artifact_tool,
     )
 
 
 def _serialize_acquire(acq: AcquireConfig) -> dict:
+    artifact_tool = None
+    if acq.artifact_tool is not None:
+        artifact_tool = {"extract": acq.artifact_tool.extract or None,
+                         **acq.artifact_tool.placeholders}
+        artifact_tool = strip_none(artifact_tool)
     return strip_none({
         "local_dir": acq.local_dir,
         "script": acq.script,
+        "artifact_tool": artifact_tool,
     })
 
 

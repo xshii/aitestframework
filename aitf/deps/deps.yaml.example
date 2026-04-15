@@ -1,0 +1,198 @@
+# =============================================================================
+# Comprehensive deps.yaml example — covers every supported feature.
+#
+# Sections:
+#   toolchains:  archive-based deps (compilers, simulators, prebuilt tools)
+#   libraries:   archive-based source libs that need a post-extract build
+#   repos:       git repositories (cloned via repo.py)
+#   bundles:     named version sets (framework-only, not used by install.py)
+#
+# Run:
+#   python install.py                         # uses ./deps.yaml
+#   python install.py path/to/deps.yaml
+#
+# Defaults: DEBUG-level framework logs + tool stdout/stderr streamed live.
+# Quieter mode (capture tool output, only show on failure):
+#   AITF_TOOL_LOG=capture python install.py
+#
+# Save tool output to file (instead of streaming):
+#   AITF_TOOL_LOG=/tmp/build.log python install.py
+#
+# Less framework chatter (INFO instead of DEBUG):
+#   AITF_LOG_LEVEL=INFO python install.py
+# =============================================================================
+
+
+# =============================================================================
+# Toolchains — three acquisition modes
+# =============================================================================
+toolchains:
+
+  # ---------------------------------------------------------------------------
+  # Mode A: pre-staged tar.gz on disk (Tier-1 local_dir)
+  #
+  # Place the file at one of these names under the local_dir:
+  #   {name}-{version}-{platform}.tar.gz   (platform = e.g. linux-x86_64)
+  #   {name}-{version}.tar.gz              (platform-agnostic)
+  # ---------------------------------------------------------------------------
+  gcc-arm:
+    version: "10.3-2021.10"
+    sha256:                              # optional, per-platform integrity check
+      linux-x86_64: "0000000000000000000000000000000000000000000000000000000000000000"
+      darwin-arm64: "0000000000000000000000000000000000000000000000000000000000000000"
+    bin_dir: "bin"                       # subdir under install_dir for $PATH
+    env:                                 # exported when this dep is active
+      CC: "{install_dir}/bin/arm-none-eabi-gcc"
+      AR: "{install_dir}/bin/arm-none-eabi-ar"
+    acquire:
+      local_dir: "deps/uploads"          # look here for the tarball
+    order: 0                             # install ordering (lower = earlier)
+
+  # ---------------------------------------------------------------------------
+  # Mode B: fetch script (Tier-2)
+  #
+  # Script invoked as:  bash <script> <version> <downloads_dir>
+  # Must produce {name}-{version}[-{platform}].tar.gz under downloads_dir.
+  # Useful when the source is HTTP/scp/rsync etc — script wraps the transfer.
+  # ---------------------------------------------------------------------------
+  ninja:
+    version: "1.11.1"
+    bin_dir: ""                          # binary at the root of install_dir
+    acquire:
+      script: "scripts/fetch_ninja.sh"
+    order: 1
+
+  # ---------------------------------------------------------------------------
+  # Mode C: external artifact tool (no archive convention required)
+  #
+  # The framework wgets a small downloader binary (URL/CLI configured in
+  # bootstrap.py) and invokes it once per dep. `extract: true` runs system
+  # tar/unzip/unrar afterwards on whatever files landed in install_dir.
+  #
+  # Every yaml field under `artifact_tool:` (other than `extract`) is
+  # auto-propagated as a `{name}` placeholder to bootstrap.py's
+  # ARTIFACT_TOOL_FLAGS — adding a new placeholder requires no Python edits.
+  # ---------------------------------------------------------------------------
+  ddk:
+    version: "v2026.04"
+    bin_dir: "bin"
+    env:
+      DDK_HOME: "{install_dir}"
+    acquire:
+      artifact_tool:
+        extract: true                    # run system tar/unzip after download
+        repo_dir: "ddk/v2026.04"         # → {repo_dir}
+        flavor:   "release"              # → {flavor}
+        arch:     "x86_64"               # → {arch}
+        vendor:   "huawei"               # → {vendor}
+    order: 2
+
+
+# =============================================================================
+# Libraries — archives + optional post-extract build
+# =============================================================================
+libraries:
+
+  # ---------------------------------------------------------------------------
+  # Source tarball + cmake build, sha-verified
+  # build_script invoked as:  bash <script> <src_dir> <install_dir>
+  # ---------------------------------------------------------------------------
+  protobuf:
+    version: "3.21.12"
+    sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    build_system: cmake
+    cmake_args:
+      - "-DBUILD_SHARED_LIBS=OFF"
+      - "-Dprotobuf_BUILD_TESTS=OFF"
+    build_script: "scripts/build_protobuf.sh"
+    acquire:
+      local_dir: "deps/uploads"
+    order: 3
+
+
+# =============================================================================
+# Repositories — git clone (+ optional build)
+#
+# `ref` may be a branch, tag, or commit SHA (>=7 hex chars auto-detected).
+# Clone strategy:
+#   - branch / tag → clone --branch <ref> --single-branch [--depth N]
+#   - commit SHA  → clone --filter=blob:none, then checkout (git ≥ 2.19)
+# =============================================================================
+repos:
+
+  # ---------------------------------------------------------------------------
+  # Branch — single-round-trip shallow clone of "main"
+  # ---------------------------------------------------------------------------
+  models-zoo-main:
+    url: "https://github.com/example/models-zoo.git"
+    ref: "main"
+    depth: 1
+    env:
+      MODELS_ROOT: "{install_dir}"
+    order: 4
+
+  # ---------------------------------------------------------------------------
+  # Tag — same fast path as branch
+  # ---------------------------------------------------------------------------
+  models-zoo-stable:
+    url: "https://github.com/example/models-zoo.git"
+    ref: "v1.2.0"
+    depth: 1
+    order: 5
+
+  # ---------------------------------------------------------------------------
+  # Commit SHA — partial clone (full history, no blobs until checkout)
+  # No `depth` here; partial clone supersedes shallow for arbitrary SHAs.
+  # ---------------------------------------------------------------------------
+  models-zoo-pinned:
+    url: "https://github.com/example/models-zoo.git"
+    ref: "abcdef1234567890abcdef1234567890abcdef12"
+    order: 6
+
+  # ---------------------------------------------------------------------------
+  # Sparse checkout — only the listed paths get materialised on disk
+  # ---------------------------------------------------------------------------
+  internal-models:
+    url: "https://gitlab.internal/team/models.git"
+    ref: "main"
+    sparse_checkout:
+      - "models/tdd/"
+      - "models/fdd/"
+    build_script: "scripts/build_internal_models.sh"
+    env:
+      INTERNAL_MODELS: "{install_dir}/models"
+    order: 7
+
+
+# =============================================================================
+# Bundles — named version sets (framework-only)
+#
+# Used by `aitf bundle use <name>` from the framework CLI. The standalone
+# install.py does NOT consume bundles; it always installs every entry under
+# toolchains:/libraries:/repos: above.
+# =============================================================================
+bundles:
+
+  stable-2026q1:
+    description: "Verified Q1 2026 toolchain set"
+    status: verified                     # verified | testing | deprecated
+    toolchains:
+      gcc-arm: "10.3-2021.10"
+      ddk:     "v2026.04"
+    libraries:
+      protobuf: "3.21.12"
+    repos:
+      models-zoo-stable: "v1.2.0"
+    env:
+      AITF_BUNDLE: "stable-2026q1"
+
+  edge-2026q2:
+    description: "Cutting-edge for Q2 testing"
+    status: testing
+    toolchains:
+      gcc-arm: "10.3-2021.10"
+      ddk:     "v2026.04"
+    repos:
+      models-zoo-main: "main"
+
+active: stable-2026q1

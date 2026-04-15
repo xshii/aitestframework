@@ -20,11 +20,38 @@ class BundleStatus(str, Enum):
 # ---------------------------------------------------------------------------
 
 @dataclass
+class ArtifactToolAcquire:
+    """Acquire a toolchain via the external artifact tool (see bootstrap.py).
+
+    The presence of an ``acquire.artifact_tool:`` block triggers this code
+    path. *extract* is the only framework-consumed key (controls whether
+    system tar / unzip / unrar runs after download). Every other yaml key
+    under ``artifact_tool:`` is collected into *placeholders* and made
+    available as ``{name}`` substitutions inside
+    :data:`aitf.deps.bootstrap.ARTIFACT_TOOL_FLAGS` — adding a new
+    placeholder requires no Python changes.
+
+    Two placeholders are auto-injected by the framework and cannot be
+    overridden from yaml: ``{version}`` (from ``toolchains.<name>.version``)
+    and ``{install_dir}`` (computed at runtime).
+    """
+
+    extract: bool = False
+    placeholders: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
 class AcquireConfig:
-    """How to obtain a toolchain or library archive."""
+    """How to obtain a toolchain or library archive.
+
+    For the standard archive pipeline use *local_dir* and/or *script*.
+    For toolchains hosted on an internal artifact server, *artifact_tool*
+    bypasses the archive pipeline entirely (see bootstrap.py).
+    """
 
     local_dir: str | None = None
     script: str | None = None
+    artifact_tool: ArtifactToolAcquire | None = None
 
 
 @dataclass
