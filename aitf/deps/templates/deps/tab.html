@@ -16,9 +16,8 @@
     <div class="col"><input type="text" id="adName" class="form-control form-control-sm" placeholder="名称" required list="adNameList"><datalist id="adNameList"></datalist></div>
     <div class="col"><input type="text" id="adVersion" class="form-control form-control-sm" placeholder="版本 / 分支" required></div>
     <div class="col-auto">
-      <select id="adType" class="form-select form-select-sm" onchange="adTypeChanged()" title="工具链: 编译器/仿真器等工具&#10;库: 第三方 C/C++ 库&#10;Git 仓库: 从 Git 克隆的源码">
+      <select id="adType" class="form-select form-select-sm" onchange="adTypeChanged()" title="工具链: 编译器/仿真器等工具&#10;Git 仓库: 从 Git 克隆的源码">
         <option value="toolchain">工具链</option>
-        <option value="library">库</option>
         <option value="repo">Git 仓库</option>
       </select>
     </div>
@@ -213,7 +212,7 @@ function bSelected(){
     document.getElementById('bDesc').value=b.description||'';
     document.getElementById('bStatus').value=b.status;
     _bundleItems={};
-    ['toolchains','libraries','repos'].forEach(function(cat){
+    ['toolchains','repos'].forEach(function(cat){
       var items=b[cat]||{}; Object.keys(items).forEach(function(k){_bundleItems[k]=items[k];});
     });
     _renderBundleItems();
@@ -258,14 +257,13 @@ function bAddItem(){var sel=document.getElementById('bAddDep'),name=sel.value;if
 function bRemoveItem(name){delete _bundleItems[name];_renderBundleItems();}
 
 function _buildBundleBody(){
-  var tc={},lib={},repos={};
+  var tc={},repos={};
   Object.keys(_bundleItems).forEach(function(name){
     var dep=_allDeps.find(function(d){return d.name===name;}),type=dep?dep.type:'toolchain';
     if(type==='toolchain') tc[name]=_bundleItems[name];
-    else if(type==='library') lib[name]=_bundleItems[name];
     else repos[name]=_bundleItems[name];
   });
-  return {description:document.getElementById('bDesc').value,status:document.getElementById('bStatus').value,toolchains:tc,libraries:lib,repos:repos};
+  return {description:document.getElementById('bDesc').value,status:document.getElementById('bStatus').value,toolchains:tc,repos:repos};
 }
 
 function bSave(){
@@ -289,7 +287,7 @@ function bSaveAs(){
 
 function bNewPrompt(){
   var name=prompt('新配置集名称：');if(!name)return;
-  fetch('/api/bundles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,description:'',status:'testing',toolchains:{},libraries:{},repos:{}})})
+  fetch('/api/bundles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,description:'',status:'testing',toolchains:{},repos:{}})})
     .then(function(r){return r.json();}).then(function(d){
       if(d.error) alert(d.error);
       else{bLoadList();setTimeout(function(){document.getElementById('bSelect').value=name;bSelected();},300);}
@@ -354,7 +352,7 @@ function bdModeChanged(){
 function _bdRefreshDepList(){
   var sel=document.getElementById('bdDep');
   sel.innerHTML='<option value="">-- 选择依赖项 --</option>';
-  var typeLabel={toolchain:'工具链',library:'库',repo:'仓库'};
+  var typeLabel={toolchain:'工具链',repo:'仓库'};
   _allDeps.forEach(function(d){
     sel.innerHTML+='<option value="'+_esc(d.name)+'">'+_esc(d.name)+' ('+_esc(typeLabel[d.type]||d.type)+' '+_esc(d.version)+')</option>';
   });
@@ -409,7 +407,7 @@ function bdLoadHistory(){
     var tb=document.getElementById('bdTbody');
     if(!items.length){tb.innerHTML='';document.getElementById('bdEmpty').classList.remove('d-none');return;}
     document.getElementById('bdEmpty').classList.add('d-none');
-    var typeLabel={toolchain:'工具链',library:'库',repo:'仓库'};
+    var typeLabel={toolchain:'工具链',repo:'仓库'};
     var rows='';
     items.forEach(function(e,i){
       var t=new Date(e.ts*1000);

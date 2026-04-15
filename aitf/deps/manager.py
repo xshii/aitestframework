@@ -9,13 +9,13 @@ from pathlib import Path
 from aitf.deps import acquire, doctor, repo
 from aitf.deps.config import DepsConfig, load_deps_config
 from aitf.deps.lock import generate_lock, save_lock
-from aitf.deps.types import DepsError, DiagResult, RepoConfig, resolve_dep_dir
+from aitf.deps.types import DepsError, DiagResult, RepoConfig, ToolchainConfig
 
 logger = logging.getLogger(__name__)
 
 
 class DepsManager:
-    """Central facade for dependency operations (REQ-3)."""
+    """Central facade for dependency operations."""
 
     def __init__(
         self, project_root: str | Path = ".",
@@ -31,10 +31,6 @@ class DepsManager:
         self._cache_dir.mkdir(parents=True, exist_ok=True)
         self._repos_dir.mkdir(parents=True, exist_ok=True)
         self._cfg: DepsConfig | None = None
-
-    def _dep_dir(self, dep, default_base: Path) -> Path:
-        """Resolve a dep's install directory (always returns a concrete path)."""
-        return resolve_dep_dir(dep, default_base, self._build_dir)
 
     @property
     def config(self) -> DepsConfig:
@@ -57,66 +53,50 @@ class DepsManager:
             if on_progress:
                 on_progress(1, 1, name)
         else:
-            kw = dict(cache_dir=self._cache_dir, project_root=self._root)
-            steps: list[tuple[int, str, Callable[[], None]]] = [
-                *(
-                    (tc.order, f"toolchain {tc.name}",
-                     lambda t=tc: acquire.install_toolchain(
-                         t, **kw, install_dir=self._dep_dir(t, self._cache_dir)))
-                    for tc in cfg.toolchains.values()
-                ),
-                *(
-                    (lib.order, f"library {lib.name}",
-                     lambda l=lib: acquire.install_library(
-                         l, **kw, install_dir=self._dep_dir(l, self._cache_dir)))
-                    for lib in cfg.libraries.values()
-                ),
-                *(
-                    (rc.order, f"repo {rc.name}",
-                     lambda r=rc: self._clone_and_build(r))
-                    for rc in cfg.repos.values()
-                ),
-            ]
-            steps.sort(key=lambda s: s[0])
-            for i, (_, label, fn) in enumerate(steps):
-                if on_progress:
-                    on_progress(i + 1, len(steps), label)
-                self._try(fn, label)
+            acquire.run_ordered(self._build_steps(cfg), on_progress=on_progress)
 
         lock = generate_lock(cfg, self._cache_dir, self._repos_dir,
                              build_dir=self._build_dir)
         save_lock(lock, self._lock_path)
 
+    def _build_steps(self, cfg: DepsConfig) -> list[acquire.Step]:
+        return [
+            *(
+                (tc.order, f"toolchain {tc.name}",
+                 lambda t=tc: self._install_toolchain(t))
+                for tc in cfg.toolchains.values()
+            ),
+            *(
+                (rc.order, f"repo {rc.name}",
+                 lambda r=rc: self._clone_and_build(r))
+                for rc in cfg.repos.values()
+            ),
+        ]
+
     def _install_one(self, name: str, cfg: DepsConfig) -> None:
-        kw = dict(cache_dir=self._cache_dir, project_root=self._root)
         if name in cfg.toolchains:
-            tc = cfg.toolchains[name]
-            acquire.install_toolchain(tc, **kw, install_dir=self._dep_dir(tc, self._cache_dir))
-        elif name in cfg.libraries:
-            lib = cfg.libraries[name]
-            acquire.install_library(lib, **kw, install_dir=self._dep_dir(lib, self._cache_dir))
+            self._install_toolchain(cfg.toolchains[name])
         elif name in cfg.repos:
             self._clone_and_build(cfg.repos[name])
         else:
             raise DepsError(f"Unknown dependency: {name}")
 
+    def _install_toolchain(self, tc: ToolchainConfig) -> None:
+        acquire.install_toolchain(
+            tc, cache_dir=self._cache_dir, project_root=self._root,
+            install_dir=tc.install_path(self._cache_dir, self._build_dir),
+        )
+
     def _clone_and_build(self, rc: RepoConfig) -> None:
-        target = self._dep_dir(rc, self._repos_dir)
+        target = rc.install_path(self._repos_dir, self._build_dir)
         repo_dir = repo.clone_repo(rc, self._repos_dir, repo_dir=target)
         repo.build_repo(rc, repo_dir, repo_dir, project_root=self._root)
 
-    @staticmethod
-    def _try(fn: Callable[[], None], label: str) -> None:
-        try:
-            fn()
-        except Exception as exc:
-            logger.error("Failed to install %s: %s", label, exc)
-
-    # -- list / lock / clean / doctor / env ----------------------------------
+    # -- list / lock / clean / doctor ----------------------------------------
 
     def list_installed(self) -> list:
         cfg = self.config
-        return [*cfg.toolchains.values(), *cfg.libraries.values(), *cfg.repos.values()]
+        return [*cfg.toolchains.values(), *cfg.repos.values()]
 
     def lock(self) -> None:
         lf = generate_lock(self.config, self._cache_dir, self._repos_dir,
@@ -132,19 +112,6 @@ class DepsManager:
             project_root=self._root, build_dir=self._build_dir,
             lock_path=self._lock_path if self._lock_path.exists() else None,
         )
-
-    def get_env(self) -> dict[str, str]:
-        cfg = self.config
-        env: dict[str, str] = {}
-        entries = [
-            *((self._dep_dir(tc, self._cache_dir), tc.env) for tc in cfg.toolchains.values()),
-            *((self._dep_dir(rc, self._repos_dir), rc.env) for rc in cfg.repos.values()),
-        ]
-        for d, dep_env in entries:
-            if d.is_dir():
-                for k, v in dep_env.items():
-                    env[k] = v.replace("{install_dir}", str(d))
-        return env
 
     # -- path helpers --------------------------------------------------------
 
@@ -166,11 +133,10 @@ class DepsManager:
 
     def get_install_dir(self, name: str) -> Path | None:
         cfg = self.config
-        for section, base in [(cfg.toolchains, self._cache_dir), (cfg.libraries, self._cache_dir)]:
-            if name in section:
-                d = self._dep_dir(section[name], base)
-                return d if d.is_dir() else None
-        if name in cfg.repos:
-            d = self._dep_dir(cfg.repos[name], self._repos_dir)
-            return d if d.is_dir() else None
-        return None
+        if name in cfg.toolchains:
+            d = cfg.toolchains[name].install_path(self._cache_dir, self._build_dir)
+        elif name in cfg.repos:
+            d = cfg.repos[name].install_path(self._repos_dir, self._build_dir)
+        else:
+            return None
+        return d if d.is_dir() else None

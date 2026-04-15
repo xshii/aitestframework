@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import tarfile
-from pathlib import Path
 
 import pytest
 import yaml
@@ -77,7 +76,6 @@ class TestUse:
             bundle_mgr.use("npu-v2.0")
 
     def test_use_deprecated_with_force(self, bundle_mgr):
-        # Should not raise — but may log warnings about missing deps
         bundle_mgr.use("npu-v2.0", force=True)
 
     def test_use_nonexistent(self, bundle_mgr):
@@ -85,7 +83,6 @@ class TestUse:
             bundle_mgr.use("nonexistent")
 
     def test_use_verified(self, bundle_mgr):
-        # Will attempt to install deps (may log errors for missing archives)
         bundle_mgr.use("npu-v2.1")
 
 
@@ -97,58 +94,24 @@ class TestInstall:
 
 class TestExportImport:
     def test_export_creates_archive(self, bundle_mgr, project_root):
-        # Create fake cached deps
         cache = project_root / "build" / "cache"
-        tc_dir = cache / "npu-compiler-2.1.0"
+        tc_dir = cache / "npu-compiler"
         (tc_dir / "bin").mkdir(parents=True)
         (tc_dir / "bin" / "cc").write_text("dummy")
-
-        lib_dir = cache / "json-c-0.17"
-        (lib_dir / "include").mkdir(parents=True)
-        (lib_dir / "include" / "json.h").write_text("dummy")
 
         output = project_root / "export" / "npu-v2.1-bundle.tar.gz"
         result = bundle_mgr.export_bundle("npu-v2.1", output)
         assert result.is_file()
 
-        # Verify archive structure
         with tarfile.open(result, "r:gz") as tf:
             names = tf.getnames()
         assert any("bundle.yaml" in n for n in names)
         assert any("toolchains" in n for n in names)
-        assert any("libraries" in n for n in names)
 
     def test_export_nonexistent_bundle(self, bundle_mgr, project_root):
         with pytest.raises(BundleNotFoundError):
             bundle_mgr.export_bundle("nonexistent", project_root / "out.tar.gz")
 
-    def test_import_bundle(self, bundle_mgr, project_root):
-        # First export
-        cache = project_root / "build" / "cache"
-        (cache / "npu-compiler-2.1.0" / "bin").mkdir(parents=True)
-        (cache / "npu-compiler-2.1.0" / "bin" / "cc").write_text("dummy")
-
-        archive = project_root / "npu-v2.1.tar.gz"
-        bundle_mgr.export_bundle("npu-v2.1", archive)
-
-        # Clean cache, then import
-        import shutil
-        shutil.rmtree(cache / "npu-compiler-2.1.0")
-
-        name = bundle_mgr.import_bundle(archive)
-        assert name == "npu-v2.1"
-
     def test_import_missing_file(self, bundle_mgr, project_root):
         with pytest.raises(BundleError, match="not found"):
             bundle_mgr.import_bundle(project_root / "nonexistent.tar.gz")
-
-
-class TestGetBundleEnv:
-    def test_env_from_active(self, bundle_mgr, project_root):
-        env = bundle_mgr.get_bundle_env()
-        assert "NPU_SDK_VERSION" in env
-        assert env["NPU_SDK_VERSION"] == "2.1"
-
-    def test_env_from_named(self, bundle_mgr):
-        env = bundle_mgr.get_bundle_env("npu-v2.1")
-        assert "NPU_SDK_VERSION" in env

@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
-import pytest
-
 from aitf.deps.config import load_deps_config
 from aitf.deps.doctor import run_diagnostics
 
@@ -28,13 +24,12 @@ class TestRunDiagnostics:
         tc_checks = [r for r in results if r.check.startswith("toolchain:")]
         assert all(r.ok is False for r in tc_checks)
 
-        lib_checks = [r for r in results if r.check.startswith("library:")]
-        assert all(r.ok is False for r in lib_checks)
-
     def test_installed_toolchain_passes(self, deps_yaml, project_root):
         cfg = load_deps_config(deps_yaml)
         cache = project_root / "build" / "cache"
-        (cache / "npu-compiler").mkdir(parents=True)
+        tc_dir = cache / "npu-compiler"
+        tc_dir.mkdir(parents=True)
+        (tc_dir / "marker").write_text("x")
 
         results = run_diagnostics(
             cfg,

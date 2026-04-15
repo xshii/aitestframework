@@ -13,7 +13,6 @@ from aitf.deps.types import (
     ArtifactToolAcquire,
     BundleConfig,
     DepsConfigError,
-    LibraryConfig,
     RepoConfig,
     ToolchainConfig,
 )
@@ -28,8 +27,8 @@ def detect_platform() -> str:
 
 
 def strip_none(d: dict) -> dict:
-    """Return a copy of *d* with all ``None``-valued keys removed."""
-    return {k: v for k, v in d.items() if v is not None}
+    """Return a copy of *d* with ``None`` / empty-container values removed."""
+    return {k: v for k, v in d.items() if v not in (None, "", {}, [])}
 
 
 #: Yaml keys under ``acquire.artifact_tool:`` that the framework consumes
@@ -53,7 +52,9 @@ def _parse_acquire(raw: dict) -> AcquireConfig:
         )
     return AcquireConfig(
         local_dir=acq.get("local_dir"),
+        srcpkg=acq.get("srcpkg"),
         script=acq.get("script"),
+        install_dir=acq.get("install_dir") or None,
         artifact_tool=artifact_tool,
     )
 
@@ -61,12 +62,15 @@ def _parse_acquire(raw: dict) -> AcquireConfig:
 def _serialize_acquire(acq: AcquireConfig) -> dict:
     artifact_tool = None
     if acq.artifact_tool is not None:
-        artifact_tool = {"extract": acq.artifact_tool.extract or None,
-                         **acq.artifact_tool.placeholders}
-        artifact_tool = strip_none(artifact_tool)
+        artifact_tool = strip_none({
+            "extract": acq.artifact_tool.extract or None,
+            **acq.artifact_tool.placeholders,
+        })
     return strip_none({
         "local_dir": acq.local_dir,
+        "srcpkg": acq.srcpkg,
         "script": acq.script,
+        "install_dir": acq.install_dir,
         "artifact_tool": artifact_tool,
     })
 
@@ -81,10 +85,16 @@ class DepsConfig:
     def __init__(self) -> None:
         self.server: str | None = None
         self.toolchains: dict[str, ToolchainConfig] = {}
-        self.libraries: dict[str, LibraryConfig] = {}
         self.repos: dict[str, RepoConfig] = {}
         self.bundles: dict[str, BundleConfig] = {}
         self.active_bundle: str | None = None
+
+
+def _parse_order(raw) -> float:
+    try:
+        return float(raw or 0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def load_deps_config(path: str | Path = DEFAULT_DEPS_FILE) -> DepsConfig:
@@ -103,41 +113,42 @@ def load_deps_config(path: str | Path = DEFAULT_DEPS_FILE) -> DepsConfig:
 
     cfg = DepsConfig()
 
-    for name, raw in data.get("toolchains", {}).items():
+    for name, raw in (data.get("toolchains") or {}).items():
         cfg.toolchains[name] = ToolchainConfig(
-            name=name, version=str(raw.get("version", "")),
-            sha256=raw.get("sha256", {}), bin_dir=raw.get("bin_dir"),
-            env=raw.get("env", {}), acquire=_parse_acquire(raw),
-            install_dir=raw.get("install_dir"),
-            order=int(raw.get("order", 0)),
+            name=name,
+            version=str(raw.get("version", "")),
+            acquire=_parse_acquire(raw),
+            order=_parse_order(raw.get("order")),
         )
 
-    for name, raw in data.get("libraries", {}).items():
-        cfg.libraries[name] = LibraryConfig(
-            name=name, version=str(raw.get("version", "")),
-            sha256=str(raw.get("sha256", "")),
-            build_system=raw.get("build_system", "cmake"),
-            cmake_args=raw.get("cmake_args", []),
-            build_script=raw.get("build_script"), acquire=_parse_acquire(raw),
-            install_dir=raw.get("install_dir"),
-            order=int(raw.get("order", 0)),
-        )
-
-    for name, raw in data.get("repos", {}).items():
+    for name, raw in (data.get("repos") or {}).items():
+        branch = raw.get("branch")
+        tag = raw.get("tag")
+        commitno = raw.get("commitno")
+        if not any((branch, tag, commitno)):
+            raise DepsConfigError(
+                f"repos.{name}: one of branch / tag / commitno must be set"
+            )
         cfg.repos[name] = RepoConfig(
-            name=name, url=raw.get("url", ""), ref=str(raw.get("ref", "main")),
-            depth=raw.get("depth"), sparse_checkout=raw.get("sparse_checkout", []),
-            build_script=raw.get("build_script"), env=raw.get("env", {}),
-            install_dir=raw.get("install_dir"),
-            order=int(raw.get("order", 0)),
+            name=name,
+            url=raw.get("url", ""),
+            branch=branch,
+            tag=tag,
+            commitno=commitno,
+            depth=raw.get("depth"),
+            sparse_checkout=raw.get("sparse_checkout", []),
+            build_script=raw.get("build_script"),
+            install_dir=raw.get("install_dir") or None,
+            order=_parse_order(raw.get("order")),
         )
 
-    for name, raw in data.get("bundles", {}).items():
+    for name, raw in (data.get("bundles") or {}).items():
         cfg.bundles[name] = BundleConfig(
-            name=name, description=raw.get("description", ""),
+            name=name,
+            description=raw.get("description", ""),
             status=raw.get("status", "testing"),
-            toolchains=raw.get("toolchains", {}), libraries=raw.get("libraries", {}),
-            repos=raw.get("repos", {}), env=raw.get("env", {}),
+            toolchains=raw.get("toolchains", {}),
+            repos=raw.get("repos", {}),
         )
 
     cfg.active_bundle = data.get("active")
@@ -150,48 +161,41 @@ def load_deps_config(path: str | Path = DEFAULT_DEPS_FILE) -> DepsConfig:
     return cfg
 
 
+def _serialize_repo(r: RepoConfig) -> dict:
+    return strip_none({
+        "url": r.url,
+        "branch": r.branch,
+        "tag": r.tag,
+        "commitno": r.commitno,
+        "depth": r.depth,
+        "sparse_checkout": r.sparse_checkout,
+        "build_script": r.build_script,
+        "install_dir": r.install_dir,
+        "order": r.order or None,
+    })
+
+
 def save_deps_config(cfg: DepsConfig, path: str | Path = DEFAULT_DEPS_FILE) -> None:
     data: dict = {}
 
     if cfg.toolchains:
         data["toolchains"] = {
             name: strip_none({
-                "version": tc.version, "sha256": tc.sha256, "bin_dir": tc.bin_dir,
-                "env": tc.env, "acquire": _serialize_acquire(tc.acquire),
-                "install_dir": tc.install_dir,
+                "version": tc.version,
+                "acquire": _serialize_acquire(tc.acquire),
                 "order": tc.order or None,
             })
             for name, tc in cfg.toolchains.items()
         }
-    if cfg.libraries:
-        data["libraries"] = {
-            name: strip_none({
-                "version": lib.version, "sha256": lib.sha256,
-                "build_system": lib.build_system, "cmake_args": lib.cmake_args,
-                "build_script": lib.build_script,
-                "acquire": _serialize_acquire(lib.acquire),
-                "install_dir": lib.install_dir,
-                "order": lib.order or None,
-            })
-            for name, lib in cfg.libraries.items()
-        }
     if cfg.repos:
-        data["repos"] = {
-            name: strip_none({
-                "url": r.url, "ref": r.ref, "depth": r.depth,
-                "sparse_checkout": r.sparse_checkout, "build_script": r.build_script,
-                "env": r.env,
-                "install_dir": r.install_dir,
-                "order": r.order or None,
-            })
-            for name, r in cfg.repos.items()
-        }
+        data["repos"] = {name: _serialize_repo(r) for name, r in cfg.repos.items()}
     if cfg.bundles:
         data["bundles"] = {
             name: strip_none({
-                "description": b.description, "status": b.status,
-                "toolchains": b.toolchains, "libraries": b.libraries,
-                "repos": b.repos, "env": b.env,
+                "description": b.description,
+                "status": b.status,
+                "toolchains": b.toolchains,
+                "repos": b.repos,
             })
             for name, b in cfg.bundles.items()
         }

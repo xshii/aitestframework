@@ -49,8 +49,8 @@ ARTIFACT_TOOL_NAME = "artifact_tool"
 #: - ``{version}`` — auto-injected from ``toolchains.<name>.version``.
 #: - ``{install_dir}`` — auto-injected; computed by the framework at runtime.
 #: - **Anything else** — taken from yaml's free-form fields under
-#:   ``acquire.artifact_tool:``. e.g. yaml ``repo_dir: "ddk/v2026"``
-#:   makes ``{repo_dir}`` available with no Python changes.
+#:   ``acquire.artifact_tool:``. e.g. yaml ``artifact_dir: "ddk/v2026"``
+#:   makes ``{artifact_dir}`` available with no Python changes.
 #:
 #: **Three special forms**:
 #:
@@ -64,10 +64,10 @@ ARTIFACT_TOOL_NAME = "artifact_tool"
 #:
 #: Example real invocation built from the defaults below::
 #:
-#:     artifact_tool --version 10.3 --repo-dir toolchains/gcc --install-dir /opt/gcc
+#:     artifact_tool --version 10.3 --artifact-dir toolchains/gcc --install-dir /opt/gcc
 ARTIFACT_TOOL_FLAGS: dict[str, str | None] = {
     "--version":     "{version}",
-    "--repo-dir":    "{repo_dir}",
+    "--artifact-dir": "{artifact_dir}",
     "--install-dir": "{install_dir}",
     # "--target":    "linux-x86_64",   # fixed value example
     # "--quiet":     None,              # value-less flag example
@@ -81,7 +81,7 @@ ARTIFACT_TOOL_FLAGS: dict[str, str | None] = {
 #:   Path(...)  → append to a log file (parent dirs auto-created)
 #:
 #: Anything other than the two strings above is treated as a file path.
-TOOL_LOG_OUTPUT: "str | Path" = os.environ.get("AITF_TOOL_LOG") or "stream"
+TOOL_LOG_OUTPUT: str | Path = os.environ.get("AITF_TOOL_LOG") or "stream"
 
 #: Archive-extension → extractor command. Each entry is invoked with
 #: ``cwd = install_dir`` and the archive's basename appended at the end,
@@ -188,7 +188,7 @@ def _extract_all(install_dir: Path) -> None:
                 break
 
 
-def _build_tool_cmd(tool: Path, lookup: "defaultdict[str, str]") -> list[str]:
+def _build_tool_cmd(tool: Path, lookup: defaultdict[str, str]) -> list[str]:
     """Build the artifact tool command line by walking ARTIFACT_TOOL_FLAGS."""
     cmd: list[str] = [str(tool)]
     for flag, tpl in ARTIFACT_TOOL_FLAGS.items():

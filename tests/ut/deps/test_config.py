@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 import yaml
 
@@ -25,17 +23,12 @@ class TestLoadDepsConfig:
         assert "npu-compiler" in cfg.toolchains
         tc = cfg.toolchains["npu-compiler"]
         assert tc.version == "2.1.0"
-        assert tc.bin_dir == "bin"
-        assert tc.env == {"NPU_CC": "{install_dir}/bin/npu-gcc"}
-
-        assert "json-c" in cfg.libraries
-        lib = cfg.libraries["json-c"]
-        assert lib.version == "0.17"
-        assert lib.build_system == "cmake"
+        assert tc.acquire.local_dir == "deps/uploads/"
 
         assert "npu-runtime" in cfg.repos
         repo = cfg.repos["npu-runtime"]
-        assert repo.ref == "main"
+        assert repo.branch == "main"
+        assert repo.resolved_ref == "main"
         assert repo.depth == 1
 
         assert "npu-v2.1" in cfg.bundles
@@ -66,7 +59,6 @@ class TestLoadDepsConfig:
         empty.write_text("")
         cfg = load_deps_config(empty)
         assert cfg.toolchains == {}
-        assert cfg.libraries == {}
         assert cfg.repos == {}
         assert cfg.bundles == {}
 
@@ -81,7 +73,10 @@ class TestLoadDepsConfig:
     def test_load_with_acquire_script(self, tmp_path):
         cfg_data = {
             "toolchains": {
-                "cc": {"version": "1.0", "acquire": {"script": "fetch.sh"}},
+                "cc": {
+                    "version": "1.0",
+                    "acquire": {"script": "fetch.sh", "install_dir": "opt/cc"},
+                },
             },
         }
         p = tmp_path / "deps.yaml"
@@ -89,6 +84,47 @@ class TestLoadDepsConfig:
             yaml.dump(cfg_data, fh)
         cfg = load_deps_config(p)
         assert cfg.toolchains["cc"].acquire.script == "fetch.sh"
+        assert cfg.toolchains["cc"].acquire.install_dir == "opt/cc"
+
+    def test_load_with_srcpkg(self, tmp_path):
+        cfg_data = {
+            "toolchains": {
+                "cc": {
+                    "version": "1.0",
+                    "acquire": {
+                        "local_dir": "deps/uploads",
+                        "srcpkg": "custom-name.tar.gz",
+                    },
+                },
+            },
+        }
+        p = tmp_path / "deps.yaml"
+        with open(p, "w") as fh:
+            yaml.dump(cfg_data, fh)
+        cfg = load_deps_config(p)
+        assert cfg.toolchains["cc"].acquire.srcpkg == "custom-name.tar.gz"
+
+    def test_repo_requires_ref(self, tmp_path):
+        cfg_data = {"repos": {"r": {"url": "git@host:r.git"}}}
+        p = tmp_path / "deps.yaml"
+        with open(p, "w") as fh:
+            yaml.dump(cfg_data, fh)
+        with pytest.raises(DepsConfigError, match="branch / tag / commitno"):
+            load_deps_config(p)
+
+    def test_fractional_order(self, tmp_path):
+        cfg_data = {
+            "toolchains": {
+                "a": {"version": "1.0", "order": 1.5},
+                "b": {"version": "1.0", "order": 1.5},
+            },
+        }
+        p = tmp_path / "deps.yaml"
+        with open(p, "w") as fh:
+            yaml.dump(cfg_data, fh)
+        cfg = load_deps_config(p)
+        assert cfg.toolchains["a"].order == 1.5
+        assert cfg.toolchains["b"].order == 1.5
 
 
 class TestSaveDepsConfig:
@@ -100,7 +136,6 @@ class TestSaveDepsConfig:
 
         cfg2 = load_deps_config(out)
         assert cfg2.toolchains.keys() == cfg.toolchains.keys()
-        assert cfg2.libraries.keys() == cfg.libraries.keys()
         assert cfg2.repos.keys() == cfg.repos.keys()
         assert cfg2.bundles.keys() == cfg.bundles.keys()
         assert cfg2.active_bundle == cfg.active_bundle

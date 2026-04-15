@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import tarfile
 from pathlib import Path
 
@@ -28,24 +27,13 @@ def deps_yaml(project_root: Path) -> Path:
         "toolchains": {
             "npu-compiler": {
                 "version": "2.1.0",
-                "sha256": {},
-                "bin_dir": "bin",
-                "env": {"NPU_CC": "{install_dir}/bin/npu-gcc"},
-                "acquire": {"local_dir": "deps/uploads/"},
-            },
-        },
-        "libraries": {
-            "json-c": {
-                "version": "0.17",
-                "sha256": "",
-                "build_system": "cmake",
                 "acquire": {"local_dir": "deps/uploads/"},
             },
         },
         "repos": {
             "npu-runtime": {
                 "url": "git@10.0.0.1:hw/npu-runtime.git",
-                "ref": "main",
+                "branch": "main",
                 "depth": 1,
             },
         },
@@ -54,9 +42,7 @@ def deps_yaml(project_root: Path) -> Path:
                 "description": "NPU test env v2.1",
                 "status": "verified",
                 "toolchains": {"npu-compiler": "2.1.0"},
-                "libraries": {"json-c": "0.17"},
                 "repos": {"npu-runtime": "main"},
-                "env": {"NPU_SDK_VERSION": "2.1"},
             },
             "npu-v2.0": {
                 "description": "NPU test env v2.0 (legacy)",
@@ -72,12 +58,7 @@ def deps_yaml(project_root: Path) -> Path:
     return p
 
 
-def make_tar_gz(directory: Path, archive_path: Path) -> str:
-    """Create a .tar.gz from *directory* and return its SHA-256."""
+def make_tar_gz(directory: Path, archive_path: Path) -> None:
+    """Create a .tar.gz from *directory*."""
     with tarfile.open(archive_path, "w:gz") as tf:
         tf.add(directory, arcname=directory.name)
-    h = hashlib.sha256()
-    with open(archive_path, "rb") as fh:
-        while chunk := fh.read(1 << 20):
-            h.update(chunk)
-    return h.hexdigest()

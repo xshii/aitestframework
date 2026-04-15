@@ -10,7 +10,7 @@ import yaml
 
 from aitf.deps.config import DepsConfig, detect_platform
 from aitf.deps.repo import get_head_commit
-from aitf.deps.types import LockEntry, LockFile, resolve_dep_dir
+from aitf.deps.types import LockEntry, LockFile
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +18,7 @@ DEFAULT_LOCK_FILE = "deps.lock.yaml"
 
 # Table-driven serialization: section -> fields to extract from LockEntry
 _LOCK_FIELDS: dict[str, tuple[str, ...]] = {
-    "toolchains": ("version", "sha256", "installed_at"),
-    "libraries": ("version", "sha256", "installed_at"),
+    "toolchains": ("version", "installed_at"),
     "repos": ("ref", "commit", "installed_at"),
 }
 
@@ -30,20 +29,17 @@ def generate_lock(cfg: DepsConfig, cache_dir: Path, repos_dir: Path,
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
     lock = LockFile(generated_at=now, platform=detect_platform())
 
-    for section, cfg_section in [("toolchains", cfg.toolchains), ("libraries", cfg.libraries)]:
-        for name, dep in cfg_section.items():
-            target = resolve_dep_dir(dep, cache_dir, bdir)
-            if target.is_dir():
-                sha = dep.sha256.get(detect_platform(), "") if isinstance(dep.sha256, dict) else dep.sha256
-                getattr(lock, section)[name] = LockEntry(
-                    name=name, version=dep.version, sha256=sha, installed_at=now,
-                )
+    for name, tc in cfg.toolchains.items():
+        if tc.install_path(cache_dir, bdir).is_dir():
+            lock.toolchains[name] = LockEntry(
+                name=name, version=tc.version, installed_at=now,
+            )
 
-    for name, repo in cfg.repos.items():
-        repo_dir = resolve_dep_dir(repo, repos_dir, bdir)
+    for name, rc in cfg.repos.items():
+        repo_dir = rc.install_path(repos_dir, bdir)
         if repo_dir.is_dir() and (repo_dir / ".git").exists():
             lock.repos[name] = LockEntry(
-                name=name, ref=repo.ref,
+                name=name, ref=rc.resolved_ref,
                 commit=get_head_commit(repo_dir), installed_at=now,
             )
 
@@ -73,12 +69,11 @@ def load_lock(path: str | Path = DEFAULT_LOCK_FILE) -> LockFile | None:
     lock = LockFile(generated_at=data.get("generated_at", ""), platform=data.get("platform", ""))
     for section, target in [
         ("toolchains", lock.toolchains),
-        ("libraries", lock.libraries),
         ("repos", lock.repos),
     ]:
         for name, raw in data.get(section, {}).items():
             target[name] = LockEntry(
-                name=name, version=raw.get("version", ""), sha256=raw.get("sha256", ""),
+                name=name, version=raw.get("version", ""),
                 ref=raw.get("ref", ""), commit=raw.get("commit", ""),
                 installed_at=raw.get("installed_at", ""),
             )

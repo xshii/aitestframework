@@ -23,7 +23,7 @@ def _tar_directory(src: Path, dest: Path) -> None:
 
 
 class BundleManager:
-    """Manage configuration bundles (REQ-3.5)."""
+    """Manage configuration bundles."""
 
     def __init__(self, deps_mgr: DepsManager, deps_file: str | Path = "deps.yaml") -> None:
         self._mgr = deps_mgr
@@ -67,7 +67,6 @@ class BundleManager:
 
         dep_names = [
             *(n for n in bundle.toolchains if n in cfg.toolchains),
-            *(n for n in bundle.libraries if n in cfg.libraries),
             *(n for n in bundle.repos if n in cfg.repos),
         ]
         for i, dep_name in enumerate(dep_names):
@@ -80,16 +79,15 @@ class BundleManager:
 
     # -- export / import -----------------------------------------------------
 
-    def _section_table(self, bundle: BundleConfig) -> list[tuple[str, dict[str, str], Path]]:
-        return [
-            ("toolchains", bundle.toolchains, self._mgr.cache_dir),
-            ("libraries", bundle.libraries, self._mgr.cache_dir),
-            ("repos", bundle.repos, self._mgr.repos_dir),
-        ]
-
     def export_bundle(self, name: str, output: str | Path) -> Path:
         bundle = self.show(name)
+        cfg = self._mgr.config
         output_path = Path(output)
+
+        sections = (
+            ("toolchains", bundle.toolchains, cfg.toolchains),
+            ("repos",      bundle.repos,      cfg.repos),
+        )
 
         with tempfile.TemporaryDirectory() as tmpdir:
             staging = Path(tmpdir) / name
@@ -99,16 +97,17 @@ class BundleManager:
                 yaml.dump({
                     "name": bundle.name, "description": bundle.description,
                     "status": bundle.status, "toolchains": bundle.toolchains,
-                    "libraries": bundle.libraries, "repos": bundle.repos, "env": bundle.env,
+                    "repos": bundle.repos,
                 }, fh, default_flow_style=False, allow_unicode=True)
 
-            # All sections: tar cached dirs
-            for section, items, base_dir in self._section_table(bundle):
+            for section, selected, known in sections:
                 sec_dir = staging / section
                 sec_dir.mkdir()
-                for dep_name, dep_ver in items.items():
-                    src = base_dir / dep_name if section == "repos" else base_dir / f"{dep_name}-{dep_ver}"
-                    if src.is_dir():
+                for dep_name, dep_ver in selected.items():
+                    if dep_name not in known:
+                        continue
+                    src = self._mgr.get_install_dir(dep_name)
+                    if src and src.is_dir():
                         _tar_directory(src, sec_dir / f"{dep_name}-{dep_ver}.tar.gz")
 
             output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -141,7 +140,6 @@ class BundleManager:
 
             for section, dest_base in [
                 ("toolchains", self._mgr.cache_dir),
-                ("libraries", self._mgr.cache_dir),
                 ("repos", self._mgr.repos_dir),
             ]:
                 sec_dir = bundle_dir / section
@@ -156,11 +154,3 @@ class BundleManager:
                             tf.extractall(dest, filter="data")
 
         return bundle_name
-
-    def get_bundle_env(self, name: str | None = None) -> dict[str, str]:
-        b = self.show(name) if name else self.active()
-        if b is None:
-            return {}
-        env = dict(self._mgr.get_env())
-        env.update(b.env)
-        return env

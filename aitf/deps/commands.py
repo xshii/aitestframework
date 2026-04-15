@@ -10,6 +10,11 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from aitf.deps.config import DepsConfig
 
 # Two top-level sub-commands managed by this module.
 COMMANDS = ["deps", "bundle"]
@@ -18,8 +23,6 @@ COMMANDS = ["deps", "bundle"]
 # -- deps handlers -----------------------------------------------------------
 
 def _cmd_deps_install(args: argparse.Namespace) -> None:
-    from pathlib import Path
-
     from aitf.deps.manager import DepsManager
 
     name = args.name
@@ -37,10 +40,9 @@ def _cmd_deps_install(args: argparse.Namespace) -> None:
     print("Dependencies installed.")
 
 
-def _download_archives(server: str, cfg: "DepsConfig") -> None:
+def _download_archives(server: str, cfg: DepsConfig) -> None:
     """Download needed archives from *server* to ``deps/uploads/``."""
     import json
-    from pathlib import Path
     from urllib.request import Request, urlopen
 
     from aitf.deps.acquire import archive_candidates
@@ -49,10 +51,9 @@ def _download_archives(server: str, cfg: "DepsConfig") -> None:
     plat = detect_platform()
     needed: set[str] = set()
     for name, tc in cfg.toolchains.items():
+        if tc.acquire.srcpkg:
+            needed.add(tc.acquire.srcpkg)
         for c in archive_candidates(name, tc.version, plat):
-            needed.add(c)
-    for name, lib in cfg.libraries.items():
-        for c in archive_candidates(name, lib.version, plat):
             needed.add(c)
     if not needed:
         return
@@ -87,7 +88,7 @@ def _download_archives(server: str, cfg: "DepsConfig") -> None:
             print(f"    Warning: {fname}: {exc}", file=sys.stderr)
 
 
-def _install_from_yaml(yaml_path: "Path") -> None:
+def _install_from_yaml(yaml_path: Path) -> None:
     """Install from a downloaded YAML (single dep or bundle)."""
     from aitf.deps.config import load_deps_config
     from aitf.deps.manager import DepsManager
@@ -114,15 +115,10 @@ def _cmd_deps_list(args: argparse.Namespace) -> None:
         status = "installed" if is_installed(name, tc.version, mgr.cache_dir) else "not installed"
         print(f"  {name:25s}  {tc.version:12s}  [{status}]")
 
-    print("\nLibraries:")
-    for name, lib in cfg.libraries.items():
-        status = "installed" if is_installed(name, lib.version, mgr.cache_dir) else "not installed"
-        print(f"  {name:25s}  {lib.version:12s}  [{status}]")
-
     print("\nRepositories:")
     for name, repo in cfg.repos.items():
         status = "cloned" if is_cloned(name, mgr.repos_dir) else "not cloned"
-        print(f"  {name:25s}  {repo.ref:12s}  [{status}]")
+        print(f"  {name:25s}  {repo.resolved_ref:12s}  [{status}]")
 
 
 def _cmd_deps_lock(args: argparse.Namespace) -> None:
@@ -158,7 +154,6 @@ def _cmd_deps_doctor(args: argparse.Namespace) -> None:
 
 def _cmd_deps_sync(args: argparse.Namespace) -> None:
     """Sync deps config + archives from a remote server, then install."""
-    from pathlib import Path
     from urllib.error import HTTPError, URLError
     from urllib.request import Request, urlopen
 
@@ -250,18 +245,10 @@ def _cmd_bundle_show(args: argparse.Namespace) -> None:
         print("Toolchains:")
         for name, ver in b.toolchains.items():
             print(f"  {name}: {ver}")
-    if b.libraries:
-        print("Libraries:")
-        for name, ver in b.libraries.items():
-            print(f"  {name}: {ver}")
     if b.repos:
         print("Repos:")
         for name, ref in b.repos.items():
             print(f"  {name}: {ref}")
-    if b.env:
-        print("Env:")
-        for key, val in b.env.items():
-            print(f"  {key}={val}")
 
 
 def _cmd_bundle_use(args: argparse.Namespace) -> None:
@@ -342,7 +329,8 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     deps_sub.add_parser("doctor", help="Run dependency diagnostics")
 
     p = deps_sub.add_parser("sync", help="Sync config + archives from a remote server")
-    p.add_argument("--server", default=None, help="Server URL (default: 'server' field in deps.yaml)")
+    p.add_argument("--server", default=None,
+                   help="Server URL (default: 'server' field in deps.yaml)")
     p.add_argument("--bundle", default=None, help="Only sync a specific bundle")
 
     # -- bundle --------------------------------------------------------------

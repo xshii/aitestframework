@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 import tarfile
-from pathlib import Path
 
 import pytest
 
-from aitf.deps.acquire import sha256_file
-from aitf.deps.config import load_deps_config
 from aitf.deps.manager import DepsManager
-from aitf.deps.types import DepsConfigError, DepsError
+from aitf.deps.types import DepsError
 
 
 @pytest.fixture()
@@ -35,7 +32,6 @@ class TestDepsManagerInit:
     def test_reload(self, manager):
         _ = manager.config
         manager.reload()
-        # After reload, accessing config should re-parse
         cfg = manager.config
         assert "npu-compiler" in cfg.toolchains
 
@@ -58,7 +54,8 @@ class TestDepsManagerInstall:
     def test_install_one(self, manager, project_root):
         self._setup_toolchain_archive(project_root)
         manager.install(name="npu-compiler")
-        assert (project_root / "build" / "cache" / "npu-compiler").is_dir()
+        d = project_root / "build" / "cache" / "npu-compiler"
+        assert d.is_dir()
 
     def test_install_unknown_raises(self, manager):
         with pytest.raises(DepsError, match="Unknown dependency"):
@@ -69,18 +66,14 @@ class TestDepsManagerInstall:
         import logging
         with caplog.at_level(logging.ERROR):
             manager.install()
-        # Should have logged errors for missing archives
-        # (repos will also fail since URLs are fake)
         assert any("Failed to install" in r.message for r in caplog.records)
 
 
 class TestDepsManagerList:
     def test_list_installed(self, manager):
         items = manager.list_installed()
-        # Should include all declared deps
-        names = {getattr(item, "name") for item in items}
+        names = {item.name for item in items}
         assert "npu-compiler" in names
-        assert "json-c" in names
         assert "npu-runtime" in names
 
 
@@ -97,26 +90,8 @@ class TestDepsManagerDoctor:
     def test_doctor_returns_results(self, manager):
         results = manager.doctor()
         assert len(results) > 0
-        # Config check should always pass
         config_checks = [r for r in results if r.check == "config"]
         assert len(config_checks) == 1
-
-
-class TestDepsManagerEnv:
-    def test_env_empty_when_not_installed(self, manager):
-        env = manager.get_env()
-        # Nothing installed, so env should be empty
-        assert env == {}
-
-    def test_env_with_installed_toolchain(self, manager, project_root):
-        # Simulate installed toolchain
-        cache = project_root / "build" / "cache"
-        tc_dir = cache / "npu-compiler"
-        tc_dir.mkdir(parents=True)
-
-        env = manager.get_env()
-        assert "NPU_CC" in env
-        assert "npu-compiler" in env["NPU_CC"]
 
 
 class TestDepsManagerGetInstallDir:
@@ -141,7 +116,6 @@ class TestDepsManagerGetInstallDir:
 
 class TestDepsManagerLock:
     def test_lock_creates_file(self, manager, project_root):
-        # Simulate installed deps
         (project_root / "build" / "cache" / "npu-compiler").mkdir(parents=True)
         manager.lock()
         assert (project_root / "deps.lock.yaml").exists()

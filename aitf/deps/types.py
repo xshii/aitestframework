@@ -42,16 +42,36 @@ class ArtifactToolAcquire:
 
 @dataclass
 class AcquireConfig:
-    """How to obtain a toolchain or library archive.
+    """How to obtain a toolchain archive.
 
-    For the standard archive pipeline use *local_dir* and/or *script*.
-    For toolchains hosted on an internal artifact server, *artifact_tool*
-    bypasses the archive pipeline entirely (see bootstrap.py).
+    *local_dir* / *srcpkg* cover the pre-staged-archive case. *script*
+    wraps an arbitrary transfer (bash script). *artifact_tool* bypasses
+    the archive pipeline entirely (see bootstrap.py).
+
+    *install_dir* is the unified target directory: archives extract
+    here, scripts receive it as a positional arg, and the artifact tool
+    downloads/extracts here. When unset, the framework falls back to
+    ``<cache_dir>/<name>``.
     """
 
     local_dir: str | None = None
+    srcpkg: str | None = None
     script: str | None = None
+    install_dir: str | None = None
     artifact_tool: ArtifactToolAcquire | None = None
+
+
+def _resolve(override: str | None, name: str,
+             default_base: Path, build_dir: Path) -> Path:
+    """Pick the concrete install directory for a dep.
+
+    ``override`` (yaml ``install_dir``) wins when set — absolute kept,
+    relative joined to *build_dir*. Fallback is ``default_base / name``.
+    """
+    if override:
+        p = Path(override)
+        return p if p.is_absolute() else build_dir / p
+    return default_base / name
 
 
 @dataclass
@@ -60,55 +80,54 @@ class ToolchainConfig:
 
     name: str
     version: str
-    sha256: dict[str, str] = field(default_factory=dict)
-    bin_dir: str | None = None
-    env: dict[str, str] = field(default_factory=dict)
     acquire: AcquireConfig = field(default_factory=AcquireConfig)
-    install_dir: str | None = None
-    order: int = 0
+    order: float = 0.0
 
-
-@dataclass
-class LibraryConfig:
-    """Third-party C/C++ library entry in deps.yaml."""
-
-    name: str
-    version: str
-    sha256: str = ""
-    build_system: str = "cmake"
-    cmake_args: list[str] = field(default_factory=list)
-    build_script: str | None = None
-    acquire: AcquireConfig = field(default_factory=AcquireConfig)
-    install_dir: str | None = None
-    order: int = 0
+    def install_path(self, default_base: Path, build_dir: Path) -> Path:
+        return _resolve(self.acquire.install_dir, self.name, default_base, build_dir)
 
 
 @dataclass
 class RepoConfig:
-    """Git repository dependency entry in deps.yaml."""
+    """Git repository dependency entry in deps.yaml.
+
+    Ref is a three-way exclusive choice: *branch* / *tag* / *commitno*.
+    Resolution priority is ``commitno > tag > branch``.
+    """
 
     name: str
     url: str
-    ref: str = "main"
+    branch: str | None = None
+    tag: str | None = None
+    commitno: str | None = None
     depth: int | None = None
     sparse_checkout: list[str] = field(default_factory=list)
     build_script: str | None = None
-    env: dict[str, str] = field(default_factory=dict)
     install_dir: str | None = None
-    order: int = 0
+    order: float = 0.0
+
+    @property
+    def resolved_ref(self) -> str:
+        """Return the effective ref following commitno > tag > branch."""
+        return self.commitno or self.tag or self.branch or "main"
+
+    @property
+    def is_commit(self) -> bool:
+        return self.commitno is not None
+
+    def install_path(self, default_base: Path, build_dir: Path) -> Path:
+        return _resolve(self.install_dir, self.name, default_base, build_dir)
 
 
 @dataclass
 class BundleConfig:
-    """A named set of toolchain + library + repo versions."""
+    """A named set of toolchain + repo versions."""
 
     name: str
     description: str = ""
     status: str = "testing"
     toolchains: dict[str, str] = field(default_factory=dict)
-    libraries: dict[str, str] = field(default_factory=dict)
     repos: dict[str, str] = field(default_factory=dict)
-    env: dict[str, str] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +149,6 @@ class LockEntry:
 
     name: str
     version: str = ""
-    sha256: str = ""
     ref: str = ""
     commit: str = ""
     installed_at: str = ""
@@ -143,25 +161,12 @@ class LockFile:
     generated_at: str = ""
     platform: str = ""
     toolchains: dict[str, LockEntry] = field(default_factory=dict)
-    libraries: dict[str, LockEntry] = field(default_factory=dict)
     repos: dict[str, LockEntry] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
 # Exceptions
 # ---------------------------------------------------------------------------
-
-def resolve_dep_dir(dep, default_base: Path, build_dir: Path) -> Path:
-    """Resolve a dependency's install directory.
-
-    If *dep.install_dir* is set, resolve it (relative to *build_dir*).
-    Otherwise fall back to ``default_base / dep.name``.
-    """
-    if dep.install_dir:
-        p = Path(dep.install_dir)
-        return p if p.is_absolute() else build_dir / p
-    return default_base / dep.name
-
 
 class DepsError(Exception):
     """Base exception for dependency operations."""

@@ -93,7 +93,8 @@ def _validate_bundle_status(status: str):
     """Return an error response tuple if *status* is invalid, else None."""
     valid = {s.value for s in BundleStatus}
     if status not in valid:
-        return jsonify({"error": f"invalid status, must be one of: {', '.join(sorted(valid))}"}), 400
+        opts = ", ".join(sorted(valid))
+        return jsonify({"error": f"invalid status, must be one of: {opts}"}), 400
     return None
 
 
@@ -135,19 +136,20 @@ def list_deps():
     available = _upload_files()
     items = []
 
-    for dep_type, section in [("toolchain", cfg.toolchains), ("library", cfg.libraries)]:
-        for name, dep in section.items():
-            versions = _extract_versions(name, available)
-            if dep.version not in versions:
-                versions.append(dep.version)
-            versions.sort(reverse=True)
-            items.append({"name": name, "type": dep_type,
-                          "version": dep.version, "versions": versions,
-                          "order": dep.order, "install_dir": dep.install_dir or ""})
+    for name, tc in cfg.toolchains.items():
+        versions = _extract_versions(name, available)
+        if tc.version not in versions:
+            versions.append(tc.version)
+        versions.sort(reverse=True)
+        items.append({"name": name, "type": "toolchain",
+                      "version": tc.version, "versions": versions,
+                      "order": tc.order,
+                      "install_dir": tc.acquire.install_dir or ""})
     for name, rc in cfg.repos.items():
         items.append({"name": name, "type": "repo",
-                      "version": rc.ref, "versions": [rc.ref],
-                      "order": rc.order, "install_dir": rc.install_dir or ""})
+                      "version": rc.resolved_ref, "versions": [rc.resolved_ref],
+                      "order": rc.order,
+                      "install_dir": rc.install_dir or ""})
     return jsonify(items)
 
 
@@ -159,12 +161,12 @@ def add_dep():
     and optional file (.tar.gz or script).
     For repos: url field.
     """
-    from aitf.deps.types import AcquireConfig, LibraryConfig, RepoConfig, ToolchainConfig
+    from aitf.deps.types import AcquireConfig, RepoConfig, ToolchainConfig
 
     name = (request.form.get("name") or "").strip()
     dep_type = (request.form.get("type") or "").strip()
     version = (request.form.get("version") or "").strip()
-    order = int(request.form.get("order") or 0)
+    order = float(request.form.get("order") or 0)
     install_dir = (request.form.get("install_dir") or "").strip() or None
     if not name:
         return jsonify({"error": "name is required"}), 400
@@ -181,8 +183,6 @@ def add_dep():
         if not dep_type:
             if name in cfg.toolchains:
                 dep_type = "toolchain"
-            elif name in cfg.libraries:
-                dep_type = "library"
             elif name in cfg.repos:
                 dep_type = "repo"
             else:
@@ -199,23 +199,19 @@ def add_dep():
                 f.save(upload / secure_filename(f.filename))
 
         # Create/update config entry
-        acq = AcquireConfig(local_dir="deps/uploads/")
+        acq = AcquireConfig(local_dir="deps/uploads/", install_dir=install_dir)
         if dep_type == "toolchain":
             cfg.toolchains[name] = ToolchainConfig(
-                name=name, version=version, acquire=acq,
-                order=order, install_dir=install_dir,
-            )
-        elif dep_type == "library":
-            cfg.libraries[name] = LibraryConfig(
-                name=name, version=version, acquire=acq,
-                order=order, install_dir=install_dir,
+                name=name, version=version, acquire=acq, order=order,
             )
         elif dep_type == "repo":
             url = (request.form.get("url") or "").strip()
             if not url and name in cfg.repos:
                 url = cfg.repos[name].url
-            cfg.repos[name] = RepoConfig(name=name, url=url, ref=version,
-                                         order=order, install_dir=install_dir)
+            cfg.repos[name] = RepoConfig(
+                name=name, url=url, branch=version,
+                order=order, install_dir=install_dir,
+            )
         else:
             return jsonify({"error": f"unknown type: {dep_type}"}), 400
 
@@ -231,7 +227,7 @@ def delete_dep(name):
     with _config_lock:
         cfg = mgr.config
         found = False
-        for section in (cfg.toolchains, cfg.libraries, cfg.repos):
+        for section in (cfg.toolchains, cfg.repos):
             if name in section:
                 del section[name]
                 found = True
@@ -241,7 +237,7 @@ def delete_dep(name):
 
         # Remove from any bundles that reference it
         for b in cfg.bundles.values():
-            for cat in (b.toolchains, b.libraries, b.repos):
+            for cat in (b.toolchains, b.repos):
                 cat.pop(name, None)
 
         _save_cfg(mgr)
@@ -270,9 +266,9 @@ def reorder_deps():
     with _config_lock:
         cfg = mgr.config
         for i, name in enumerate(names):
-            for section in (cfg.toolchains, cfg.libraries, cfg.repos):
+            for section in (cfg.toolchains, cfg.repos):
                 if name in section:
-                    section[name].order = i
+                    section[name].order = float(i)
                     break
         _save_cfg(mgr)
     return jsonify({"ok": True})
@@ -301,12 +297,18 @@ def export_single_dep(name):
     if name in cfg.toolchains:
         tc = cfg.toolchains[name]
         data["toolchains"] = {name: {"version": version or tc.version}}
-    elif name in cfg.libraries:
-        lib = cfg.libraries[name]
-        data["libraries"] = {name: {"version": version or lib.version}}
     elif name in cfg.repos:
         rc = cfg.repos[name]
-        data["repos"] = {name: {"url": rc.url, "ref": version or rc.ref}}
+        entry: dict = {"url": rc.url}
+        ref_value = version or rc.resolved_ref
+        # Preserve the original ref kind where possible.
+        if rc.commitno and not version:
+            entry["commitno"] = rc.commitno
+        elif rc.tag and not version:
+            entry["tag"] = rc.tag
+        else:
+            entry["branch"] = ref_value
+        data["repos"] = {name: entry}
     else:
         return jsonify({"error": f"dependency '{name}' not found"}), 404
 
@@ -351,7 +353,7 @@ def sync_from_server():
         mgr.reload()
 
     cfg = mgr.config
-    total = len(cfg.toolchains) + len(cfg.libraries) + len(cfg.repos)
+    total = len(cfg.toolchains) + len(cfg.repos)
     return jsonify({"ok": True, "total": total})
 
 
@@ -430,9 +432,7 @@ def create_bundle():
             description=body.get("description", ""),
             status=status,
             toolchains=body.get("toolchains", {}),
-            libraries=body.get("libraries", {}),
             repos=body.get("repos", {}),
-            env=body.get("env", {}),
         )
         _save_cfg(mgr)
     return jsonify({"created": name}), 201
@@ -460,9 +460,7 @@ def update_bundle(name):
             description=body.get("description", old.description),
             status=status,
             toolchains=body.get("toolchains", old.toolchains),
-            libraries=body.get("libraries", old.libraries),
             repos=body.get("repos", old.repos),
-            env=body.get("env", old.env),
         )
         _save_cfg(mgr)
     return jsonify({"updated": name})
@@ -498,24 +496,17 @@ def export_bundle(name):
     if tc_section:
         data["toolchains"] = tc_section
 
-    lib_section = {}
-    for lib_name, lib_ver in bundle.libraries.items():
-        if lib_name in cfg.libraries:
-            lib_section[lib_name] = {"version": lib_ver}
-    if lib_section:
-        data["libraries"] = lib_section
-
     repo_section = {}
     for repo_name, repo_ref in bundle.repos.items():
         repo_cfg = cfg.repos.get(repo_name)
         if repo_cfg:
-            repo_section[repo_name] = {"url": repo_cfg.url, "ref": repo_ref}
+            repo_section[repo_name] = {"url": repo_cfg.url, "branch": repo_ref}
     if repo_section:
         data["repos"] = repo_section
 
     data["bundles"] = {name: strip_none({
         "description": bundle.description or None, "status": bundle.status,
-        "toolchains": bundle.toolchains, "libraries": bundle.libraries,
+        "toolchains": bundle.toolchains,
         "repos": bundle.repos,
     })}
     data["active"] = name
@@ -545,8 +536,6 @@ _build_history: collections.deque[dict] = collections.deque(maxlen=50)
 def _dep_type(cfg, name: str) -> str:
     if name in cfg.toolchains:
         return "toolchain"
-    if name in cfg.libraries:
-        return "library"
     if name in cfg.repos:
         return "repo"
     return "unknown"
@@ -597,10 +586,9 @@ def trigger_build():
         if bundle_name not in cfg.bundles:
             return jsonify({"error": f"bundle '{bundle_name}' not found"}), 404
         bundle = cfg.bundles[bundle_name]
-        # Collect dep names in bundle order: toolchains → libraries → repos
+        # Collect dep names in bundle order: toolchains → repos
         dep_names = [
             *bundle.toolchains.keys(),
-            *bundle.libraries.keys(),
             *bundle.repos.keys(),
         ]
         if not dep_names:
@@ -609,7 +597,7 @@ def trigger_build():
         results = []
         all_ok = True
         for dn in dep_names:
-            if dn not in cfg.toolchains and dn not in cfg.libraries and dn not in cfg.repos:
+            if dn not in cfg.toolchains and dn not in cfg.repos:
                 continue
             entry = _build_one(mgr, dn)
             with _build_history_lock:
@@ -624,7 +612,7 @@ def trigger_build():
         return jsonify({"bundle": bundle_name, "results": results, "success": all_ok})
 
     # Single dep
-    if dep_name not in cfg.toolchains and dep_name not in cfg.libraries and dep_name not in cfg.repos:
+    if dep_name not in cfg.toolchains and dep_name not in cfg.repos:
         return jsonify({"error": f"dependency '{dep_name}' not found"}), 404
 
     entry = _build_one(mgr, dep_name)

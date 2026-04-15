@@ -5,11 +5,10 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from aitf.deps.acquire import is_installed
 from aitf.deps.config import DepsConfig
 from aitf.deps.lock import load_lock
-from aitf.deps.repo import get_head_commit, is_cloned
-from aitf.deps.types import DiagResult, resolve_dep_dir
+from aitf.deps.repo import get_head_commit
+from aitf.deps.types import DiagResult
 
 
 def run_diagnostics(
@@ -22,24 +21,23 @@ def run_diagnostics(
         DiagResult(check="config", ok=True, message="deps.yaml parsed successfully"),
     ]
 
-    # Toolchains & libraries
-    for dep_type, deps in [("toolchain", cfg.toolchains), ("library", cfg.libraries)]:
-        for name, dep in deps.items():
-            target = resolve_dep_dir(dep, cache_dir, bdir)
-            ok = target.is_dir()
-            msg = (f"{name} {dep.version} installed" if ok
-                   else f"{name} {dep.version} not installed — run: aitf deps install {name}")
-            results.append(DiagResult(check=f"{dep_type}:{name}", ok=ok, message=msg))
+    # Toolchains
+    for name, tc in cfg.toolchains.items():
+        target = tc.install_path(cache_dir, bdir)
+        ok = target.is_dir() and any(target.iterdir())
+        msg = (f"{name} {tc.version} installed" if ok
+               else f"{name} {tc.version} not installed — run: aitf deps install {name}")
+        results.append(DiagResult(check=f"toolchain:{name}", ok=ok, message=msg))
 
     # Repos
     for name, rc in cfg.repos.items():
-        target = resolve_dep_dir(rc, repos_dir, bdir)
+        target = rc.install_path(repos_dir, bdir)
         if target.is_dir() and (target / ".git").exists():
             try:
                 commit = get_head_commit(target)
                 results.append(DiagResult(
                     check=f"repo:{name}", ok=True,
-                    message=f"{name} HEAD={commit[:8]} ref={rc.ref}",
+                    message=f"{name} HEAD={commit[:8]} ref={rc.resolved_ref}",
                 ))
             except Exception as exc:
                 results.append(DiagResult(
@@ -51,14 +49,11 @@ def run_diagnostics(
                 message=f"{name} not cloned — run: aitf deps install {name}",
             ))
 
-    # Scripts
-    scripts: set[str] = set()
-    for dep in (*cfg.toolchains.values(), *cfg.libraries.values()):
-        if dep.acquire.script:
-            scripts.add(dep.acquire.script)
-    for dep in (*cfg.libraries.values(), *cfg.repos.values()):
-        if dep.build_script:
-            scripts.add(dep.build_script)
+    # Scripts referenced anywhere in the config
+    scripts = {
+        *(tc.acquire.script for tc in cfg.toolchains.values() if tc.acquire.script),
+        *(rc.build_script for rc in cfg.repos.values() if rc.build_script),
+    }
     for s in sorted(scripts):
         exists = (project_root / s).is_file()
         results.append(DiagResult(
@@ -67,7 +62,7 @@ def run_diagnostics(
         ))
 
     # Build tools
-    for tool in ("cmake", "git"):
+    for tool in ("git",):
         avail = shutil.which(tool) is not None
         results.append(DiagResult(
             check=f"tool:{tool}", ok=avail,
@@ -83,19 +78,13 @@ def run_diagnostics(
                 message="deps.lock.yaml not found — run: aitf deps lock",
             ))
         else:
-            mismatches = []
-            for cfg_section, lock_section in [
-                (cfg.toolchains, lock.toolchains),
-                (cfg.libraries, lock.libraries),
-            ]:
-                for name, dep in cfg_section.items():
-                    entry = lock_section.get(name)
-                    if not entry or entry.version != dep.version:
-                        mismatches.append(name)
-            for name, repo_dep in cfg.repos.items():
-                entry = lock.repos.get(name)
-                if not entry or entry.ref != repo_dep.ref:
-                    mismatches.append(name)
+            mismatches = [
+                name for name, tc in cfg.toolchains.items()
+                if (e := lock.toolchains.get(name)) is None or e.version != tc.version
+            ] + [
+                name for name, rc in cfg.repos.items()
+                if (e := lock.repos.get(name)) is None or e.ref != rc.resolved_ref
+            ]
             ok = not mismatches
             msg = ("deps.lock.yaml in sync" if ok
                    else f"Lock file out of sync for: {', '.join(mismatches)} — run: aitf deps lock")

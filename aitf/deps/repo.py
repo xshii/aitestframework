@@ -36,15 +36,14 @@ def clone_repo(repo: RepoConfig, dest: Path,
       on the client; works against all modern servers without special config.
     """
     repo_dir = repo_dir if repo_dir else dest / repo.name
-    if repo_dir.is_dir():
+    if repo_dir.is_dir() and (repo_dir / ".git").is_dir():
         return update_repo(repo, repo_dir)
 
     repo_dir.parent.mkdir(parents=True, exist_ok=True)
-
-    is_commit = _looks_like_commit(repo.ref)
+    ref = repo.resolved_ref
     clone_args = ["clone"]
 
-    if is_commit:
+    if repo.is_commit:
         # Partial clone: commit graph only, blobs lazy-fetched on checkout.
         # --branch can't accept raw SHAs, so we don't pass it here.
         clone_args += ["--filter=blob:none"]
@@ -52,11 +51,9 @@ def clone_repo(repo: RepoConfig, dest: Path,
         # Branch or tag: clone exactly that ref, optionally shallow.
         if repo.depth:
             clone_args += ["--depth", str(repo.depth)]
-        clone_args += ["--branch", repo.ref, "--single-branch"]
+        clone_args += ["--branch", ref, "--single-branch"]
 
     if repo.sparse_checkout:
-        # sparse_checkout already implies --filter=blob:none above is fine;
-        # add --sparse so git only materialises the configured paths.
         if "--filter=blob:none" not in clone_args:
             clone_args += ["--filter=blob:none"]
         clone_args += ["--sparse"]
@@ -67,8 +64,8 @@ def clone_repo(repo: RepoConfig, dest: Path,
     if repo.sparse_checkout:
         _git(["sparse-checkout", "set", *repo.sparse_checkout], cwd=str(repo_dir))
 
-    if is_commit:
-        _git(["checkout", repo.ref], cwd=str(repo_dir))
+    if repo.is_commit:
+        _git(["checkout", ref], cwd=str(repo_dir))
     # For branch/tag, --branch already left HEAD on the right ref.
     return repo_dir
 
@@ -86,15 +83,11 @@ def update_repo(repo: RepoConfig, repo_dir: Path) -> Path:
 
 
 def _checkout_ref(repo: RepoConfig, repo_dir: Path) -> None:
-    ref = repo.ref
-    if repo.depth and _looks_like_commit(ref):
+    ref = repo.resolved_ref
+    if repo.depth and repo.is_commit:
         try:
             _git(["fetch", "--depth", str(repo.depth), "origin", ref], cwd=str(repo_dir))
         except RepoError as exc:
-            # Best-effort: server may not allow fetching arbitrary SHAs
-            # (uploadpack.allowReachableSHA1InWant). Fall through to checkout
-            # which will succeed if the SHA is already reachable, fail clearly
-            # otherwise.
             logger.debug("shallow SHA fetch failed for %s, falling through: %s", ref, exc)
 
     try:
@@ -105,10 +98,6 @@ def _checkout_ref(repo: RepoConfig, repo_dir: Path) -> None:
             _git(["checkout", "-b", ref, f"origin/{ref}"], cwd=str(repo_dir))
         except RepoError as exc2:
             raise RepoError(f"Cannot checkout ref '{ref}' in {repo.name}") from exc2
-
-
-def _looks_like_commit(ref: str) -> bool:
-    return len(ref) >= 7 and all(c in "0123456789abcdefABCDEF" for c in ref)
 
 
 def get_head_commit(repo_dir: Path) -> str:
